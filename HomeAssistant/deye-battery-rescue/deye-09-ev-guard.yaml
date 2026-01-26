@@ -1,0 +1,219 @@
+alias: "Deye-09: EV Charge Guard (webhook)"
+description: "[v1.0.0] EV charge guard that receives webhook triggers from EV charging events and forces discharge to 0A, then auto-releases after timeout."
+tags:
+  - deye-ev
+  - protection
+  - critical
+mode: queued
+max: 10
+
+triggers:
+  - id: ev_start
+    trigger: webhook
+    webhook_id: deye_ev_start_easee
+
+  - id: discharge_changed
+    trigger: state
+    entity_id: number.solarcust0186_maximum_battery_discharge_current
+
+  - id: ev_end
+    trigger: numeric_state
+    entity_id: sensor.solarcust0186_total_grid_power
+    below: 6000
+    for: "00:01:30"
+
+  - id: ha_start
+    trigger: homeassistant
+    event: start
+
+conditions:
+  - condition: state
+    entity_id: binary_sensor.solarcust0186_connection_status
+    state: "on"
+  - condition: state
+    entity_id: switch.solarcust0186_inverter_automations_on_off
+    state: "on"
+
+actions:
+  - variables:
+      SOC_LIMIT_NORMAL: 20
+      SOC_LIMIT_EV: 40
+
+      END_GRID_W: 6000
+      EV_DISCHARGE_A: 0
+
+      month: "{{ now().month }}"
+      is_winter: "{{ month in [10,11,12,1,2,3] }}"
+      NORMAL_DISCHARGE_A: "{{ 60 if is_winter else 90 }}"
+
+      ev_active: "{{ is_state('input_boolean.deye_ev_charging_active','on') }}"
+      current_discharge: "{{ states('number.solarcust0186_maximum_battery_discharge_current') | float(0) }}"
+      grid_w: "{{ states('sensor.solarcust0186_total_grid_power') | float(0) }}"
+      volt: "{{ states('sensor.solarcust0186_battery_voltage') | float(999) }}"
+      grid_charge_on: "{{ is_state('switch.solarcust0186_grid_charge','on') }}"
+
+      # Sikkert at restore SOC limits til 20, hvis Deye-08/Rescue ikke står og charger
+      can_restore_soc_limits: "{{ (not grid_charge_on) and (volt >= 48.2) }}"
+
+  - choose:
+
+      # ---------------------------------------------------------
+      # EV START: slå EV-mode til + sæt SOC limits=40 + discharge=0
+      # ---------------------------------------------------------
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.id == 'ev_start' }}"
+        sequence:
+          - action: input_boolean.turn_on
+            target:
+              entity_id: input_boolean.deye_ev_charging_active
+
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: >
+                      {{ states('number.solarcust0186_soba_low_batt_soc_limit') | float(0)
+                         != (SOC_LIMIT_EV | float) }}
+                sequence:
+                  - action: number.set_value
+                    target:
+                      entity_id: number.solarcust0186_soba_low_batt_soc_limit
+                    data:
+                      value: "{{ SOC_LIMIT_EV }}"
+
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: >
+                      {{ states('number.solarcust0186_batt_charge_limit') | float(0)
+                         != (SOC_LIMIT_EV | float) }}
+                sequence:
+                  - action: number.set_value
+                    target:
+                      entity_id: number.solarcust0186_batt_charge_limit
+                    data:
+                      value: "{{ SOC_LIMIT_EV }}"
+
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: >
+                      {{ current_discharge | round(0) != (EV_DISCHARGE_A | float) | round(0) }}
+                sequence:
+                  - action: number.set_value
+                    target:
+                      entity_id: number.solarcust0186_maximum_battery_discharge_current
+                    data:
+                      value: "{{ EV_DISCHARGE_A }}"
+
+      # ----------------------------------------------------------------
+      # EV ACTIVE: hvis noget ændrer discharge, så sæt den tilbage til 0A
+      # (+ hold SOC limits på 40 hvis de bliver ændret)
+      # ----------------------------------------------------------------
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.id in ['discharge_changed','ha_start'] and ev_active }}"
+        sequence:
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: >
+                      {{ states('number.solarcust0186_soba_low_batt_soc_limit') | float(0)
+                         != (SOC_LIMIT_EV | float) }}
+                sequence:
+                  - action: number.set_value
+                    target:
+                      entity_id: number.solarcust0186_soba_low_batt_soc_limit
+                    data:
+                      value: "{{ SOC_LIMIT_EV }}"
+
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: >
+                      {{ states('number.solarcust0186_batt_charge_limit') | float(0)
+                         != (SOC_LIMIT_EV | float) }}
+                sequence:
+                  - action: number.set_value
+                    target:
+                      entity_id: number.solarcust0186_batt_charge_limit
+                    data:
+                      value: "{{ SOC_LIMIT_EV }}"
+
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: >
+                      {{ current_discharge | round(0) != (EV_DISCHARGE_A | float) | round(0) }}
+                sequence:
+                  - action: number.set_value
+                    target:
+                      entity_id: number.solarcust0186_maximum_battery_discharge_current
+                    data:
+                      value: "{{ EV_DISCHARGE_A }}"
+
+      # ---------------------------------------------------------
+      # EV END: slip EV-mode, restore discharge, og restore SOC=20
+      # (kun hvis vi ikke er i gang med low-volt charging)
+      # ---------------------------------------------------------
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.id == 'ev_end' and ev_active }}"
+        sequence:
+          - action: input_boolean.turn_off
+            target:
+              entity_id: input_boolean.deye_ev_charging_active
+
+          # Restore discharge cap
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: >
+                      {{ current_discharge | round(0) != (NORMAL_DISCHARGE_A | float) | round(0) }}
+                sequence:
+                  - action: number.set_value
+                    target:
+                      entity_id: number.solarcust0186_maximum_battery_discharge_current
+                    data:
+                      value: "{{ NORMAL_DISCHARGE_A }}"
+
+          # Restore SOC limits tilbage til 20%, men kun hvis det er sikkert
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ can_restore_soc_limits }}"
+                sequence:
+                  - choose:
+                      - conditions:
+                          - condition: template
+                            value_template: >
+                              {{ states('number.solarcust0186_soba_low_batt_soc_limit') | float(0)
+                                 != (SOC_LIMIT_NORMAL | float) }}
+                        sequence:
+                          - action: number.set_value
+                            target:
+                              entity_id: number.solarcust0186_soba_low_batt_soc_limit
+                            data:
+                              value: "{{ SOC_LIMIT_NORMAL }}"
+
+                  - choose:
+                      - conditions:
+                          - condition: template
+                            value_template: >
+                              {{ states('number.solarcust0186_batt_charge_limit') | float(0)
+                                 != (SOC_LIMIT_NORMAL | float) }}
+                        sequence:
+                          - action: number.set_value
+                            target:
+                              entity_id: number.solarcust0186_batt_charge_limit
+                            data:
+                              value: "{{ SOC_LIMIT_NORMAL }}"
+
+          - action: persistent_notification.create
+            data:
+              notification_id: deye_ev_guard
+              title: "Deye EV Guard"
+              message: >
+                EV session sluttet/pauset (grid={{ grid_w }}W < {{ END_GRID_W }}W).
+                Discharge restore: {{ NORMAL_DISCHARGE_A }}A (winter={{ is_winter }}).
+                SOC limits restore to 20%: {{ can_restore_soc_limits }} (volt={{ volt }}V, grid_charge={{ grid_charge_on }}).
