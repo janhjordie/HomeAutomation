@@ -1,9 +1,6 @@
 alias: "Deye-03: Discharge Cap (Volt+Load+BattW)"
 description: "[v2.1.0] Discharge current limiter that caps battery discharge based on voltage, load power, and battery output power thresholds."
-tags:
-  - deye-battery
-  - protection
-  - discharge-limiting
+
 triggers:
   - entity_id:
       - sensor.solarcust0186_battery_voltage

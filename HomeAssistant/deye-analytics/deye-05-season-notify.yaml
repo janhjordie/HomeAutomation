@@ -1,9 +1,6 @@
 alias: "Deye-05: Notify Season Change"
 description: "[v1.0.0] Detects seasonal transitions and sends notifications when switching between summer and winter operations."
-tags:
-  - deye-battery
-  - notifications
-  - seasonal
+
 triggers:
   - event: start
     trigger: homeassistant
