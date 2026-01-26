@@ -1,0 +1,393 @@
+alias: "Deye-Battery-Rescue: Multi-Mode Voltage Protection"
+description: "[v2.0.0] Consolidated battery rescue automation combining load-sensitive rescue (Deye-01) and emergency low-volt guard (Deye-08). Intelligently manages grid charging with multi-level volt protection, SOC limits, and concurrent trigger handling."
+tags:
+  - deye-battery
+  - rescue
+  - critical
+
+mode: queued
+max: 10
+
+triggers:
+  # === LOAD-BASED RESCUE TRIGGERS (Deye-01 legacy) ===
+  - id: load_panic
+    entity_id: sensor.solarcust0186_battery_voltage
+    below: 47.8
+    trigger: numeric_state
+
+  - id: load_hard
+    entity_id: sensor.solarcust0186_battery_voltage
+    below: 48
+    for: "00:00:05"
+    trigger: numeric_state
+
+  - id: load_preemptive_load
+    value_template: |
+      {{ (states('sensor.solarcust0186_battery_voltage') | float(999)) < 49.2
+         and (states('sensor.solarcust0186_load_totalpower') | float(0)) > 2400 }}
+    for: "00:00:20"
+    trigger: template
+
+  - id: load_preemptive_batt_high
+    value_template: |
+      {{ (states('sensor.solarcust0186_battery_voltage') | float(999)) < 49.4
+         and (states('sensor.solarcust0186_battery_output_power') | float(0)) > 1500 }}
+    for: "00:00:15"
+    trigger: template
+
+  - id: load_preemptive_batt_veryhigh
+    value_template: |
+      {{ (states('sensor.solarcust0186_battery_voltage') | float(999)) < 49.6
+         and (states('sensor.solarcust0186_battery_output_power') | float(0)) > 2500 }}
+    for: "00:00:10"
+    trigger: template
+
+  - id: load_soft
+    value_template: |
+      {{ (states('sensor.solarcust0186_battery_voltage') | float(999)) <
+         (states('input_number.deye_trig_volt_soft_learned') | float(48.3)) }}
+    for: "00:02:00"
+    trigger: template
+
+  - id: load_soc_low
+    value_template: |
+      {{ (states('sensor.solarcust0186_battery_charge_level') | float(100)) < 20
+         and (states('sensor.solarcust0186_load_totalpower') | float(0)) > 2000 }}
+    for: "00:02:00"
+    trigger: template
+
+  # === EMERGENCY LOW-VOLT GUARD TRIGGERS (Deye-08 legacy) ===
+  - id: emergency_startup
+    trigger: homeassistant
+    event: start
+
+  - id: emergency_voltage
+    trigger: numeric_state
+    entity_id: sensor.solarcust0186_battery_voltage
+    below: 47.2
+
+  - id: emergency_idle_low
+    trigger: template
+    value_template: |
+      {{ (states('sensor.solarcust0186_battery_voltage') | float(999)) < 47.2
+         and (states('sensor.solarcust0186_battery_output_power') | float(0)) | abs < 100
+         and (states('switch.solarcust0186_grid_charge') != 'on') }}
+    for: "00:01:00"
+
+  - id: emergency_grid_change
+    trigger: state
+    entity_id: switch.solarcust0186_grid_charge
+
+conditions:
+  - condition: state
+    entity_id: binary_sensor.solarcust0186_connection_status
+    state: "on"
+
+  - condition: state
+    entity_id: switch.solarcust0186_inverter_automations_on_off
+    state: "on"
+
+  - condition: template
+    value_template: |
+      {{ (states('sensor.solarcust0186_load_totalpower') | float(0)) > 1000 }}
+
+actions:
+  - variables:
+      # Determine rescue mode
+      is_load_mode: "{{ trigger.id.startswith('load_') }}"
+      is_emergency_mode: "{{ trigger.id.startswith('emergency_') }}"
+      is_load_fast: "{{ trigger.id in ['load_panic','load_hard','load_preemptive_load','load_preemptive_batt_high','load_preemptive_batt_veryhigh'] }}"
+
+      # Load-based mode variables
+      load_charge_a: "{{ 10 if (trigger.id in ['load_panic','load_hard']) else 5 }}"
+      load_loop_delay: "{{ '00:00:20' if is_load_fast else '00:01:00' }}"
+      load_stop_volt: 50.2
+      load_target_soc: 40
+
+      # Emergency mode variables
+      charge_a_idle: 4
+      charge_a_emergency: 5
+      charge_a: "{{ charge_a_emergency if trigger.id == 'emergency_voltage' else charge_a_idle }}"
+      
+      stop_volt_idle: 48.2
+      stop_volt_emergency: 47.8
+      stop_volt: "{{ stop_volt_emergency if trigger.id == 'emergency_voltage' else stop_volt_idle }}"
+      
+      loop_delay_idle: "00:01:00"
+      loop_delay_emergency: "00:00:20"
+      loop_delay: "{{ loop_delay_emergency if trigger.id == 'emergency_voltage' else loop_delay_idle }}"
+
+      # SOC limits
+      soc_limit_normal: 20
+      soc_limit_guard: 40
+
+      # Discharge settings
+      discharge_a_normal: 90
+      discharge_a_safe: 10
+
+      # State checks
+      ev_active: "{{ is_state('input_boolean.deye_ev_charging_active','on') }}"
+      rescue_active: "{{ is_state('input_boolean.deye_rescue_active','on') }}"
+      grid_charge_on: "{{ is_state('switch.solarcust0186_grid_charge','on') }}"
+      voltage: "{{ states('sensor.solarcust0186_battery_voltage') | float(999) }}"
+
+      # Notifications
+      notify_id: "deye_battery_rescue"
+
+  # === LOAD-MODE: Notification + Immediate actions ===
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ is_load_mode }}"
+        sequence:
+          - action: persistent_notification.create
+            data:
+              notification_id: "{{ notify_id }}_load"
+              title: "🟢 LOAD-MODE RESCUE STARTED"
+              message: >
+                Mode: {{ trigger.id|upper }}
+                Volt: {{ voltage }}V | SOC: {{ states('sensor.solarcust0186_battery_charge_level') }}%
+                Load: {{ states('sensor.solarcust0186_load_totalpower') }}W
+                ChargeA: {{ load_charge_a }}A
+
+          - action: notify.mobile_app_jans_iphone
+            data:
+              title: "Load-Mode Rescue"
+              message: "🟢 Volt: {{ voltage }}V ({{ trigger.id|upper }})"
+
+  # === EMERGENCY-MODE: Startup + Voltage guard ===
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.id == 'emergency_startup' and not ev_active }}"
+        sequence:
+          - action: number.set_value
+            target:
+              entity_id: number.solarcust0186_soba_low_batt_soc_limit
+            data:
+              value: 20
+          - action: number.set_value
+            target:
+              entity_id: number.solarcust0186_batt_charge_limit
+            data:
+              value: 20
+
+  # === EMERGENCY-MODE: Grid change enforcement (if rescue active) ===
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.id == 'emergency_grid_change' and rescue_active and not grid_charge_on }}"
+        sequence:
+          - action: switch.turn_on
+            target:
+              entity_id: switch.solarcust0186_grid_charge
+
+  # === RESCUE ACTIVATION: For load-mode FAST triggers or emergency voltage triggers ===
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ is_load_fast or trigger.id in ['emergency_voltage','emergency_idle_low'] }}"
+        sequence:
+          - action: input_boolean.turn_on
+            target:
+              entity_id: input_boolean.deye_rescue_active
+
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ is_load_mode }}"
+                sequence:
+                  # === LOAD-MODE RESCUE EXECUTION ===
+                  - action: switch.turn_on
+                    target:
+                      entity_id: switch.solarcust0186_grid_charge
+
+                  - action: number.set_value
+                    target:
+                      entity_id: number.solarcust0186_time_point_6_batt_charge_limit
+                    data:
+                      value: "{{ load_target_soc }}"
+
+                  - action: number.set_value
+                    target:
+                      entity_id: number.solarcust0186_maximum_battery_charge_current
+                    data:
+                      value: "{{ load_charge_a }}"
+
+                  - action: number.set_value
+                    target:
+                      entity_id: number.solarcust0186_maximum_battery_grid_charge_current
+                    data:
+                      value: "{{ load_charge_a }}"
+
+                  - action: number.set_value
+                    target:
+                      entity_id: number.solarcust0186_maximum_battery_discharge_current
+                    data:
+                      value: "{{ discharge_a_safe }}"
+
+                  - delay: "00:00:10"
+
+                  # Load-mode rescue loop
+                  - repeat:
+                      while:
+                        - condition: template
+                          value_template: |
+                            {{ (states('sensor.solarcust0186_battery_voltage') | float(999)) < (load_stop_volt | float) }}
+                      sequence:
+                        - choose:
+                            - conditions:
+                                - condition: template
+                                  value_template: "{{ states('switch.solarcust0186_grid_charge') != 'on' }}"
+                              sequence:
+                                - action: switch.turn_on
+                                  target:
+                                    entity_id: switch.solarcust0186_grid_charge
+
+                        - action: persistent_notification.create
+                          data:
+                            notification_id: "{{ notify_id }}_load"
+                            title: "🔄 Load-Mode Running..."
+                            message: >
+                              Volt: {{ states('sensor.solarcust0186_battery_voltage') }}V
+                              Loop delay: {{ load_loop_delay }}
+
+                        - delay: "{{ load_loop_delay }}"
+
+            default:
+              # === EMERGENCY-MODE RESCUE EXECUTION ===
+              - action: number.set_value
+                target:
+                  entity_id: number.solarcust0186_soba_low_batt_soc_limit
+                data:
+                  value: "{{ soc_limit_guard }}"
+
+              - action: number.set_value
+                target:
+                  entity_id: number.solarcust0186_batt_charge_limit
+                data:
+                  value: "{{ soc_limit_guard }}"
+
+              - action: number.set_value
+                target:
+                  entity_id: number.solarcust0186_maximum_battery_charge_current
+                data:
+                  value: "{{ charge_a }}"
+
+              - action: number.set_value
+                target:
+                  entity_id: number.solarcust0186_maximum_battery_grid_charge_current
+                data:
+                  value: "{{ charge_a }}"
+
+              - action: switch.turn_on
+                target:
+                  entity_id: switch.solarcust0186_grid_charge
+
+              - action: persistent_notification.create
+                data:
+                  notification_id: "{{ notify_id }}_emergency"
+                  title: "🟡 EMERGENCY-MODE RESCUE STARTED"
+                  message: >
+                    Mode: {{ trigger.id|upper }}
+                    Volt: {{ voltage }}V
+                    ChargeA: {{ charge_a }}A | StopVolt: {{ stop_volt }}V
+
+              - action: notify.mobile_app_jans_iphone
+                data:
+                  title: "Emergency Rescue"
+                  message: "🟡 Volt: {{ voltage }}V (Emergency)"
+
+              # Emergency-mode rescue loop
+              - repeat:
+                  while:
+                    - condition: template
+                      value_template: "{{ (states('sensor.solarcust0186_battery_voltage') | float(999)) < (stop_volt | float) }}"
+                  sequence:
+                    - delay: "{{ loop_delay }}"
+
+                    - choose:
+                        - conditions:
+                            - condition: template
+                              value_template: "{{ states('switch.solarcust0186_grid_charge') != 'on' }}"
+                          sequence:
+                            - action: switch.turn_on
+                              target:
+                                entity_id: switch.solarcust0186_grid_charge
+
+                    - action: persistent_notification.create
+                      data:
+                        notification_id: "{{ notify_id }}_emergency"
+                        title: "🔄 Emergency-Mode Running..."
+                        message: >
+                          Volt: {{ states('sensor.solarcust0186_battery_voltage') }}V
+                          Loop delay: {{ loop_delay }}
+
+  # === RESCUE CLEANUP ===
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ is_load_fast or trigger.id in ['emergency_voltage','emergency_idle_low'] }}"
+        sequence:
+          # Turn off grid charge if rescue was active
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ grid_charge_on and rescue_active }}"
+                sequence:
+                  - action: switch.turn_off
+                    target:
+                      entity_id: switch.solarcust0186_grid_charge
+
+          # Restore discharge current
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ not ev_active }}"
+                sequence:
+                  - action: number.set_value
+                    target:
+                      entity_id: number.solarcust0186_maximum_battery_discharge_current
+                    data:
+                      value: "{{ discharge_a_normal }}"
+
+                  - action: number.set_value
+                    target:
+                      entity_id: number.solarcust0186_soba_low_batt_soc_limit
+                    data:
+                      value: "{{ soc_limit_normal }}"
+
+                  - action: number.set_value
+                    target:
+                      entity_id: number.solarcust0186_batt_charge_limit
+                    data:
+                      value: "{{ soc_limit_normal }}"
+
+          # Mark rescue inactive
+          - action: input_boolean.turn_off
+            target:
+              entity_id: input_boolean.deye_rescue_active
+
+          # Final notifications
+          - action: persistent_notification.create
+            data:
+              notification_id: "{{ notify_id }}"
+              title: "🛑 RESCUE STOPPED"
+              message: >
+                Volt: {{ states('sensor.solarcust0186_battery_voltage') }}V
+                SOC: {{ states('sensor.solarcust0186_battery_charge_level') }}%
+                Discharge restored to: {{ discharge_a_normal }}A
+
+          - action: notify.mobile_app_jans_iphone
+            data:
+              title: "Rescue Complete"
+              message: "🛑 Volt: {{ states('sensor.solarcust0186_battery_voltage') }}V"
+
+variables:
+  STOP_VOLT: 50.2
+  TARGET_SOC: 40
+  CHARGE_A_PRE: 5
+  CHARGE_A_FAST: 10
+  DISCHARGE_A_NORMAL: 90
+  DISCHARGE_A_SAFE: 10
+  COOLDOWN: "00:30:00"

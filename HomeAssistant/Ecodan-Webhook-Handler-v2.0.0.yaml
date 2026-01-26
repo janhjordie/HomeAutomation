@@ -1,0 +1,86 @@
+alias: "Ecodan-Webhook-Handler: MELCloud Data Pipeline"
+description: "[v2.0.0] Consolidated Ecodan automation handling MELCloud Homey webhooks. Receives heat pump data, stores values in Home Assistant entities, and logs good curve samples for optimization."
+tags:
+  - ecodan
+  - webhook
+  - data-pipeline
+
+mode: queued
+
+triggers:
+  - id: melcloud_webhook
+    trigger: webhook
+    webhook_id: melcloud_homey
+
+conditions: []
+
+actions:
+  # === STORE VALUES FROM WEBHOOK ===
+  - action: input_text.set_value
+    target:
+      entity_id: input_text.ecodan_last_payload_ts
+    data:
+      value: "{{ trigger.json['ts'] | default(now().isoformat()) }}"
+
+  - action: input_text.set_value
+    target:
+      entity_id: input_text.ecodan_status
+    data:
+      value: "{{ trigger.json['status'] | default('unknown') }}"
+
+  - action: input_text.set_value
+    target:
+      entity_id: input_text.ecodan_opstate
+    data:
+      value: "{{ trigger.json['opState'] | default('unknown') }}"
+
+  - action: input_number.set_value
+    target:
+      entity_id: input_number.ecodan_outdoor
+    data:
+      value: "{{ trigger.json.outdoor | float(0) }}"
+
+  - action: input_number.set_value
+    target:
+      entity_id: input_number.ecodan_flow_actual
+    data:
+      value: "{{ trigger.json.measurements.flowNow | float(0) }}"
+
+  - action: input_number.set_value
+    target:
+      entity_id: input_number.ecodan_power
+    data:
+      value: "{{ trigger.json.measurements.powerNow | float(0) }}"
+
+  - action: input_number.set_value
+    target:
+      entity_id: input_number.ecodan_frequency
+    data:
+      value: "{{ trigger.json.measurements.freqNow | float(0) }}"
+
+  # === LOG GOOD CURVE SAMPLES (only in heating mode with valid data) ===
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ (trigger.json['opState'] | default('')) == 'heating' }}"
+          - condition: template
+            value_template: >
+              {% set st = trigger.json['status'] | default('') %}
+              {{ not st.startswith('skipped_') }}
+          - condition: template
+            value_template: >
+              {{ states('sensor.ecodan_outdoor_avg_60m') not in
+              ['unknown','unavailable','none',''] and
+                 states('sensor.ecodan_flow_avg_10m') not in ['unknown','unavailable','none',''] }}
+        sequence:
+          - action: shell_command.ecodan_curve_log_line
+            data:
+              line: >
+                {{ now().isoformat() }}, outdoor_avg_60m={{
+                states('sensor.ecodan_outdoor_avg_60m') }}, flow_avg_10m={{
+                states('sensor.ecodan_flow_avg_10m') }}, flowNow={{
+                trigger.json.measurements.flowNow | default('') }}, powerNow={{
+                trigger.json.measurements.powerNow | default('') }}, freqNow={{
+                trigger.json.measurements.freqNow | default('') }}, opState={{
+                trigger.json.opState | default('') }}, status={{ trigger.json.status |
+                default('') }}
