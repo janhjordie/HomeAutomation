@@ -1,0 +1,24 @@
+alias: "Deye-07: Rotate CSV (yearly, summer)"
+description: ""
+triggers:
+  - at: "03:10:00"
+    trigger: time
+conditions:
+  - condition: template
+    value_template: "{{ now().month == 7 and now().day == 1 }}"
+actions:
+  - data:
+      year_start: "{{ year_start }}"
+      year_end: "{{ year_end }}"
+    action: shell_command.deye_log_rotate
+  - data:
+      notification_id: deye_csv_rotate
+      title: Deye CSV rotated
+      message: >-
+        Årslog arkiveret: /config/deye_logs/deye_log_{{ year_start }}-{{
+        year_end }}.csv Aktiv fil nulstillet: /config/deye_weekly_log.csv
+    action: persistent_notification.create
+mode: single
+variables:
+  year_start: "{{ (now().year - 1) }}"
+  year_end: "{{ now().year }}"

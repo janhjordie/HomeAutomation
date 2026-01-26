@@ -1,0 +1,37 @@
+alias: "Deye-06: Log til CSV (1 min)"
+triggers:
+  - minutes: /1
+    trigger: time_pattern
+actions:
+  - data:
+      line: "{{ line }}"
+    action: shell_command.deye_log_line
+mode: queued
+max: 5
+variables:
+  batt_w: "{{ states('sensor.solarcust0186_battery_output_power') | float(0) }}"
+  batt_mode: |-
+    {% if batt_w > 50 %}
+      discharge
+    {% elif batt_w < -50 %}
+      charge
+    {% else %}
+      idle
+    {% endif %}
+  batt_discharge_w: "{{ batt_w if batt_w > 0 else 0 }}"
+  batt_charge_w: "{{ (batt_w * -1) if batt_w < 0 else 0 }}"
+  zone: "{{ states('input_text.deye_discharge_zone') }}"
+  line: >-
+    {{ now().isoformat() }}, soc={{
+    states('sensor.solarcust0186_battery_charge_level') }}, volt={{
+    states('sensor.solarcust0186_battery_voltage') }}, batt_w={{ batt_w }},
+    batt_mode={{ batt_mode }}, batt_discharge_w={{ batt_discharge_w }},
+    batt_charge_w={{ batt_charge_w }}, load_w={{
+    states('sensor.solarcust0186_load_totalpower') }}, zone={{ zone }},
+    grid_charge={{ states('switch.solarcust0186_grid_charge') }},
+    max_discharge_a={{
+    states('number.solarcust0186_maximum_battery_discharge_current') }},
+    max_charge_a={{
+    states('number.solarcust0186_maximum_battery_charge_current') }},
+    max_grid_charge_a={{
+    states('number.solarcust0186_maximum_battery_grid_charge_current') }}

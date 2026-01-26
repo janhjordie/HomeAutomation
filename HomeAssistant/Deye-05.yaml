@@ -1,0 +1,51 @@
+alias: "Deye-05: Notify Season Change"
+description: ""
+triggers:
+  - event: start
+    trigger: homeassistant
+  - at: "00:05:00"
+    trigger: time
+actions:
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ last in ['', 'unknown', 'unavailable', 'none'] }}"
+        sequence:
+          - target:
+              entity_id: input_text.deye_last_season
+            data:
+              value: "{{ season }}"
+            action: input_text.set_value
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: |
+              {{ last not in ['', 'unknown', 'unavailable', 'none']
+                 and last != season }}
+        sequence:
+          - data:
+              title: Deye – sæson skiftet
+              message: >
+                Sæson skiftet til {{ season | upper }}. Max discharge target =
+                {{ desired }} A.
+            action: notify.mobile_app_jans_iphone
+          - data:
+              notification_id: deye_season_change
+              title: Deye – sæson skiftet
+              message: >
+                Sæson skiftet til {{ season | upper }}. Max discharge target =
+                {{ desired }} A.
+            action: persistent_notification.create
+          - target:
+              entity_id: input_text.deye_last_season
+            data:
+              value: "{{ season }}"
+            action: input_text.set_value
+mode: single
+variables:
+  month: "{{ now().month }}"
+  season: "{{ 'winter' if month in [10,11,12,1,2,3] else 'summer' }}"
+  last: "{{ states('input_text.deye_last_season') | lower }}"
+  DISCHARGE_SUMMER: 90
+  DISCHARGE_WINTER: 60
+  desired: "{{ DISCHARGE_WINTER if season == 'winter' else DISCHARGE_SUMMER }}"

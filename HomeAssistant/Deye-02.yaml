@@ -1,0 +1,24 @@
+alias: "Deye-02: Learn TRIG_VOLT_SOFT Daily"
+description: ""
+triggers:
+  - at: "06:30:00"
+    trigger: time
+actions:
+  - target:
+      entity_id: input_number.deye_trig_volt_soft_learned
+    data:
+      value: "{{ next | round(2) }}"
+    action: input_number.set_value
+  - data:
+      title: Deye learned threshold
+      message: >-
+        vmin(24h)={{ vmin }} V → target={{ target_clamped }} V → new={{ next |
+        round(2) }} V
+    action: persistent_notification.create
+mode: single
+variables:
+  vmin: "{{ states('sensor.deye_voltage_min_24h') | float(48.3) }}"
+  current: "{{ states('input_number.deye_trig_volt_soft_learned') | float(48.3) }}"
+  target: "{{ vmin + 0.35 }}"
+  target_clamped: "{{ [49.2, [47.6, target] | max] | min }}"
+  next: "{{ (current * 0.7 + target_clamped * 0.3) }}"

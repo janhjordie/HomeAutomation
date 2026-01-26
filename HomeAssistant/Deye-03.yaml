@@ -1,0 +1,119 @@
+alias: "Deye-03: Discharge Cap v2.1 (Volt+Load+BattW)"
+triggers:
+  - entity_id:
+      - sensor.solarcust0186_battery_voltage
+      - sensor.solarcust0186_load_totalpower
+      - sensor.solarcust0186_battery_output_power
+      - number.solarcust0186_maximum_battery_discharge_current
+    trigger: state
+  - event: start
+    trigger: homeassistant
+conditions:
+  - condition: state
+    entity_id: binary_sensor.solarcust0186_connection_status
+    state: "on"
+  - condition: template
+    value_template: "{{ current_cap > 0 }}"
+actions:
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ zone_prev in ['unknown','unavailable',''] }}"
+        sequence:
+          - target:
+              entity_id: "{{ zone_entity }}"
+            data:
+              value: none
+            action: input_text.set_value
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ zone_next != zone_prev }}"
+        sequence:
+          - target:
+              entity_id: "{{ zone_entity }}"
+            data:
+              value: "{{ zone_next }}"
+            action: input_text.set_value
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ current_cap | round(0) != (desired_cap | float) | round(0) }}"
+        sequence:
+          - target:
+              entity_id: number.solarcust0186_maximum_battery_discharge_current
+            data:
+              value: "{{ desired_cap }}"
+            action: number.set_value
+mode: queued
+max: 10
+variables:
+  BASE_WINTER_A: 60
+  BASE_SUMMER_A: 90
+  month: "{{ now().month }}"
+  is_winter: "{{ month in [10,11,12,1,2,3] }}"
+  base_cap: "{{ BASE_WINTER_A if is_winter else BASE_SUMMER_A }}"
+  LOW_A: 60
+  DEEP_A: 50
+  SUPER_A: 45
+  volt: "{{ states('sensor.solarcust0186_battery_voltage') | float(999) }}"
+  load: "{{ states('sensor.solarcust0186_load_totalpower') | float(0) }}"
+  batt_w: "{{ states('sensor.solarcust0186_battery_output_power') | float(0) }}"
+  current_cap: >-
+    {{ states('number.solarcust0186_maximum_battery_discharge_current') |
+    float(0) }}
+  primary_zone: input_text.deye_discharge_zone
+  fallback_zone: input_text.input_text_deye_discharge_zone
+  zone_entity: |-
+    {% if states(primary_zone) not in ['unknown', 'unavailable'] %}
+      {{ primary_zone }}
+    {% else %}
+      {{ fallback_zone }}
+    {% endif %}
+  zone_prev: "{{ states(zone_entity) | lower }}"
+  BATT_EXIT_W: 200
+  LOAD_EXIT_W: 1500
+  V_LOW_ENTER: 49.6
+  V_LOW_EXIT: 49.9
+  LOAD_LOW_ENTER: 2000
+  BATT_LOW_ENTER_W: 800
+  V_DEEP_ENTER: 49
+  V_DEEP_EXIT: 49.3
+  LOAD_DEEP_ENTER: 2600
+  BATT_DEEP_ENTER_W: 1500
+  V_SUPER_ENTER: 48.6
+  V_SUPER_EXIT: 48.9
+  LOAD_SUPER_ENTER: 3200
+  BATT_SUPER_ENTER_W: 2200
+  super_enter: >-
+    {{ volt < V_SUPER_ENTER and load > LOAD_SUPER_ENTER and batt_w >
+    BATT_SUPER_ENTER_W }}
+  super_exit: "{{ volt > V_SUPER_EXIT or load < LOAD_EXIT_W or batt_w < BATT_EXIT_W }}"
+  deep_enter: >-
+    {{ volt < V_DEEP_ENTER and load > LOAD_DEEP_ENTER and batt_w >
+    BATT_DEEP_ENTER_W }}
+  deep_exit: "{{ volt > V_DEEP_EXIT or load < LOAD_EXIT_W or batt_w < BATT_EXIT_W }}"
+  low_enter: >-
+    {{ volt < V_LOW_ENTER and load > LOAD_LOW_ENTER and batt_w >
+    BATT_LOW_ENTER_W }}
+  low_exit: "{{ volt > V_LOW_EXIT or load < LOAD_EXIT_W or batt_w < BATT_EXIT_W }}"
+  zone_next: |-
+    {% if zone_prev == 'super' %}
+      {{ 'deep' if super_exit and (not deep_exit) and deep_enter else ('none' if super_exit else 'super') }}
+    {% elif zone_prev == 'deep' %}
+      {{ 'super' if super_enter else ('low' if deep_exit and (not low_exit) and low_enter else ('none' if deep_exit else 'deep')) }}
+    {% elif zone_prev == 'low' %}
+      {{ 'super' if super_enter else ('deep' if deep_enter else ('none' if low_exit else 'low')) }}
+    {% else %}
+      {{ 'super' if super_enter else ('deep' if deep_enter else ('low' if low_enter else 'none')) }}
+    {% endif %}
+  desired_cap: |-
+    {% if zone_next == 'super' %}
+      {{ [SUPER_A, base_cap] | min }}
+    {% elif zone_next == 'deep' %}
+      {{ [DEEP_A, base_cap] | min }}
+    {% elif zone_next == 'low' %}
+      {{ [LOW_A, base_cap] | min }}
+    {% else %}
+      {{ base_cap }}
+    {% endif %}
