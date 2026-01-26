@@ -1,0 +1,212 @@
+# ============================================================================
+# Deye Battery System - Shared Configuration & Constants
+# ============================================================================
+# This file defines all shared voltage thresholds, current limits, SOC limits,
+# and other constants used across Deye automations.
+#
+# Format: Constants are defined as YAML key-value pairs, referenced in
+# automations using {% set VAR = VAR_VALUE %} syntax within Jinja2 templates
+# ============================================================================
+
+# ============================================================================
+# VOLTAGE THRESHOLDS
+# ============================================================================
+VOLTAGE:
+  # Panic/Hard limits (critical rescue needed)
+  PANIC: 47.8              # Emergency rescue triggered
+  HARD: 48.0               # Hard rescue, 5s delay
+  HARD_DELAY: "00:00:05"
+
+  # Preemptive limits (prevent deep discharge)
+  PRE_LOAD: 49.2           # With load > 2400W
+  PRE_LOAD_DELAY: "00:00:20"
+  PRE_BATT_HIGH: 49.4      # With batt output > 1500W
+  PRE_BATT_HIGH_DELAY: "00:00:15"
+  PRE_BATT_VERYHIGH: 49.6  # With batt output > 2500W
+  PRE_BATT_VERYHIGH_DELAY: "00:00:10"
+
+  # Soft/Learned limits
+  SOFT_LEARNED_DEFAULT: 48.3
+  SOFT_LEARNED_DELAY: "00:02:00"
+
+  # Emergency guard (low voltage)
+  EMERGENCY: 47.2          # Emergency low-volt guard
+  EMERGENCY_IDLE: 47.2     # Idle low-volt (output < 100W)
+  EMERGENCY_IDLE_DELAY: "00:01:00"
+
+  # SOC-based trigger
+  SOC_LOW: 20              # Low SOC threshold
+  SOC_LOW_LOAD: 2000       # With load > 2000W
+  SOC_LOW_DELAY: "00:02:00"
+
+  # Stop charging (rescue complete)
+  STOP: 50.2               # Stop load-mode charging
+  STOP_IDLE: 48.2          # Stop emergency idle-mode charging
+  STOP_EMERGENCY: 47.8     # Stop emergency voltage-mode charging
+
+  # Discharge cap limits
+  DISCHARGE_LIMIT:
+    V_LOW_ENTER: 49.6
+    V_LOW_EXIT: 49.9
+    V_DEEP_ENTER: 49.0
+    V_DEEP_EXIT: 49.3
+    V_SUPER_ENTER: 48.6
+    V_SUPER_EXIT: 48.9
+
+# ============================================================================
+# CURRENT LIMITS (Amps)
+# ============================================================================
+CURRENT:
+  # Battery Rescue (charge)
+  CHARGE_FAST: 10          # Panic/Hard rescue (Deye-01)
+  CHARGE_PRE: 5            # Preemptive rescue (Deye-01)
+  CHARGE_EMERGENCY: 5      # Emergency rescue (Deye-08)
+  CHARGE_IDLE: 4           # Emergency idle guard (Deye-08)
+
+  # Battery Discharge
+  DISCHARGE_NORMAL_WINTER: 60
+  DISCHARGE_NORMAL_SUMMER: 90
+  DISCHARGE_SAFE: 10       # During rescue
+
+  # Discharge Caps (Deye-03)
+  LOW_A: 60
+  DEEP_A: 50
+  SUPER_A: 45
+
+  # EV Guard (Deye-09)
+  EV_DISCHARGE_A: 0        # Force discharge to 0A during EV charging
+
+  # Grid charge (on/off only, no amps defined here)
+  GRID_CHARGE: "on/off"
+
+# ============================================================================
+# SOC (State of Charge) LIMITS (%)
+# ============================================================================
+SOC:
+  # Normal operation
+  NORMAL: 20               # Normal charge/discharge limit
+
+  # During rescue
+  RESCUE: 40               # SOC limit during battery rescue
+  RESCUE_GUARD: 40         # SOC limit during emergency guard
+
+  # During EV charging
+  EV: 40                   # SOC limit while EV is charging
+
+# ============================================================================
+# LOAD THRESHOLDS (Watts)
+# ============================================================================
+LOAD:
+  # Load-based rescue triggers
+  PREEMPTIVE_LOAD: 2400    # Trigger preemptive @V<49.2
+  SOC_LOW_LOAD: 2000       # SOC low @V<49.6+SOC<20
+  PREEMPTIVE_LOAD_EXIT: 1500  # Exit condition for load-based zones
+
+  # Battery output (power) triggers
+  BATT_EXIT_W: 200         # Exit condition for all discharge zones
+  BATT_LOW_ENTER_W: 800
+  BATT_DEEP_ENTER_W: 1500
+  BATT_SUPER_ENTER_W: 2200
+
+  # Discharge cap zones
+  LOAD_DEEP_ENTER: 2600
+  LOAD_SUPER_ENTER: 3200
+  LOAD_LOW_ENTER: 2000
+
+  # Minimum load for rescue condition
+  RESCUE_MIN_LOAD: 1000    # Rescue only if load > 1000W (gate condition)
+
+  # EV Guard
+  EV_END_GRID_W: 6000      # Grid power below this = EV charging ended
+
+  # Idle detection
+  IDLE_OUTPUT_W: 100       # Output < 100W = idle (Deye-08)
+
+# ============================================================================
+# TIMING DELAYS
+# ============================================================================
+TIMING:
+  # Rescue loop delays
+  LOAD_FAST_LOOP: "00:00:20"    # Fast rescue loop (panic/hard)
+  LOAD_SLOW_LOOP: "00:01:00"    # Slow rescue loop (soft/soc)
+  EMERGENCY_LOOP: "00:00:20"    # Emergency guard loop
+  IDLE_LOOP: "00:01:00"         # Idle guard loop
+
+  # Grace periods
+  HARD_DELAY: "00:00:05"
+  PRE_LOAD_DELAY: "00:00:20"
+  PRE_BATT_HIGH_DELAY: "00:00:15"
+  PRE_BATT_VERYHIGH_DELAY: "00:00:10"
+  SOFT_DELAY: "00:02:00"
+  SOC_LOW_DELAY: "00:02:00"
+  IDLE_DELAY: "00:01:00"
+
+# ============================================================================
+# DISCHARGE CAP LOGIC (Deye-03)
+# ============================================================================
+DISCHARGE_CAP:
+  # Base limits by season
+  BASE_WINTER_A: 60
+  BASE_SUMMER_A: 90
+  WINTER_MONTHS: [10, 11, 12, 1, 2, 3]  # Oct-Mar
+
+  # Zone exit conditions (any of these = exit zone)
+  ZONE_EXIT: "volt > threshold OR load < 1500W OR batt_w < 200W"
+
+  # Zone transitions
+  ZONES:
+    LOW:
+      ENTER: "volt < 49.6 AND load > 2000W AND batt_w > 800W"
+      EXIT: "volt > 49.9 OR load < 1500W OR batt_w < 200W"
+      CAP: 60
+    DEEP:
+      ENTER: "volt < 49.0 AND load > 2600W AND batt_w > 1500W"
+      EXIT: "volt > 49.3 OR load < 1500W OR batt_w < 200W"
+      CAP: 50
+    SUPER:
+      ENTER: "volt < 48.6 AND load > 3200W AND batt_w > 2200W"
+      EXIT: "volt > 48.9 OR load < 1500W OR batt_w < 200W"
+      CAP: 45
+
+# ============================================================================
+# ENTITY REFERENCES
+# ============================================================================
+ENTITIES:
+  # Sensors
+  VOLTAGE: sensor.solarcust0186_battery_voltage
+  SOC: sensor.solarcust0186_battery_charge_level
+  LOAD: sensor.solarcust0186_load_totalpower
+  BATT_OUTPUT_W: sensor.solarcust0186_battery_output_power
+  GRID_POWER: sensor.solarcust0186_total_grid_power
+  CONNECTION_STATUS: binary_sensor.solarcust0186_connection_status
+
+  # Controls
+  GRID_CHARGE_SWITCH: switch.solarcust0186_grid_charge
+  INVERTER_AUTOMATIONS: switch.solarcust0186_inverter_automations_on_off
+  CHARGE_CURRENT: number.solarcust0186_maximum_battery_charge_current
+  GRID_CHARGE_CURRENT: number.solarcust0186_maximum_battery_grid_charge_current
+  DISCHARGE_CURRENT: number.solarcust0186_maximum_battery_discharge_current
+
+  # Input Helpers (Helper entities created in HA)
+  SOC_CHARGE_LIMIT: number.solarcust0186_batt_charge_limit
+  SOC_DISCHARGE_LIMIT: number.solarcust0186_soba_low_batt_soc_limit
+  LEARNED_SOFT_VOLT: input_number.deye_trig_volt_soft_learned
+  DISCHARGE_ZONE: input_text.deye_discharge_zone
+  RESCUE_ACTIVE: input_boolean.deye_rescue_active
+  EV_CHARGING_ACTIVE: input_boolean.deye_ev_charging_active
+
+# ============================================================================
+# NOTIFICATIONS
+# ============================================================================
+NOTIFICATIONS:
+  SERVICE: notify.mobile_app_jans_iphone
+  RESCUE_LOAD_ID: "deye_battery_rescue_load"
+  RESCUE_EMERGENCY_ID: "deye_battery_rescue_emergency"
+  PERSISTENT_PREFIX: "deye_"
+
+# ============================================================================
+# VERSION INFORMATION
+# ============================================================================
+VERSION: "1.0.0"
+LAST_UPDATED: "2026-01-26"
+DESCRIPTION: "Shared config for Deye battery rescue, discharge limiting, and EV guard automations"
