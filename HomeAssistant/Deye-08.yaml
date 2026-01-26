@@ -1,4 +1,10 @@
 alias: "Deye-08: Low-Volt Guard (robust grid_charge + temporary SOC limits)"
+description: "[v1.0.0] Low voltage guard that activates grid charging with temporary SOC limits during emergency voltage conditions. Robust handling of concurrent triggers."
+tags:
+  - deye-battery
+  - rescue
+  - critical
+  - emergency
 mode: queued
 max: 10
 

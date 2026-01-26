@@ -1,4 +1,10 @@
 alias: "Deye-01: Rescue (Volt) FAST+Preemptive+DischargeCut"
+description: "[v1.1.0] Battery rescue automation with multi-level volt protection (panic, hard, preemptive, soft). Enables grid charge with safeguards when voltage drops. Now signals Deye-08 to prevent interference."
+tags:
+  - deye-battery
+  - rescue
+  - critical
+  - load-sensitive
 triggers:
   - id: panic
     entity_id: sensor.solarcust0186_battery_voltage
@@ -57,7 +63,7 @@ conditions:
 
   - condition: template
     value_template: |
-      {{ (states('sensor.solarcust0186_load_totalpower') | float(0)) > 1500 }}
+      {{ (states('sensor.solarcust0186_load_totalpower') | float(0)) > 1000 }}
 
 actions:
   - variables:
@@ -97,6 +103,10 @@ actions:
           - condition: template
             value_template: "{{ IS_FAST }}"
         sequence:
+          - action: input_boolean.turn_on
+            target:
+              entity_id: input_boolean.deye08_active
+
           - action: switch.turn_on
             target:
               entity_id: switch.solarcust0186_grid_charge
@@ -223,6 +233,11 @@ actions:
           - action: switch.turn_off
             target:
               entity_id: switch.solarcust0186_grid_charge
+
+  # Mark Deye-08 as inactive (since Deye-01 is done)
+  - action: input_boolean.turn_off
+    target:
+      entity_id: input_boolean.deye08_active
 
   # RESTORE discharge kun hvis Deye-08 IKKE er aktiv
   - choose:
