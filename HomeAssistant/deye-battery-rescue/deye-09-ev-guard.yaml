@@ -1,4 +1,4 @@
-alias: "[v1.0.0] Deye-09: EV Charge Guard (webhook)"
+alias: "Deye-09 v1.0.0: EV Charge Guard (webhook)"
 description: "[v1.0.0] EV charge guard that receives webhook triggers from EV charging events and forces discharge to 0A, then auto-releases after timeout."
 
 mode: queued

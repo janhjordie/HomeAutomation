@@ -1,4 +1,4 @@
-alias: "[v1.0.0] Deye-06: Log til CSV (1 min)"
+alias: "Deye-06 v1.0.0: Log til CSV (1 min)"
 description: "[v1.0.0] Logs battery and inverter data to CSV file every minute for historical analysis and trending."
 
 triggers:
