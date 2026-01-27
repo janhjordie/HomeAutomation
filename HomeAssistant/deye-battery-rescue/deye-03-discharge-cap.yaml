@@ -1,4 +1,4 @@
-alias: "Deye-03 v2.9.0: Discharge Cap (SOC-based sliding)"
+alias: "Deye-03 v2.10.0: Discharge Cap (SOC-based sliding)"
 description: "Discharge current limiter with SOC-based sliding power caps. Respects priority: Deye-09 (EV) > Deye-01 (Rescue) > Deye-03 (SOC limits). Only enforces when neither rescue nor EV charging active. Max 3000W at 50% SOC, down to 1000W at 25% SOC. Checks every 30s to override external changes."
 
 triggers:
@@ -46,11 +46,16 @@ actions:
         SOC: {{ soc }}% | Volt: {{ volt }}V
         Current: {{ current_cap }}A | Desired: {{ desired_cap }}A
         Zone: {{ zone_next }}
+        
+        SOC CALC DEBUG:
+        soc_power_limit_w: {{ soc_power_limit_w }}W
+        soc_limit_a: {{ soc_limit_a }}A
+        base_cap: {{ base_cap }}A ({{ 'Winter' if is_winter else 'Summer' }})
+        min({{ base_cap }}, {{ soc_limit_a }}) = {{ [base_cap, soc_limit_a | int] | min }}
+        
         Rescue: {{ states('input_boolean.deye_rescue_active') }}
         EV: {{ states('input_boolean.deye_ev_charging_active') }}
         Connection: {{ states('binary_sensor.solarcust0186_connection_status') }}
-        Current > 0: {{ current_cap > 0 }}
-        Match: {{ (current_cap | round(0) | int) == (desired_cap | round(0) | int) }}
         Will enforce: {{ (current_cap | round(0) | int) != (desired_cap | round(0) | int) }}
         
   # Check conditions INSIDE actions to avoid blocking
