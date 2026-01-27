@@ -1,4 +1,4 @@
-alias: "Deye-03 v2.3.0: Discharge Cap (SOC-based sliding)"
+alias: "Deye-03 v2.4.0: Discharge Cap (SOC-based sliding)"
 description: "Discharge current limiter with SOC-based sliding power caps. Respects priority: Deye-09 (EV) > Deye-01 (Rescue) > Deye-03 (SOC limits). Only enforces when neither rescue nor EV charging active. Max 3000W at 50% SOC, down to 1000W at 25% SOC. Shows debug notifications."
 
 triggers:
@@ -80,14 +80,12 @@ variables:
   DEEP_A: 50
   SUPER_A: 45
   
-  # SOC-based sliding power caps (watts)
-  # Linear scale from 50% (3000W) down to 25% (1000W) hard limit
-  MAX_POWER_50: 3000    # 50% SOC
-  MAX_POWER_45: 2500    # 45% SOC
-  MAX_POWER_40: 2000    # 40% SOC - user specified max
-  MAX_POWER_35: 1500    # 35% SOC
-  MAX_POWER_30: 1250    # 30% SOC
-  MAX_POWER_25: 1000    # 25% SOC - hard limit, no further discharge
+  # SOC-based sliding power caps - continuous linear scale
+  # 80W per percentage point: 50% (3000W) → 25% (1000W)
+  SOC_MAX: 50           # Above this: no SOC limit (3000W)
+  SOC_MIN: 25           # Below this: hard floor (1000W)
+  POWER_MAX: 3000       # Max power at 50% SOC
+  POWER_MIN: 1000       # Min power at 25% SOC (hard limit)
   
   volt: "{{ states('sensor.solarcust0186_battery_voltage') | float(999) }}"
   load: "{{ states('sensor.solarcust0186_load_totalpower') | float(0) }}"
@@ -97,23 +95,16 @@ variables:
     {{ states('number.solarcust0186_maximum_battery_discharge_current') |
     float(0) }}
   
-  # Calculate SOC-based power limit (watts to amps using assumed 48V)
-  # Linear interpolation from 50% SOC (3000W) to 25% SOC (1000W hard limit)
+  # Calculate SOC-based power limit with smooth linear curve
+  # Formula: POWER_MIN + ((SOC - SOC_MIN) / (SOC_MAX - SOC_MIN)) * (POWER_MAX - POWER_MIN)
+  # Example: 36% SOC = 1000 + ((36-25)/(50-25)) * 2000 = 1000 + (11/25) * 2000 = 1880W
   soc_power_limit_w: >-
-    {% if soc >= 50 %}
-      {{ MAX_POWER_50 }}
-    {% elif soc >= 45 %}
-      {{ ((MAX_POWER_50 - MAX_POWER_45) * (soc - 45) / 5) + MAX_POWER_45 }}
-    {% elif soc >= 40 %}
-      {{ ((MAX_POWER_45 - MAX_POWER_40) * (soc - 40) / 5) + MAX_POWER_40 }}
-    {% elif soc >= 35 %}
-      {{ ((MAX_POWER_40 - MAX_POWER_35) * (soc - 35) / 5) + MAX_POWER_35 }}
-    {% elif soc >= 30 %}
-      {{ ((MAX_POWER_35 - MAX_POWER_30) * (soc - 30) / 5) + MAX_POWER_30 }}
-    {% elif soc >= 25 %}
-      {{ ((MAX_POWER_30 - MAX_POWER_25) * (soc - 25) / 5) + MAX_POWER_25 }}
+    {% if soc >= SOC_MAX %}
+      {{ POWER_MAX }}
+    {% elif soc <= SOC_MIN %}
+      {{ POWER_MIN }}
     {% else %}
-      {{ MAX_POWER_25 }}
+      {{ POWER_MIN + ((soc - SOC_MIN) / (SOC_MAX - SOC_MIN)) * (POWER_MAX - POWER_MIN) }}
     {% endif %}
   
   # Convert power limit to amps (assuming ~48V average)
