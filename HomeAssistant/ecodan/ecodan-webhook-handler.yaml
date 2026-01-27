@@ -1,4 +1,4 @@
-alias: "Ecodan-Webhook-Handler: MELCloud Data Pipeline"
+alias: "[v2.0.0] Ecodan-Webhook-Handler: MELCloud Data Pipeline"
 description: "[v2.0.0] Consolidated Ecodan automation handling MELCloud Homey webhooks. Receives heat pump data, stores values in Home Assistant entities, and logs good curve samples for optimization."
 
 mode: queued

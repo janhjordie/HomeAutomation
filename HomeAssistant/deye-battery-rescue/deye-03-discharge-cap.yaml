@@ -1,4 +1,4 @@
-alias: "Deye-03: Discharge Cap (SOC-based sliding)"
+alias: "[v2.2.7] Deye-03: Discharge Cap (SOC-based sliding)"
 description: "[v2.2.3] Discharge current limiter with SOC-based sliding power caps as hard ceiling. Max 3000W at 50% SOC, down to 1000W at 25% SOC."
 
 triggers:
