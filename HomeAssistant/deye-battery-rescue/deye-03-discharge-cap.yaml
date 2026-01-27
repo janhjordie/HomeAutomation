@@ -1,11 +1,12 @@
-alias: "Deye-03: Discharge Cap (Volt+Load+BattW)"
-description: "[v2.1.0] Discharge current limiter that caps battery discharge based on voltage, load power, and battery output power thresholds."
+alias: "Deye-03: Discharge Cap (SOC-based sliding)"
+description: "[v2.2.0] Discharge current limiter with SOC-based sliding power caps. Max 2500W at 40% SOC, decreasing with lower SOC to prevent F58 errors and rapid voltage collapse."
 
 triggers:
   - entity_id:
       - sensor.solarcust0186_battery_voltage
       - sensor.solarcust0186_load_totalpower
       - sensor.solarcust0186_battery_output_power
+      - sensor.solarcust0186_battery_soc
       - number.solarcust0186_maximum_battery_discharge_current
     trigger: state
   - event: start
@@ -58,12 +59,48 @@ variables:
   LOW_A: 60
   DEEP_A: 50
   SUPER_A: 45
+  
+  # SOC-based sliding power caps (watts)
+  MAX_POWER_40: 2500    # 40% SOC - max learning point
+  MAX_POWER_35: 2250    # 35% SOC
+  MAX_POWER_30: 2000    # 30% SOC
+  MAX_POWER_25: 1750    # 25% SOC
+  MAX_POWER_20: 1500    # 20% SOC - conservative
+  MAX_POWER_15: 1250    # 15% SOC
+  MAX_POWER_10: 1000    # 10% SOC
+  
   volt: "{{ states('sensor.solarcust0186_battery_voltage') | float(999) }}"
   load: "{{ states('sensor.solarcust0186_load_totalpower') | float(0) }}"
   batt_w: "{{ states('sensor.solarcust0186_battery_output_power') | float(0) }}"
+  soc: "{{ states('sensor.solarcust0186_battery_soc') | float(50) }}"
   current_cap: >-
     {{ states('number.solarcust0186_maximum_battery_discharge_current') |
     float(0) }}
+  
+  # Calculate SOC-based power limit (watts to amps using assumed 48V)
+  # Formula: max_watts / 48V = amps. Then compare against current draw
+  soc_power_limit_w: >-
+    {% if soc >= 40 %}
+      {{ MAX_POWER_40 }}
+    {% elif soc >= 35 %}
+      {{ ((MAX_POWER_40 - MAX_POWER_35) * (soc - 35) / 5) + MAX_POWER_35 }}
+    {% elif soc >= 30 %}
+      {{ ((MAX_POWER_35 - MAX_POWER_30) * (soc - 30) / 5) + MAX_POWER_30 }}
+    {% elif soc >= 25 %}
+      {{ ((MAX_POWER_30 - MAX_POWER_25) * (soc - 25) / 5) + MAX_POWER_25 }}
+    {% elif soc >= 20 %}
+      {{ ((MAX_POWER_25 - MAX_POWER_20) * (soc - 20) / 5) + MAX_POWER_20 }}
+    {% elif soc >= 15 %}
+      {{ ((MAX_POWER_20 - MAX_POWER_15) * (soc - 15) / 5) + MAX_POWER_15 }}
+    {% elif soc >= 10 %}
+      {{ ((MAX_POWER_15 - MAX_POWER_10) * (soc - 10) / 5) + MAX_POWER_10 }}
+    {% else %}
+      {{ MAX_POWER_10 }}
+    {% endif %}
+  
+  # Convert power limit to amps (assuming ~48V average)
+  soc_limit_a: "{{ (soc_power_limit_w / 48) | round(0) }}"
+  
   primary_zone: input_text.deye_discharge_zone
   fallback_zone: input_text.input_text_deye_discharge_zone
   zone_entity: |-
@@ -99,8 +136,12 @@ variables:
     {{ volt < V_LOW_ENTER and load > LOAD_LOW_ENTER and batt_w >
     BATT_LOW_ENTER_W }}
   low_exit: "{{ volt > V_LOW_EXIT or load < LOAD_EXIT_W or batt_w < BATT_EXIT_W }}"
+  
+  # Combined zone logic: Use SOC limit as safety floor
   zone_next: |-
-    {% if zone_prev == 'super' %}
+    {% if soc <= 20 %}
+      super
+    {% elif zone_prev == 'super' %}
       {{ 'deep' if super_exit and (not deep_exit) and deep_enter else ('none' if super_exit else 'super') }}
     {% elif zone_prev == 'deep' %}
       {{ 'super' if super_enter else ('low' if deep_exit and (not low_exit) and low_enter else ('none' if deep_exit else 'deep')) }}
@@ -111,11 +152,11 @@ variables:
     {% endif %}
   desired_cap: |-
     {% if zone_next == 'super' %}
-      {{ [SUPER_A, base_cap] | min }}
+      {{ [SUPER_A, base_cap, soc_limit_a | int] | min }}
     {% elif zone_next == 'deep' %}
-      {{ [DEEP_A, base_cap] | min }}
+      {{ [DEEP_A, base_cap, soc_limit_a | int] | min }}
     {% elif zone_next == 'low' %}
-      {{ [LOW_A, base_cap] | min }}
+      {{ [LOW_A, base_cap, soc_limit_a | int] | min }}
     {% else %}
-      {{ base_cap }}
+      {{ [base_cap, soc_limit_a | int] | min }}
     {% endif %}
