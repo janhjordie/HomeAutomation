@@ -1,4 +1,4 @@
-alias: "Deye-01 v2.1.0: Panic Rescue (Multi-Mode Voltage Protection)"
+alias: "Deye-01 v2.2.0: Panic Rescue (Multi-Mode Voltage Protection)"
 description: "Consolidated battery rescue automation combining load-sensitive rescue (Deye-01) and emergency low-volt guard (Deye-08). Intelligently manages grid charging with multi-level volt protection, SOC limits, and concurrent trigger handling."
 
 mode: queued
@@ -331,7 +331,12 @@ actions:
           - condition: template
             value_template: "{{ is_load_fast or trigger.id in ['emergency_voltage','emergency_idle_low'] }}"
         sequence:
-          # Turn off grid charge if rescue was active
+          # Mark rescue inactive FIRST (so Deye-03 can enforce SOC limits)
+          - action: input_boolean.turn_off
+            target:
+              entity_id: input_boolean.deye_rescue_active
+
+          # Turn off grid charge if it was active
           - choose:
               - conditions:
                   - condition: template
@@ -341,7 +346,7 @@ actions:
                     target:
                       entity_id: switch.solarcust0186_grid_charge
 
-          # Restore discharge current
+          # Restore discharge current (Deye-03 will override if SOC limits apply)
           - choose:
               - conditions:
                   - condition: template
@@ -364,11 +369,6 @@ actions:
                       entity_id: number.solarcust0186_batt_charge_limit
                     data:
                       value: "{{ soc_limit_normal }}"
-
-          # Mark rescue inactive
-          - action: input_boolean.turn_off
-            target:
-              entity_id: input_boolean.deye_rescue_active
 
           # Final notifications
           - action: persistent_notification.create
