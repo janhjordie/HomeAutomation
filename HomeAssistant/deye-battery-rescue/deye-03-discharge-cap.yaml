@@ -61,13 +61,15 @@ variables:
   SUPER_A: 45
   
   # SOC-based sliding power caps (watts)
-  MAX_POWER_40: 2500    # 40% SOC - max learning point
-  MAX_POWER_35: 2250    # 35% SOC
-  MAX_POWER_30: 2000    # 30% SOC
-  MAX_POWER_25: 1750    # 25% SOC
-  MAX_POWER_20: 1500    # 20% SOC - conservative
-  MAX_POWER_15: 1250    # 15% SOC
-  MAX_POWER_10: 1000    # 10% SOC
+  # Starting earlier to prevent deep discharge
+  MAX_POWER_50: 3000    # 50% SOC - early limit start
+  MAX_POWER_45: 2500    # 45% SOC
+  MAX_POWER_40: 2250    # 40% SOC
+  MAX_POWER_35: 2000    # 35% SOC
+  MAX_POWER_30: 1750    # 30% SOC
+  MAX_POWER_25: 1500    # 25% SOC - conservative
+  MAX_POWER_20: 1250    # 20% SOC
+  MAX_POWER_15: 1000    # 15% SOC
   
   volt: "{{ states('sensor.solarcust0186_battery_voltage') | float(999) }}"
   load: "{{ states('sensor.solarcust0186_load_totalpower') | float(0) }}"
@@ -80,8 +82,12 @@ variables:
   # Calculate SOC-based power limit (watts to amps using assumed 48V)
   # Formula: max_watts / 48V = amps. Then compare against current draw
   soc_power_limit_w: >-
-    {% if soc >= 40 %}
-      {{ MAX_POWER_40 }}
+    {% if soc >= 50 %}
+      {{ MAX_POWER_50 }}
+    {% elif soc >= 45 %}
+      {{ ((MAX_POWER_50 - MAX_POWER_45) * (soc - 45) / 5) + MAX_POWER_45 }}
+    {% elif soc >= 40 %}
+      {{ ((MAX_POWER_45 - MAX_POWER_40) * (soc - 40) / 5) + MAX_POWER_40 }}
     {% elif soc >= 35 %}
       {{ ((MAX_POWER_40 - MAX_POWER_35) * (soc - 35) / 5) + MAX_POWER_35 }}
     {% elif soc >= 30 %}
@@ -92,10 +98,8 @@ variables:
       {{ ((MAX_POWER_25 - MAX_POWER_20) * (soc - 20) / 5) + MAX_POWER_20 }}
     {% elif soc >= 15 %}
       {{ ((MAX_POWER_20 - MAX_POWER_15) * (soc - 15) / 5) + MAX_POWER_15 }}
-    {% elif soc >= 10 %}
-      {{ ((MAX_POWER_15 - MAX_POWER_10) * (soc - 10) / 5) + MAX_POWER_10 }}
     {% else %}
-      {{ MAX_POWER_10 }}
+      {{ MAX_POWER_15 }}
     {% endif %}
   
   # Convert power limit to amps (assuming ~48V average)
