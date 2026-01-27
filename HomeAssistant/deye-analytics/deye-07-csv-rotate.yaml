@@ -1,5 +1,5 @@
 alias: "Deye-07 v1.0.0: Rotate CSV (yearly, summer)"
-description: "[v1.0.0] Rotates CSV log files on July 1st each year to organize data by season."
+description: "Rotates CSV log files on July 1st each year to organize data by season."
 
 triggers:
   - at: "03:10:00"

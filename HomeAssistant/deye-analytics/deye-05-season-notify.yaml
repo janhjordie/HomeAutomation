@@ -1,5 +1,5 @@
 alias: "Deye-05 v1.0.0: Notify Season Change"
-description: "[v1.0.0] Detects seasonal transitions and sends notifications when switching between summer and winter operations."
+description: "Detects seasonal transitions and sends notifications when switching between summer and winter operations."
 
 triggers:
   - event: start
