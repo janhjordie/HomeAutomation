@@ -48,6 +48,20 @@ actions:
             data:
               value: "{{ desired_cap }}"
             action: number.set_value
+  # Override protection: If SolarBalance or external system tries to change the number,
+  # immediately override it back to our calculated limit within 1 second
+  - delay:
+      milliseconds: 100
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ (states('number.solarcust0186_maximum_battery_discharge_current') | float(0) | round(0)) != (desired_cap | float(0) | round(0)) }}"
+        sequence:
+          - target:
+              entity_id: number.solarcust0186_maximum_battery_discharge_current
+            data:
+              value: "{{ desired_cap }}"
+            action: number.set_value
 mode: queued
 max: 10
 variables:
