@@ -1,5 +1,5 @@
-alias: "Deye-03 v2.2.9: Discharge Cap (SOC-based sliding)"
-description: "Discharge current limiter with SOC-based sliding power caps. Respects priority: Deye-09 (EV) > Deye-01 (Rescue) > Deye-03 (SOC limits). Only enforces when neither rescue nor EV charging active. Max 3000W at 50% SOC, down to 1000W at 25% SOC."
+alias: "Deye-03 v2.3.0: Discharge Cap (SOC-based sliding)"
+description: "Discharge current limiter with SOC-based sliding power caps. Respects priority: Deye-09 (EV) > Deye-01 (Rescue) > Deye-03 (SOC limits). Only enforces when neither rescue nor EV charging active. Max 3000W at 50% SOC, down to 1000W at 25% SOC. Shows debug notifications."
 
 triggers:
   - entity_id:
@@ -58,6 +58,16 @@ actions:
             data:
               value: "{{ desired_cap }}"
             action: number.set_value
+          - data:
+              notification_id: deye_discharge_cap_debug
+              title: "Deye-03 Discharge Cap Set"
+              message: >-
+                SOC: {{ soc }}% | Volt: {{ volt }}V
+                Zone: {{ zone_next }}
+                SOC Limit: {{ soc_limit_a }}A ({{ soc_power_limit_w }}W)
+                Desired: {{ desired_cap }}A | Was: {{ current_cap }}A
+                Base cap: {{ base_cap }}A ({{ 'Winter' if is_winter else 'Summer' }})
+            action: persistent_notification.create
 mode: queued
 max: 10
 variables:
