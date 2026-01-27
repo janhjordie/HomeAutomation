@@ -148,15 +148,4 @@ variables:
     {% else %}
       {{ 'super' if super_enter else ('deep' if deep_enter else ('low' if low_enter else 'none')) }}
     {% endif %}
-  desired_cap: |-
-    {% set zone_limited = 0 %}
-    {% if zone_next == 'super' %}
-      {% set zone_limited = [SUPER_A, base_cap] | min %}
-    {% elif zone_next == 'deep' %}
-      {% set zone_limited = [DEEP_A, base_cap] | min %}
-    {% elif zone_next == 'low' %}
-      {% set zone_limited = [LOW_A, base_cap] | min %}
-    {% else %}
-      {% set zone_limited = base_cap %}
-    {% endif %}
-    {{ [zone_limited, soc_limit_a | int] | min }}
+  desired_cap: "{{ [({'super': SUPER_A, 'deep': DEEP_A, 'low': LOW_A}).get(zone_next, base_cap), soc_limit_a | int] | min }}"
