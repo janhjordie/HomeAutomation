@@ -1,4 +1,4 @@
-alias: "Deye-01 v2.0.1: Panic Rescue (Multi-Mode Voltage Protection)"
+alias: "Deye-01 v2.1.0: Panic Rescue (Multi-Mode Voltage Protection)"
 description: "Consolidated battery rescue automation combining load-sensitive rescue (Deye-01) and emergency low-volt guard (Deye-08). Intelligently manages grid charging with multi-level volt protection, SOC limits, and concurrent trigger handling."
 
 mode: queued
@@ -83,9 +83,15 @@ conditions:
     entity_id: switch.solarcust0186_inverter_automations_on_off
     state: "on"
 
+  # For emergency triggers, skip load requirement
   - condition: template
     value_template: |
-      {{ (states('sensor.solarcust0186_load_totalpower') | float(0)) > 1000 }}
+      {% set emergency_triggers = ['emergency_idle_low', 'emergency_voltage', 'emergency_startup'] %}
+      {% if trigger.id in emergency_triggers %}
+        true
+      {% else %}
+        {{ (states('sensor.solarcust0186_load_totalpower') | float(0)) > 1000 }}
+      {% endif %}
 
 actions:
   - variables:
@@ -101,9 +107,9 @@ actions:
       load_target_soc: 40
 
       # Emergency mode variables
-      charge_a_idle: 4
+      charge_a_idle: 5
       charge_a_emergency: 5
-      charge_a: "{{ charge_a_emergency if trigger.id == 'emergency_voltage' else charge_a_idle }}"
+      charge_a: 5
       
       stop_volt_idle: 48.2
       stop_volt_emergency: 47.8
