@@ -1,19 +1,27 @@
-alias: "Deye-03 v2.7.0: Discharge Cap (SOC-based sliding)"
+alias: "Deye-03 v2.8.0: Discharge Cap (SOC-based sliding)"
 description: "Discharge current limiter with SOC-based sliding power caps. Respects priority: Deye-09 (EV) > Deye-01 (Rescue) > Deye-03 (SOC limits). Only enforces when neither rescue nor EV charging active. Max 3000W at 50% SOC, down to 1000W at 25% SOC. Checks every 30s to override external changes."
 
 triggers:
-  - entity_id:
+  # Main trigger: discharge current number changes
+  - trigger: state
+    entity_id: number.solarcust0186_maximum_battery_discharge_current
+    
+  # Recalculate when SOC/voltage/load changes
+  - trigger: state
+    entity_id:
       - sensor.solarcust0186_battery_voltage
       - sensor.solarcust0186_load_totalpower
       - sensor.solarcust0186_battery_output_power
       - sensor.solarcust0186_battery_soc
-      - number.solarcust0186_maximum_battery_discharge_current
-    trigger: state
-  - event: start
-    trigger: homeassistant
+      
+  # Home Assistant startup
+  - trigger: homeassistant
+    event: start
+    
   # Periodic check every 30s to catch external overrides (SolarBalance, manual changes)
   - trigger: time_pattern
     seconds: "/30"
+    
 conditions: []  # TEMPORARILY DISABLED - Remove all conditions to see if they're blocking
   # - condition: state
   #   entity_id: binary_sensor.solarcust0186_connection_status
