@@ -61,14 +61,13 @@ variables:
   SUPER_A: 45
   
   # SOC-based sliding power caps (watts)
-  # Linear scale from 50% (3000W) down to 20% (1000W) hard limit
+  # Linear scale from 50% (3000W) down to 25% (1000W) hard limit
   MAX_POWER_50: 3000    # 50% SOC
-  MAX_POWER_45: 2700    # 45% SOC
-  MAX_POWER_40: 2400    # 40% SOC
-  MAX_POWER_35: 2000    # 35% SOC
-  MAX_POWER_30: 1700    # 30% SOC
-  MAX_POWER_25: 1300    # 25% SOC
-  MAX_POWER_20: 1000    # 20% SOC - rescue threshold, hard limit
+  MAX_POWER_45: 2500    # 45% SOC
+  MAX_POWER_40: 2000    # 40% SOC - user specified max
+  MAX_POWER_35: 1500    # 35% SOC
+  MAX_POWER_30: 1250    # 30% SOC
+  MAX_POWER_25: 1000    # 25% SOC - hard limit, no further discharge
   
   volt: "{{ states('sensor.solarcust0186_battery_voltage') | float(999) }}"
   load: "{{ states('sensor.solarcust0186_load_totalpower') | float(0) }}"
@@ -79,7 +78,7 @@ variables:
     float(0) }}
   
   # Calculate SOC-based power limit (watts to amps using assumed 48V)
-  # Linear interpolation from 50% SOC (3000W) to 20% SOC (1000W hard limit)
+  # Linear interpolation from 50% SOC (3000W) to 25% SOC (1000W hard limit)
   soc_power_limit_w: >-
     {% if soc >= 50 %}
       {{ MAX_POWER_50 }}
@@ -93,10 +92,8 @@ variables:
       {{ ((MAX_POWER_35 - MAX_POWER_30) * (soc - 30) / 5) + MAX_POWER_30 }}
     {% elif soc >= 25 %}
       {{ ((MAX_POWER_30 - MAX_POWER_25) * (soc - 25) / 5) + MAX_POWER_25 }}
-    {% elif soc >= 20 %}
-      {{ ((MAX_POWER_25 - MAX_POWER_20) * (soc - 20) / 5) + MAX_POWER_20 }}
     {% else %}
-      {{ MAX_POWER_20 }}
+      {{ MAX_POWER_25 }}
     {% endif %}
   
   # Convert power limit to amps (assuming ~48V average)
