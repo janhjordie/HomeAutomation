@@ -1,5 +1,5 @@
 alias: "Deye-03: Discharge Cap (SOC-based sliding)"
-description: "[v2.2.0] Discharge current limiter with SOC-based sliding power caps. Max 2500W at 40% SOC, decreasing with lower SOC to prevent F58 errors and rapid voltage collapse."
+description: "[v2.2.3] Discharge current limiter with SOC-based sliding power caps as hard ceiling. Max 3000W at 50% SOC, down to 1000W at 25% SOC."
 
 triggers:
   - entity_id:
@@ -149,12 +149,14 @@ variables:
       {{ 'super' if super_enter else ('deep' if deep_enter else ('low' if low_enter else 'none')) }}
     {% endif %}
   desired_cap: |-
+    {% set zone_limited = 0 %}
     {% if zone_next == 'super' %}
-      {{ [SUPER_A, base_cap, soc_limit_a | int] | min }}
+      {% set zone_limited = [SUPER_A, base_cap] | min %}
     {% elif zone_next == 'deep' %}
-      {{ [DEEP_A, base_cap, soc_limit_a | int] | min }}
+      {% set zone_limited = [DEEP_A, base_cap] | min %}
     {% elif zone_next == 'low' %}
-      {{ [LOW_A, base_cap, soc_limit_a | int] | min }}
+      {% set zone_limited = [LOW_A, base_cap] | min %}
     {% else %}
-      {{ [base_cap, soc_limit_a | int] | min }}
+      {% set zone_limited = base_cap %}
     {% endif %}
+    {{ [zone_limited, soc_limit_a | int] | min }}
