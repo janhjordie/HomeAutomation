@@ -1,0 +1,99 @@
+alias: "Deye-Rescue-05 v1.0.0: Low SOC Charge Guard"
+description: "Protects battery during recovery by capping charge current to 5A when SOC < 20%. Prevents aggressive charging at critical battery levels. Releases cap at SOC >= 20%."
+
+triggers:
+  # React when SOC changes
+  - trigger: state
+    entity_id: sensor.solarcust0186_battery_charge_level
+  
+  # React when charge current changes
+  - trigger: state
+    entity_id: number.solarcust0186_maximum_battery_charge_current
+  
+  # React when grid charge is enabled
+  - trigger: state
+    entity_id: switch.solarcust0186_grid_charge
+    
+  # Home Assistant startup
+  - trigger: homeassistant
+    event: start
+    
+  # Periodic check every 1 minute
+  - trigger: time_pattern
+    minutes: "/1"
+
+conditions:
+  - condition: state
+    entity_id: binary_sensor.solarcust0186_connection_status
+    state: "on"
+
+actions:
+  - variables:
+      soc: "{{ states('sensor.solarcust0186_battery_charge_level') | float(100) }}"
+      current_charge_a: "{{ states('number.solarcust0186_maximum_battery_charge_current') | float(0) }}"
+      is_critical: "{{ soc < 20 }}"
+      max_charge_a: "{{ 5 if is_critical else 60 }}"
+
+  # Step 1: Show trigger notification
+  - action: persistent_notification.create
+    data:
+      notification_id: deye_lowsoc_charge_trigger
+      title: "🔵 Deye-05 Triggered v1.0.0"
+      message: >-
+        ⏰ {{ now().strftime('%H:%M:%S') }}
+        
+        📊 SOC: {{ soc | round(1) }}%
+        ⚡ Current Charge: {{ current_charge_a | round(0) }}A
+        
+        🚨 Critical Mode: {{ 'ON (SOC < 20%)' if is_critical else 'OFF (SOC >= 20%)' }}
+        📈 Max Allowed: {{ max_charge_a }}A
+        
+        Connection: {{ states('binary_sensor.solarcust0186_connection_status') }}
+        Grid Charge: {{ states('switch.solarcust0186_grid_charge') }}
+        
+        ✅ Will enforce: {{ (current_charge_a | round(0) | int) != (max_charge_a | int) }}
+
+  # Step 2: Enforce limit if different from current
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ (current_charge_a | round(0) | int) != (max_charge_a | int) }}"
+        sequence:
+          - alias: Set charge current to limit
+            action: number.set_value
+            target:
+              entity_id: number.solarcust0186_maximum_battery_charge_current
+            data:
+              value: "{{ max_charge_a }}"
+          
+          - alias: Confirm enforcement
+            action: persistent_notification.create
+            data:
+              notification_id: deye_lowsoc_charge_enforced
+              title: "✅ Deye-05 Enforced v1.0.0"
+              message: >-
+                ⏰ {{ now().strftime('%H:%M:%S') }}
+                
+                Changed: {{ current_charge_a | round(0) }}A → {{ max_charge_a }}A
+                
+                📊 SOC: {{ soc | round(1) }}%
+                🚨 Status: {{ 'CRITICAL - 5A Safety Limit' if is_critical else 'NORMAL - Released to 60A' }}
+                
+                Reason: {% if is_critical %}Battery recovery protection (SOC < 20%){% else %}Battery safe, normal charging allowed{% endif %}
+
+    default:
+      - alias: No change needed
+        action: persistent_notification.create
+        data:
+          notification_id: deye_lowsoc_charge_skip
+          title: "⏭️ Deye-05 Skipped v1.0.0"
+          message: >-
+            ⏰ {{ now().strftime('%H:%M:%S') }}
+            
+            Already at limit: {{ current_charge_a | round(0) }}A = {{ max_charge_a }}A
+            
+            📊 SOC: {{ soc | round(1) }}%
+            🚨 Status: {{ 'CRITICAL MODE' if is_critical else 'Normal mode' }}
+
+mode: queued
+max: 10
