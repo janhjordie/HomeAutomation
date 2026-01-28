@@ -1,5 +1,5 @@
-alias: "Deye-01 v2.3.0: Panic Rescue (Multi-Mode Voltage Protection)"
-description: "Consolidated battery rescue automation combining load-sensitive rescue (Deye-01) and emergency low-volt guard (Deye-08). Intelligently manages grid charging with multi-level volt protection, SOC limits, and concurrent trigger handling."
+alias: "Deye-01 v2.4.0: Panic Rescue (Multi-Mode Voltage Protection)"
+description: "Consolidated battery rescue automation combining load-sensitive rescue (Deye-01) and emergency low-volt guard (Deye-08). Intelligently manages grid charging with multi-level volt protection, SOC limits, concurrent trigger handling, and rescue frequency tracking for adaptive learning."
 
 mode: queued
 max: 10
@@ -142,6 +142,20 @@ actions:
           - condition: template
             value_template: "{{ is_load_mode }}"
         sequence:
+          - alias: Increment rescue counter for adaptive learning
+            action: input_number.set_value
+            target:
+              entity_id: input_number.deye_rescue_count_6h
+            data:
+              value: "{{ states('input_number.deye_rescue_count_6h') | float(0) + 1 }}"
+          
+          - alias: Update rescue timestamp
+            action: input_datetime.set_datetime
+            target:
+              entity_id: input_datetime.deye_last_rescue_time
+            data:
+              datetime: "{{ now().isoformat() }}"
+          
           - action: persistent_notification.create
             data:
               notification_id: "{{ notify_id }}_load"
@@ -151,6 +165,7 @@ actions:
                 Volt: {{ voltage }}V | SOC: {{ states('sensor.solarcust0186_battery_charge_level') }}%
                 Load: {{ states('sensor.solarcust0186_load_totalpower') }}W
                 ChargeA: {{ load_charge_a }}A
+                Rescue Count (6h): {{ states('input_number.deye_rescue_count_6h') | float(0) + 1 }}
 
           - action: notify.mobile_app_jans_iphone
             data:
@@ -163,6 +178,20 @@ actions:
           - condition: template
             value_template: "{{ trigger.id == 'emergency_startup' and not ev_active }}"
         sequence:
+          - alias: Increment rescue counter for adaptive learning
+            action: input_number.set_value
+            target:
+              entity_id: input_number.deye_rescue_count_6h
+            data:
+              value: "{{ states('input_number.deye_rescue_count_6h') | float(0) + 1 }}"
+          
+          - alias: Update rescue timestamp
+            action: input_datetime.set_datetime
+            target:
+              entity_id: input_datetime.deye_last_rescue_time
+            data:
+              datetime: "{{ now().isoformat() }}"
+          
           - action: number.set_value
             target:
               entity_id: number.solarcust0186_soba_low_batt_soc_limit
@@ -190,7 +219,22 @@ actions:
           - condition: template
             value_template: "{{ is_load_fast or trigger.id in ['emergency_voltage','emergency_idle_low'] }}"
         sequence:
-          - action: input_boolean.turn_on
+          - alias: Increment rescue counter for emergency mode
+            action: input_number.set_value
+            target:
+              entity_id: input_number.deye_rescue_count_6h
+            data:
+              value: "{{ states('input_number.deye_rescue_count_6h') | float(0) + 1 }}"
+          
+          - alias: Update rescue timestamp
+            action: input_datetime.set_datetime
+            target:
+              entity_id: input_datetime.deye_last_rescue_time
+            data:
+              datetime: "{{ now().isoformat() }}"
+          
+          - alias: Activate rescue flag
+            action: input_boolean.turn_on
             target:
               entity_id: input_boolean.deye_rescue_active
 
