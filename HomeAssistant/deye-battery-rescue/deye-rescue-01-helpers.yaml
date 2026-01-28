@@ -1,6 +1,23 @@
 # Deye-Rescue-01 v1.0.0: Helper Entities
 # Required for adaptive power limiting and rescue coordination
-
+#
+# INSTALLATION IN HOME ASSISTANT:
+# Option 1 (Recommended - UI):
+#   1. Settings → Devices & Services → Helpers
+#   2. Click "+ CREATE HELPER" for each entity below
+#   3. Match the name, min/max, step, and icon exactly
+#
+# Option 2 (YAML):
+#   1. Add this file content to configuration.yaml
+#   2. OR: Create /config/helpers.yaml and add to configuration.yaml:
+#      homeassistant:
+#        customize: !include customize.yaml
+#      input_number: !include_dir_merge_named helpers/
+#   3. Restart Home Assistant
+#
+# NOTE: Helper entities CANNOT be created by automations - they must be
+# defined in config files or created through the UI before automations run.
+#
 # Rescue frequency tracking
 input_number:
   deye_rescue_count_6h:
