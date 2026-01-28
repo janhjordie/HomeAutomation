@@ -1,0 +1,28 @@
+alias: "Deye-04 v1.0.0: Rescue Counter 6h Rolling Window Reset"
+description: "Resets the rescue counter to maintain a 6-hour rolling window for adaptive learning. This ensures deye-02's rescue frequency multiplier stays current and doesn't accumulate old rescue events indefinitely."
+
+trigger:
+  - platform: time_pattern
+    hours: "/6"  # Every 6 hours (00:00, 06:00, 12:00, 18:00)
+
+condition: []
+
+action:
+  - alias: Reset rescue counter to zero
+    action: input_number.set_value
+    target:
+      entity_id: input_number.deye_rescue_count_6h
+    data:
+      value: 0
+  
+  - alias: Log reset to debug notification
+    action: persistent_notification.create
+    data:
+      notification_id: deye_rescue_counter_reset
+      title: "Deye-04: Rescue Counter Reset"
+      message: >-
+        ✅ 6-hour window reset completed at {{ now().strftime('%H:%M') }}
+        Previous count: {{ states('input_number.deye_rescue_count_6h') }}
+        Next reset: {{ (now() + timedelta(hours=6)).strftime('%H:%M') }}
+
+mode: single
