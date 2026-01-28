@@ -123,8 +123,10 @@ actions:
       soc_limit_normal: 20
       soc_limit_guard: 40
 
-      # Discharge settings
-      discharge_a_normal: 90
+      # Discharge settings (seasonal: winter 60A, summer 90A)
+      month: "{{ now().month }}"
+      is_winter: "{{ month in [10,11,12,1,2,3] }}"
+      discharge_a_normal: "{{ 60 if is_winter else 90 }}"
       discharge_a_safe: 10
 
       # State checks
@@ -534,6 +536,6 @@ variables:
   TARGET_SOC: 40
   CHARGE_A_PRE: 5
   CHARGE_A_FAST: 10
-  DISCHARGE_A_NORMAL: 90
+  DISCHARGE_A_NORMAL: "{{ discharge_a_normal }}"  # Seasonal: 60A winter, 90A summer
   DISCHARGE_A_SAFE: 10
   COOLDOWN: "00:30:00"
