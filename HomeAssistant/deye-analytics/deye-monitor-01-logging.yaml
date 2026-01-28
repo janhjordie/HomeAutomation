@@ -1,5 +1,5 @@
-alias: "Deye-Monitor-01 v1.0.0: CSV Logging"
-description: "Logs battery and inverter data to CSV file every minute for historical analysis and trending."
+alias: "Deye-Monitor-01 v1.0.1: Enhanced CSV Logging"
+description: "Logs battery, inverter, and automation data to CSV file every minute. Tracks rescue states, automation flags, SOC limits, and voltage conditions for conflict analysis and trending."
 
 triggers:
   - minutes: /1
@@ -11,6 +11,7 @@ actions:
 mode: queued
 max: 5
 variables:
+  # Battery state
   batt_w: "{{ states('sensor.solarcust0186_battery_output_power') | float(0) }}"
   batt_mode: |-
     {% if batt_w > 50 %}
@@ -22,18 +23,79 @@ variables:
     {% endif %}
   batt_discharge_w: "{{ batt_w if batt_w > 0 else 0 }}"
   batt_charge_w: "{{ (batt_w * -1) if batt_w < 0 else 0 }}"
+  
+  # Automation state flags
+  rescue_active: "{{ states('input_boolean.deye_rescue_active') }}"
+  ev_charging_active: "{{ states('input_boolean.deye_ev_charging_active') }}"
+  
+  # Current values
+  soc: "{{ states('sensor.solarcust0186_battery_charge_level') | float(50) }}"
+  volt: "{{ states('sensor.solarcust0186_battery_voltage') | float(0) }}"
+  max_discharge: "{{ states('number.solarcust0186_maximum_battery_discharge_current') | float(0) }}"
+  max_charge: "{{ states('number.solarcust0186_maximum_battery_charge_current') | float(0) }}"
+  max_grid_charge: "{{ states('number.solarcust0186_maximum_battery_grid_charge_current') | float(0) }}"
+  
+  # SOC-based limit calculation (Deye-02 logic)
+  soc_min: 25
+  soc_max: 50
+  power_min_soc: 600
+  power_max_soc: 2500
+  soc_power_limit_w: >-
+    {% if soc >= soc_max %}
+      {{ power_max_soc }}
+    {% elif soc <= soc_min %}
+      {{ power_min_soc }}
+    {% else %}
+      {{ (power_min_soc + ((soc - soc_min) / (soc_max - soc_min)) * (power_max_soc - power_min_soc)) | round(0) }}
+    {% endif %}
+  soc_limit_a: "{{ ((soc_power_limit_w | float) / 48) | round(0) }}"
+  
+  # Seasonal logic
+  month: "{{ now().month }}"
+  is_winter: "{{ month in [10,11,12,1,2,3] }}"
+  seasonal_discharge_a: "{{ 60 if is_winter else 90 }}"
+  
+  # Voltage conditions
+  volt_status: |-
+    {% if volt < 47.2 %}
+      CRITICAL_EMERGENCY
+    {% elif volt < 47.8 %}
+      CRITICAL_LOW
+    {% elif volt < 48.5 %}
+      WARNING
+    {% elif volt < 50.0 %}
+      CAUTION
+    {% else %}
+      NORMAL
+    {% endif %}
+  
+  # Low SOC charge guard (Deye-05 logic)
+  is_critical_soc: "{{ soc < 20 }}"
+  max_charge_guarded: "{{ 5 if is_critical_soc else 60 }}"
+  
+  # Zone name
   zone: "{{ states('input_text.deye_discharge_zone') }}"
+  
+  # CSV line - enhanced with automation state, SOC limits, voltage status
   line: >-
-    {{ now().isoformat() }}, soc={{
-    states('sensor.solarcust0186_battery_charge_level') }}, volt={{
-    states('sensor.solarcust0186_battery_voltage') }}, batt_w={{ batt_w }},
-    batt_mode={{ batt_mode }}, batt_discharge_w={{ batt_discharge_w }},
-    batt_charge_w={{ batt_charge_w }}, load_w={{
-    states('sensor.solarcust0186_load_totalpower') }}, zone={{ zone }},
+    {{ now().isoformat() }}, 
+    soc={{ soc | round(1) }}, 
+    volt={{ volt | round(2) }}, 
+    volt_status={{ volt_status }},
+    batt_w={{ batt_w }}, 
+    batt_mode={{ batt_mode }}, 
+    batt_discharge_w={{ batt_discharge_w }}, 
+    batt_charge_w={{ batt_charge_w }}, 
+    load_w={{ states('sensor.solarcust0186_load_totalpower') }},
+    zone={{ zone }}, 
     grid_charge={{ states('switch.solarcust0186_grid_charge') }},
-    max_discharge_a={{
-    states('number.solarcust0186_maximum_battery_discharge_current') }},
-    max_charge_a={{
-    states('number.solarcust0186_maximum_battery_charge_current') }},
-    max_grid_charge_a={{
-    states('number.solarcust0186_maximum_battery_grid_charge_current') }}
+    rescue_active={{ rescue_active }},
+    ev_charging_active={{ ev_charging_active }},
+    max_discharge_a={{ max_discharge | round(0) }},
+    max_charge_a={{ max_charge | round(0) }},
+    max_grid_charge_a={{ max_grid_charge | round(0) }},
+    soc_limit_a={{ soc_limit_a }},
+    soc_power_w={{ soc_power_limit_w | round(0) }},
+    seasonal_discharge_a={{ seasonal_discharge_a }},
+    charge_guarded_a={{ max_charge_guarded }},
+    is_critical_soc={{ is_critical_soc }}
