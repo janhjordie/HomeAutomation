@@ -1,5 +1,5 @@
-alias: "Deye-Rescue-02 v1.0.0: SOC-Based Discharge Limiter (Simplified)"
-description: "Simple SOC-based discharge limiter. Enforces power curve: 50% SOC (3000W) → 25% SOC (1000W). Respects priority: EV Guard > Panic Rescue > SOC Limits. Reacts instantly to any discharge changes."
+alias: "Deye-Rescue-02 v1.0.1: SOC-Based Discharge Limiter (Simplified)"
+description: "Simple SOC-based discharge limiter. Enforces power curve: 50% SOC (2500W) → 40% SOC (1200W) → 25% SOC (600W). Respects priority: EV Guard > Panic Rescue > SOC Limits. Reacts instantly to any discharge changes."
 
 triggers:
   # React immediately when discharge current changes (ANY value, not just 90A)
@@ -25,7 +25,7 @@ actions:
   - action: persistent_notification.create
     data:
       notification_id: deye_soc_limiter_trigger
-      title: "🔵 Deye-02 Triggered v1.0.0"
+      title: "🔵 Deye-02 Triggered v1.0.1"
       message: >-
         ⏰ {{ now().strftime('%H:%M:%S') }}
         
@@ -73,7 +73,7 @@ actions:
           - alias: Confirm enforcement
             data:
               notification_id: deye_soc_limiter_enforced
-              title: "✅ Deye-02 Enforced v1.0.0"
+              title: "✅ Deye-02 Enforced v1.0.1"
               message: >-
                 ⏰ {{ now().strftime('%H:%M:%S') }}
                 
@@ -90,7 +90,7 @@ actions:
       - alias: No change needed
         data:
           notification_id: deye_soc_limiter_skip
-          title: "⏭️ Deye-02 Skipped v1.0.0"
+          title: "⏭️ Deye-02 Skipped v1.0.1"
           message: >-
             ⏰ {{ now().strftime('%H:%M:%S') }}
             
@@ -111,12 +111,12 @@ variables:
   is_winter: "{{ month in [10,11,12,1,2,3] }}"
   base_cap: "{{ BASE_WINTER_A if is_winter else BASE_SUMMER_A }}"
   
-  # SOC-based sliding power caps - continuous linear scale
-  # Formula: 80W per percentage point: 50% (3000W) → 25% (1000W)
-  SOC_MAX: 50           # Above this: no SOC limit (3000W)
-  SOC_MIN: 25           # Below this: hard floor (1000W)
-  POWER_MAX: 3000       # Max power at 50% SOC
-  POWER_MIN: 1000       # Min power at 25% SOC
+  # SOC-based sliding power caps - balanced curve (Option C)
+  # Formula: 25% (600W) → 40% (1200W) → 50% (2500W)
+  SOC_MAX: 50           # Above this: no SOC limit (2500W)
+  SOC_MIN: 25           # Below this: hard floor (600W)
+  POWER_MAX: 2500       # Max power at 50% SOC
+  POWER_MIN: 600        # Min power at 25% SOC
   
   # Current sensor values
   soc: "{{ states('sensor.solarcust0186_battery_charge_level') | float(50) }}"
