@@ -1,4 +1,4 @@
-alias: "Deye-Rescue-01 v1.0.0: Panic & Voltage Protection"
+alias: "Deye-Rescue-01 v1.0.2: Panic & Voltage Protection"
 description: "Consolidated battery rescue automation combining load-sensitive rescue (Deye-01) and emergency low-volt guard (Deye-08). Intelligently manages grid charging with multi-level volt protection, SOC limits, concurrent trigger handling, and rescue frequency tracking for adaptive learning. v2.4.3: Added post-write confirmation notification showing actual discharge value after cleanup."
 
 mode: queued
@@ -416,13 +416,14 @@ actions:
                     value_template: "{{ not ev_active }}"
                 sequence:
                   - variables:
-                      # SOC-based sliding power cap (80W per % point)
-                      # Formula: POWER_MIN + ((SOC - 25) / (50 - 25)) * (3000 - 1000)
+                      # SOC-based sliding power cap (balanced curve)
+                      # 25% SOC = 600W (12A), 40% SOC = 1200W (25A), 50% SOC = 2500W (52A)
+                      # Formula: POWER_MIN + ((SOC - 25) / (50 - 25)) * (2500 - 600)
                       soc_current: "{{ states('sensor.solarcust0186_battery_charge_level') | float(50) }}"
                       soc_min: 25
                       soc_max: 50
-                      power_max_soc: 3000
-                      power_min_soc: 1000
+                      power_max_soc: 2500
+                      power_min_soc: 600
                       soc_power_limit_w: |
                         {%- if soc_current >= soc_max -%}
                           {{ power_max_soc }}
