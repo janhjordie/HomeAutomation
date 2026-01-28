@@ -58,7 +58,28 @@ This automation implements what the BMS should tell the inverter:
             │   ROSEN BATT 48V 10KW        │
             │  (SolarBalance Integration)  │
             └──────────────────────────────┘
+
+
+SECONDARY: HEATING SYSTEM
+┌──────────────────────────────────────────┐
+│  Mitsubishi Ecodan 8kW Air-to-Water HP   │
+│    (MELCloud via Homey Pro Webhook)      │
+└─────────────────┬───────────────────────┘
+                  │ (HTTP webhook)
+           ┌──────┴───────┐
+           ↓              ↑
+     ┌──────────────┐ ┌─────────┐
+     │  Homey Pro   │→│   HA    │
+     │ (Flow Logic) │ │ (HA UI) │
+     └──────────────┘ └─────────┘
+        (Local)        (Webhook)
 ```
+
+### Heating Integration
+- **Heat Pump:** Mitsubishi Ecodan 8kW air-to-water
+- **Connectivity:** MELCloud API → Homey Pro → Home Assistant webhook
+- **Function:** Adaptive flow temperature based on SOC and outdoor temp
+- **Purpose:** Optimize heating when battery high, reduce load when battery low
 
 ### Three-Tier Automation Priority
 
@@ -120,8 +141,13 @@ SOC%  │ Power (W) │ Current @ 48V (A)
 - Our automations override its discharge settings when needed
 
 **Secondary (Optional):**
-- Ecodan heat pump (MELCloud integration)
-- Adaptive flow temperature based on SOC/weather
+- **Mitsubishi Ecodan 8kW air-to-water heat pump** 
+- Integration via **Homey Pro webhook** (MELCloud API)
+- Adaptive flow temperature control:
+  - High SOC (>60%): Full heating power
+  - Medium SOC (40-60%): Moderate heating
+  - Low SOC (<40%): Reduced heating (protect battery)
+- Data pipeline: MELCloud API → Homey Pro flow → Home Assistant webhook → CSV logging
 
 ---
 
@@ -182,6 +208,11 @@ SOC%  │ Power (W) │ Current @ 48V (A)
 ### Analytics & Monitoring
 - **[deye-analytics-01-learn-voltage.yaml](HomeAssistant/deye-analytics/deye-analytics-01-learn-voltage.yaml)** — Adaptive voltage thresholds
 - **[deye-monitor-01-logging.yaml](HomeAssistant/deye-analytics/deye-monitor-01-logging.yaml)** — CSV activity logging
+
+### Heat Pump Integration
+- **[ecodan-webhook-handler.yaml](HomeAssistant/ecodan/ecodan-webhook-handler.yaml)** — MELCloud data pipeline from Homey Pro
+- **[ecodan_curve_samples.csv](HomeAssistant/ecodan/ecodan_curve_samples.csv)** — Heat pump setpoint curves
+- **[ecodan_hourly_summary.csv](HomeAssistant/ecodan/ecodan_hourly_summary.csv)** — Daily heating activity log
 
 ### Documentation
 - **[SYSTEM-DIAGRAM.md](HomeAssistant/SYSTEM-DIAGRAM.md)** — Visual priority system
@@ -300,7 +331,9 @@ This repository is shared to help others with Deye hybrid inverters and Rosen Ba
 - [Rosen Batt Battery](https://rosenbatt.com/)
 - [SolarBalance Platform](https://solarbalance.dk/)
 - [Home Assistant Documentation](https://www.home-assistant.io/)
-- [Ecodan Heat Pump (Optional)](https://www.melcloud.com/)
+- [Mitsubishi Ecodan Heat Pump](https://www.mitsubishielectric.co.uk/en-gb/products/heating-cooling/air-water-heat-pump-systems/ecodan)
+- [MELCloud API (Homey Integration)](https://www.melcloud.com/)
+- [Homey Pro Smart Hub](https://homey.app/)
 
 ---
 
