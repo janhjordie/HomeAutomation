@@ -1,4 +1,4 @@
-alias: "Rescue-Discharge-Cap v4.0.0: Adaptive Power Limiting"
+alias: "Deye-Rescue-03 v4.0.0: Adaptive Discharge Cap"
 description: "Smart discharge limiter with SOC-based sliding power caps, time-based conservative mode (17:00-23:00), rescue frequency learning, and load spike detection. Respects priority: EV Guard > Panic Rescue > Discharge Cap. Auto-adjusts based on rescue patterns."
 
 triggers:
@@ -115,7 +115,7 @@ actions:
           - alias: Send debug notification with adaptive info
             data:
               notification_id: deye_discharge_cap_debug
-              title: "Rescue-Discharge-Cap v4.0.0"
+              title: "Deye-Rescue-03 v4.0.0"
               message: >-
                 SOC: {{ soc }}% | Volt: {{ volt }}V | Load: {{ load }}W
                 Zone: {{ zone_next }}

@@ -1,5 +1,5 @@
-# Deye Battery Management - Helper Entities
-# These are required for the advanced features
+# Deye-Rescue-01 v1.0.0: Helper Entities
+# Required for adaptive power limiting and rescue coordination
 
 # Rescue frequency tracking
 input_number:

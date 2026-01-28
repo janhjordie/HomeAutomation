@@ -1,4 +1,4 @@
-alias: "Analytics-Season-Notify v1.0.0: Seasonal Mode Transitions"
+alias: "Deye-Analytics-02 v1.0.0: Season Notifications"
 description: "Detects seasonal transitions and sends notifications when switching between summer and winter operations."
 
 triggers:

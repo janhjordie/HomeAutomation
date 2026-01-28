@@ -1,4 +1,4 @@
-alias: "Rescue-EV-Guard v1.0.1: EV Charge Protection"
+alias: "Deye-Rescue-04 v1.0.1: EV Charge Guard"
 description: "EV charge guard that receives webhook triggers from EV charging events and forces discharge to 0A, then auto-releases after timeout. PRIORITY 1: Highest priority - overrides Deye-01 (rescue) and Deye-02 (SOC limits)."
 
 mode: queued
