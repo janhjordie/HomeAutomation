@@ -5,6 +5,15 @@
 # This file defines all shared voltage thresholds, current limits, SOC limits,
 # and other constants used across Deye automations.
 #
+# INSTALLATION IN HOME ASSISTANT:
+# 1. This is a REFERENCE/DOCUMENTATION file only - NOT loaded directly by HA
+# 2. Values are currently HARDCODED in each automation file
+# 3. To use centralized config (future improvement):
+#    - Place in /config/packages/deye-config.yaml
+#    - Add to configuration.yaml: homeassistant: { packages: !include_dir_named packages }
+#    - Reference in automations: "{{ states.VOLTAGE.PANIC }}"
+# 4. Current usage: Copy values from this file when updating automations
+#
 # Format: Constants are defined as YAML key-value pairs, referenced in
 # automations using {% set VAR = VAR_VALUE %} syntax within Jinja2 templates
 # ============================================================================
