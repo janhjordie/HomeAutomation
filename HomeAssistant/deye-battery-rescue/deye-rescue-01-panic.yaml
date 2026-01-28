@@ -1,5 +1,5 @@
-alias: "Deye-Rescue-01 v1.0.2: Panic & Voltage Protection"
-description: "Consolidated battery rescue automation combining load-sensitive rescue (Deye-01) and emergency low-volt guard (Deye-08). Intelligently manages grid charging with multi-level volt protection, SOC limits, concurrent trigger handling, and rescue frequency tracking for adaptive learning. v2.4.3: Added post-write confirmation notification showing actual discharge value after cleanup."
+alias: "Deye-Rescue-01 v1.0.7: Panic & Voltage Protection"
+description: "Consolidated battery rescue automation combining load-sensitive rescue (Deye-01) and emergency low-volt guard (Deye-08). Intelligently manages grid charging with multi-level volt protection, SOC limits, concurrent trigger handling, and rescue frequency tracking for adaptive learning. v1.0.7: Lowered SOC threshold from 20% to 15% to match Deye-02 curve."
 
 mode: queued
 max: 10
@@ -47,7 +47,7 @@ triggers:
 
   - id: load_soc_low
     value_template: |
-      {{ (states('sensor.solarcust0186_battery_charge_level') | float(100)) < 20
+      {{ (states('sensor.solarcust0186_battery_charge_level') | float(100)) < 15
          and (states('sensor.solarcust0186_load_totalpower') | float(0)) > 2000 }}
     for: "00:02:00"
     trigger: template
@@ -252,12 +252,6 @@ actions:
 
                   - action: number.set_value
                     target:
-                      entity_id: number.solarcust0186_time_point_6_batt_charge_limit
-                    data:
-                      value: "{{ load_target_soc }}"
-
-                  - action: number.set_value
-                    target:
                       entity_id: number.solarcust0186_maximum_battery_charge_current
                     data:
                       value: "{{ load_charge_a }}"
@@ -399,17 +393,35 @@ actions:
             target:
               entity_id: input_boolean.deye_rescue_active
 
-          # Turn off grid charge if it was active
-          - choose:
-              - conditions:
-                  - condition: template
-                    value_template: "{{ grid_charge_on and rescue_active }}"
-                sequence:
-                  - action: switch.turn_off
-                    target:
-                      entity_id: switch.solarcust0186_grid_charge
+          # DO NOT turn off grid_charge - keep it ON for recovery, just limit current to 5A
+          # This prevents the emergency_grid_change trigger from looping and reactivating rescue
 
-          # Restore discharge current with SOC-based limit (SOC limit always wins)
+          # ⚡ CRITICAL: Disable SolarBalance to prevent override of our 5A limit
+          - alias: "CRITICAL: Disable SolarBalance during recovery (prevent 60A override)"
+            action: switch.turn_off
+            target:
+              entity_id: switch.solarcust0186_solarbalance_enabled
+            continue_on_error: true
+
+          - delay: "00:00:01"
+
+          # ⚡ ALWAYS limit charge current to 5A during recovery (FIRST, before discharge)
+          - alias: "CRITICAL: Force grid charge current to 5A (prevent 60A default)"
+            action: number.set_value
+            target:
+              entity_id: number.solarcust0186_maximum_battery_charge_current
+            data:
+              value: 5
+
+          - action: number.set_value
+            target:
+              entity_id: number.solarcust0186_maximum_battery_grid_charge_current
+            data:
+              value: 5
+
+          - delay: "00:00:01"
+
+          # Now restore discharge current with SOC-based limit (SOC limit always wins)
           - choose:
               - conditions:
                   - condition: template
@@ -498,7 +510,7 @@ actions:
           - action: persistent_notification.create
             data:
               notification_id: "{{ notify_id }}"
-              title: "🛑 RESCUE STOPPED"
+              title: "🛑 RESCUE STOPPED (v1.0.5)"
               message: >
                 Volt: {{ states('sensor.solarcust0186_battery_voltage') }}V
                 SOC: {{ states('sensor.solarcust0186_battery_charge_level') }}%
@@ -506,12 +518,19 @@ actions:
                 Discharge restored to: {{ states('number.solarcust0186_maximum_battery_discharge_current') | float(0) | round(0) }}A
                 (SOC-limited: {{ restore_discharge_a }}A | Normal: {{ discharge_a_normal }}A)
                 
+                {% if grid_charge_on %}
+                ⚡ RECOVERY CHARGING ACTIVE (LIMITED TO 5A, SolarBalance DISABLED)
+                Slow economical charging until you manually disable grid_charge
+                {% else %}
+                ✓ No recovery charging
+                {% endif %}
+                
                 ✓ Deye-02 will enforce zone limits if active
 
           - action: notify.mobile_app_jans_iphone
             data:
               title: "Rescue Complete"
-              message: "🛑 Volt: {{ states('sensor.solarcust0186_battery_voltage') }}V → {{ states('number.solarcust0186_maximum_battery_discharge_current') | float(0) | round(0) }}A"
+              message: "🛑 Volt: {{ states('sensor.solarcust0186_battery_voltage') }}V → {{ states('number.solarcust0186_maximum_battery_discharge_current') | float(0) | round(0) }}A {% if grid_charge_on %}(charging at 5A - manual stop only){% endif %}"
 
       - conditions:
           - condition: template

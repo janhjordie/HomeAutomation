@@ -1,12 +1,12 @@
-alias: "Deye-Rescue-02 v1.0.1: SOC-Based Discharge Limiter (Simplified)"
-description: "Simple SOC-based discharge limiter. Enforces power curve: 50% SOC (2500W) → 40% SOC (1200W) → 25% SOC (600W). Respects priority: EV Guard > Panic Rescue > SOC Limits. Reacts instantly to any discharge changes."
+alias: "Deye-Rescue-02 v1.0.6: SOC-Based Discharge Limiter (Authority Mode)"
+description: "🔒 AUTHORITATIVE: EXPONENTIAL curve from 15-50% SOC. More protection at low SOC, more power at high SOC. v1.0.6: Exponential + lowered floor to 15% SOC. Enforces every 15 seconds."
 
 triggers:
-  # React immediately when discharge current changes (ANY value, not just 90A)
+  # ⚡ HIGHEST PRIORITY: React IMMEDIATELY when discharge changes (any value)
   - trigger: state
     entity_id: number.solarcust0186_maximum_battery_discharge_current
   
-  # Recalculate when SOC changes
+  # React to SOC changes
   - trigger: state
     entity_id: sensor.solarcust0186_battery_charge_level
       
@@ -14,125 +14,106 @@ triggers:
   - trigger: homeassistant
     event: start
     
-  # Periodic check every 1 minute as backup
+  # 🔄 AGGRESSIVE periodic check: every 15 seconds (fast response)
   - trigger: time_pattern
-    minutes: "/1"
+    seconds: "/15"
     
 conditions: []
 
 actions:
-  # Step 1: ALWAYS show trigger notification first
-  - action: persistent_notification.create
-    data:
-      notification_id: deye_soc_limiter_trigger
-      title: "🔵 Deye-02 Triggered v1.0.1"
-      message: >-
-        ⏰ {{ now().strftime('%H:%M:%S') }}
-        
-        📊 SOC: {{ soc }}%
-        ⚡ Current: {{ current_cap }}A
-        🎯 SOC Limit: {{ soc_limit_a }}A ({{ soc_power_limit_w }}W)
-        📈 Base: {{ base_cap }}A ({{ 'Winter' if is_winter else 'Summer' }})
-        
-        🚦 Priority Flags:
-        Rescue Active: {{ states('input_boolean.deye_rescue_active') }}
-        EV Charging: {{ states('input_boolean.deye_ev_charging_active') }}
-        Connection: {{ states('binary_sensor.solarcust0186_connection_status') }}
-        
-        ✅ Will enforce: {{ (current_cap | round(0) | int) != (soc_limit_a | round(0) | int) }}
-        
-  # Step 2: Check conditions INSIDE actions
-  - condition: state
-    entity_id: binary_sensor.solarcust0186_connection_status
-    state: "on"
-    
-  - condition: template
-    value_template: "{{ current_cap > 0 }}"
-    
-  # Don't override if rescue charging is active (Deye-01 has priority)
-  - condition: template
-    value_template: "{{ states('input_boolean.deye_rescue_active') in ['off', 'unknown', 'unavailable'] }}"
-    
-  # Don't override if EV charging is active (Deye-03 has priority)
-  - condition: template
-    value_template: "{{ states('input_boolean.deye_ev_charging_active') in ['off', 'unknown', 'unavailable'] }}"
-  
-  # Step 3: Enforce SOC-based limit if different from current
-  - choose:
-      - conditions:
-          - condition: template
-            value_template: "{{ (current_cap | round(0) | int) != (soc_limit_a | round(0) | int) }}"
-        sequence:
-          - alias: Set discharge to SOC limit
-            target:
-              entity_id: number.solarcust0186_maximum_battery_discharge_current
-            data:
-              value: "{{ soc_limit_a }}"
-            action: number.set_value
-          
-          - alias: Confirm enforcement
-            data:
-              notification_id: deye_soc_limiter_enforced
-              title: "✅ Deye-02 Enforced v1.0.1"
-              message: >-
-                ⏰ {{ now().strftime('%H:%M:%S') }}
-                
-                Changed: {{ current_cap }}A → {{ soc_limit_a }}A
-                
-                📊 SOC: {{ soc }}%
-                📈 Power Limit: {{ soc_power_limit_w }}W
-                📐 Base Cap: {{ base_cap }}A ({{ 'Winter' if is_winter else 'Summer' }})
-                
-                Calculation:
-                min({{ base_cap }}A, {{ soc_limit_a }}A) = {{ soc_limit_a }}A
-            action: persistent_notification.create
-    default:
-      - alias: No change needed
+  # Calculate SOC-based limit FIRST (always required)
+  - variables:
+      # Current sensor values
+      soc: "{{ states('sensor.solarcust0186_battery_charge_level') | float(50) }}"
+      current_cap: "{{ states('number.solarcust0186_maximum_battery_discharge_current') | float(0) }}"
+      
+      # SOC-based power curve (AUTHORITATIVE - EXPONENTIAL)
+      SOC_MAX: 45           # Above this: max power
+      SOC_MIN: 15           # Below this: min power (lowered from 25!)
+      POWER_MAX: 2500       # Max power at 50% SOC
+      POWER_MIN: 800        # Min power at 15% SOC
+      BOOST: 1.05           # 5% boost for stable voltage
+      
+      # EXPONENTIAL curve: power = MIN + (MAX-MIN) × normalized²
+      # This gives more protection at low SOC, more power at high SOC
+      soc_normalized: "{{ ((soc - SOC_MIN) / (SOC_MAX - SOC_MIN)) | float }}"
+      soc_power_limit_w: >-
+        {% if soc >= SOC_MAX %}
+          {{ (POWER_MAX * BOOST) | round(0) }}
+        {% elif soc <= SOC_MIN %}
+          {{ (POWER_MIN * BOOST) | round(0) }}
+        {% else %}
+          {% set normalized = (soc - SOC_MIN) / (SOC_MAX - SOC_MIN) %}
+          {% set exponential = normalized * normalized %}
+          {{ ((POWER_MIN + (POWER_MAX - POWER_MIN) * exponential) * BOOST) | round(0) }}
+        {% endif %}
+      
+      # Convert to amps (at 48V nominal)
+      soc_limit_a: "{{ (soc_power_limit_w / 48) | round(0) }}"
+      
+      # Connection and automation states
+      is_connected: "{{ is_state('binary_sensor.solarcust0186_connection_status', 'on') }}"
+      is_discharging: "{{ current_cap > 0 }}"
+      rescue_active: "{{ is_state('input_boolean.deye_rescue_active', 'on') }}"
+      ev_active: "{{ is_state('input_boolean.deye_ev_charging_active', 'on') }}"
+
+  # DEBUG: Show why enforcement happens or skips
+  - if:
+      - condition: template
+        value_template: "{{ (current_cap | round(0) | int) != (soc_limit_a | round(0) | int) }}"
+    then:
+      - action: persistent_notification.create
         data:
-          notification_id: deye_soc_limiter_skip
-          title: "⏭️ Deye-02 Skipped v1.0.1"
-          message: >-
+          notification_id: deye_soc_limiter_needed
+          title: "⚡ Deye-02 ENFORCING v1.0.2"
+          message: >
+            📊 SOC: {{ soc | round(1) }}%
+            
+            💾 Current Discharge: {{ current_cap | round(0) }}A
+            🎯 SOC Curve Limit: {{ soc_limit_a | round(0) }}A ({{ soc_power_limit_w | round(0) }}W)
+            
+            🔒 ENFORCING: {{ current_cap | round(0) }}A → {{ soc_limit_a | round(0) }}A
+            
+            Status:
+            • Connection: {{ '✓ ON' if is_connected else '✗ OFF' }}
+            • Discharging: {{ '✓ YES' if is_discharging else '✗ NO' }}
+            • Rescue Active: {{ rescue_active }}
+            • EV Charging: {{ ev_active }}
+    else:
+      - action: persistent_notification.create
+        data:
+          notification_id: deye_soc_limiter_ok
+          title: "✅ Deye-02 OK v1.0.2"
+          message: >
+            📊 SOC: {{ soc | round(1) }}%
+            ✓ Already at limit: {{ current_cap | round(0) }}A = {{ soc_limit_a | round(0) }}A ({{ soc_power_limit_w | round(0) }}W)
+
+  # 🚨 ENFORCEMENT: Always enforce SOC limit if different (NO CONDITIONS!)
+  - if:
+      - condition: template
+        value_template: "{{ is_connected and is_discharging and (current_cap | round(0) | int) != (soc_limit_a | round(0) | int) }}"
+    then:
+      - action: number.set_value
+        target:
+          entity_id: number.solarcust0186_maximum_battery_discharge_current
+        data:
+          value: "{{ soc_limit_a }}"
+      
+      - delay: "00:00:01"
+      
+      - action: persistent_notification.create
+        data:
+          notification_id: deye_soc_limiter_confirmed
+          title: "✅ Deye-02 ENFORCED v1.0.2"
+          message: >
             ⏰ {{ now().strftime('%H:%M:%S') }}
             
-            Already at SOC limit: {{ current_cap }}A = {{ soc_limit_a }}A
+            Set: {{ current_cap | round(0) }}A → {{ soc_limit_a | round(0) }}A
             
-            📊 SOC: {{ soc }}%
-            📈 Power Limit: {{ soc_power_limit_w }}W
-        action: persistent_notification.create
+            📊 SOC: {{ soc | round(1) }}%
+            📈 Power Limit: {{ soc_power_limit_w | round(0) }}W @ 48V
+            
+            ✓ SOC Curve is NOW the authoritative source
 
 mode: queued
 max: 10
-
-variables:
-  # Base caps (seasonal)
-  BASE_WINTER_A: 60
-  BASE_SUMMER_A: 90
-  month: "{{ now().month }}"
-  is_winter: "{{ month in [10,11,12,1,2,3] }}"
-  base_cap: "{{ BASE_WINTER_A if is_winter else BASE_SUMMER_A }}"
-  
-  # SOC-based sliding power caps - balanced curve (Option C)
-  # Formula: 25% (600W) → 40% (1200W) → 50% (2500W)
-  SOC_MAX: 50           # Above this: no SOC limit (2500W)
-  SOC_MIN: 25           # Below this: hard floor (600W)
-  POWER_MAX: 2500       # Max power at 50% SOC
-  POWER_MIN: 600        # Min power at 25% SOC
-  
-  # Current sensor values
-  soc: "{{ states('sensor.solarcust0186_battery_charge_level') | float(50) }}"
-  current_cap: "{{ states('number.solarcust0186_maximum_battery_discharge_current') | float(0) }}"
-  
-  # Calculate SOC-based power limit with smooth linear curve
-  # Formula: POWER_MIN + ((SOC - SOC_MIN) / (SOC_MAX - SOC_MIN)) * (POWER_MAX - POWER_MIN)
-  # Example: 36% SOC = 1000 + ((36-25)/(50-25)) * 2000 = 1000 + (11/25) * 2000 = 1880W
-  soc_power_limit_w: >-
-    {% if soc >= SOC_MAX %}
-      {{ POWER_MAX }}
-    {% elif soc <= SOC_MIN %}
-      {{ POWER_MIN }}
-    {% else %}
-      {{ POWER_MIN + ((soc - SOC_MIN) / (SOC_MAX - SOC_MIN)) * (POWER_MAX - POWER_MIN) }}
-    {% endif %}
-  
-  # Convert power limit to amps (assuming ~48V average) and apply base cap minimum
-  soc_limit_a: "{{ [base_cap, (soc_power_limit_w / 48) | round(0)] | min }}"
