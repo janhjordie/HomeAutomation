@@ -1,4 +1,4 @@
-alias: "Deye-01 v2.4.0: Panic Rescue (Multi-Mode Voltage Protection)"
+alias: "Rescue-Panic v2.4.0: Multi-Mode Voltage Protection"
 description: "Consolidated battery rescue automation combining load-sensitive rescue (Deye-01) and emergency low-volt guard (Deye-08). Intelligently manages grid charging with multi-level volt protection, SOC limits, concurrent trigger handling, and rescue frequency tracking for adaptive learning."
 
 mode: queued

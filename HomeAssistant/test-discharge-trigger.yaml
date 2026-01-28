@@ -1,0 +1,21 @@
+alias: "TEST: Discharge Current Change Detection"
+description: "Simple test to verify discharge current entity triggers work"
+
+triggers:
+  - trigger: state
+    entity_id: number.solarcust0186_maximum_battery_discharge_current
+
+conditions: []
+
+actions:
+  - action: persistent_notification.create
+    data:
+      notification_id: test_discharge_trigger
+      title: "🔔 TEST TRIGGER WORKS!"
+      message: >-
+        Discharge current changed!
+        New value: {{ trigger.to_state.state }}A
+        Old value: {{ trigger.from_state.state }}A
+        Time: {{ now().strftime('%H:%M:%S') }}
+
+mode: queued

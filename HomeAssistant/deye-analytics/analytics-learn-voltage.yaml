@@ -1,4 +1,4 @@
-alias: "Deye-02 v1.0.0: Learn TRIG_VOLT_SOFT Daily"
+alias: "Analytics-Learn-Voltage v1.0.0: Daily Soft Threshold Learning"
 description: "Daily learning automation that calculates and updates the soft voltage trigger threshold at 06:30 based on recent data patterns."
 
 triggers:

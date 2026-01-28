@@ -1,4 +1,4 @@
-alias: "Deye-06 v1.0.0: Log til CSV (1 min)"
+alias: "Monitor-Logging v1.0.0: Battery Metrics CSV Logger"
 description: "Logs battery and inverter data to CSV file every minute for historical analysis and trending."
 
 triggers:

@@ -1,5 +1,5 @@
-alias: "Deye-03 v3.0.0: Discharge Cap (SOC-based sliding)"
-description: "Discharge current limiter with SOC-based sliding power caps. Respects priority: Deye-09 (EV) > Deye-01 (Rescue) > Deye-03 (SOC limits). Only enforces when neither rescue nor EV charging active. Max 3000W at 50% SOC, down to 1000W at 25% SOC. Checks every 30s to override external changes."
+alias: "Rescue-Discharge-Cap v4.0.0: Adaptive Power Limiting"
+description: "Smart discharge limiter with SOC-based sliding power caps, time-based conservative mode (17:00-23:00), rescue frequency learning, and load spike detection. Respects priority: EV Guard > Panic Rescue > Discharge Cap. Auto-adjusts based on rescue patterns."
 
 triggers:
   # Main trigger: discharge current number changes
@@ -98,39 +98,79 @@ actions:
           - condition: template
             value_template: "{{ (current_cap | round(0) | int) != (desired_cap | round(0) | int) }}"
         sequence:
-          - target:
+          - alias: Update load tracking for spike detection
+            action: input_number.set_value
+            target:
+              entity_id: input_number.deye_load_previous
+            data:
+              value: "{{ load }}"
+          
+          - alias: Set discharge cap with adaptive adjustment
+            target:
               entity_id: number.solarcust0186_maximum_battery_discharge_current
             data:
               value: "{{ desired_cap }}"
             action: number.set_value
-          - data:
+          
+          - alias: Send debug notification with adaptive info
+            data:
               notification_id: deye_discharge_cap_debug
-              title: "Deye-03 Discharge Cap Set"
+              title: "Rescue-Discharge-Cap v4.0.0"
               message: >-
-                SOC: {{ soc }}% | Volt: {{ volt }}V
+                SOC: {{ soc }}% | Volt: {{ volt }}V | Load: {{ load }}W
                 Zone: {{ zone_next }}
                 SOC Limit: {{ soc_limit_a }}A ({{ soc_power_limit_w }}W)
                 Desired: {{ desired_cap }}A | Was: {{ current_cap }}A
                 Base cap: {{ base_cap }}A ({{ 'Winter' if is_winter else 'Summer' }})
+                ---
+                ADAPTIVE: x{{ (adaptive_multiplier * 100) | round(0) }}%
+                Time ({{ current_hour }}h): x{{ (time_multiplier * 100) | round(0) }}% {{ '🌙' if is_evening else '☀️' }}
+                Rescues ({{ rescue_count }}): x{{ (rescue_multiplier * 100) | round(0) }}%
+                Spike (Δ{{ (load - load_prev) | round(0) }}W): x{{ (spike_multiplier * 100) | round(0) }}% {{ '⚡' if load_spike else '✓' }}
             action: persistent_notification.create
 mode: queued
 max: 10
 variables:
+  # Base caps (seasonal)
   BASE_WINTER_A: 60
   BASE_SUMMER_A: 90
   month: "{{ now().month }}"
   is_winter: "{{ month in [10,11,12,1,2,3] }}"
   base_cap: "{{ BASE_WINTER_A if is_winter else BASE_SUMMER_A }}"
+  
+  # Zone limits
   LOW_A: 60
   DEEP_A: 50
   SUPER_A: 45
   
-  # SOC-based sliding power caps - continuous linear scale
-  # 80W per percentage point: 50% (3000W) → 25% (1000W)
-  SOC_MAX: 50           # Above this: no SOC limit (3000W)
-  SOC_MIN: 25           # Below this: hard floor (1000W)
-  POWER_MAX: 3000       # Max power at 50% SOC
-  POWER_MIN: 1000       # Min power at 25% SOC (hard limit)
+  # Time-based conservative mode (17:00-23:00 = high-risk hours)
+  current_hour: "{{ now().hour }}"
+  is_evening: "{{ current_hour >= 17 and current_hour < 23 }}"
+  time_multiplier: "{{ 0.8 if is_evening else 1.0 }}"
+  
+  # Rescue frequency adaptive reduction (max 20% reduction)
+  rescue_count: "{{ states('input_number.deye_rescue_count_6h') | float(0) }}"
+  rescue_multiplier: "{{ 1 - (min(rescue_count, 4) * 0.05) }}"
+  
+  # Load spike detection (temporary reduction)
+  load_prev: "{{ states('input_number.deye_load_previous') | float(0) }}"
+  load_spike: "{{ (load - load_prev) > 2000 }}"
+  spike_multiplier: "{{ 0.7 if load_spike else 1.0 }}"
+  
+  # Combined adaptive multiplier
+  adaptive_multiplier: "{{ time_multiplier * rescue_multiplier * spike_multiplier }}"
+  
+  # SOC-based sliding power caps - continuous linear scale with adaptive adjustment
+  # Base: 80W per percentage point: 50% (3000W) → 25% (1000W)
+  # Adaptive multiplier applies time/rescue/spike adjustments
+  SOC_MAX: 50           # Above this: no SOC limit (3000W base)
+  SOC_MIN: 25           # Below this: hard floor (1000W base)
+  POWER_MAX_BASE: 3000  # Base max power at 50% SOC
+  POWER_MIN_BASE: 1000  # Base min power at 25% SOC
+  
+  # Apply adaptive multiplier to power limits
+  POWER_MAX: "{{ (3000 * adaptive_multiplier) | round(0) }}"
+  POWER_MIN: "{{ (1000 * adaptive_multiplier) | round(0) }}"
   
   volt: "{{ states('sensor.solarcust0186_battery_voltage') | float(999) }}"
   load: "{{ states('sensor.solarcust0186_load_totalpower') | float(0) }}"
