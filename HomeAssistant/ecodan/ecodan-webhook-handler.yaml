@@ -54,11 +54,9 @@ actions:
     data:
       value: "{{ trigger.json.measurements.freqNow | float(0) }}"
 
-  # === LOG GOOD CURVE SAMPLES (only in heating mode with valid data) ===
+  # === LOG ALL CURVE SAMPLES (regardless of operational state) ===
   - choose:
       - conditions:
-          - condition: template
-            value_template: "{{ (trigger.json['opState'] | default('')) == 'heating' }}"
           - condition: template
             value_template: >
               {% set st = trigger.json['status'] | default('') %}
