@@ -1,4 +1,4 @@
-# Deye-Rescue-01 v1.0.0: Helper Entities
+# Deye-Helpers v1.0.0: Helper Entities
 
 Required for adaptive power limiting and rescue coordination.
 

@@ -1,4 +1,4 @@
-alias: "Deye-Rescue-05 v1.0.0: Counter Reset (6h Window)"
+alias: "Deye-Rescue-04 v1.0.0: Counter Reset (6h Window)"
 description: "Resets the rescue counter to maintain a 6-hour rolling window for adaptive learning. This ensures deye-02's rescue frequency multiplier stays current and doesn't accumulate old rescue events indefinitely."
 
 trigger:
