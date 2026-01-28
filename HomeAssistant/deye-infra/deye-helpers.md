@@ -67,14 +67,6 @@ input_boolean:
     icon: mdi:ev-station
 ```
 
-```yaml
-input_boolean:
-  deye_defrost_detected:
-    name: "Deye Heat Pump Defrost Detected"
-    initial: off
-    icon: mdi:snowflake-alert
-```
-
 ### Load Tracking
 
 ```yaml
@@ -87,18 +79,6 @@ input_number:
     initial: 0
     unit_of_measurement: "W"
     icon: mdi:flash
-```
-
-```yaml
-input_number:
-  deye_defrost_temporary_limit:
-    name: "Deye Defrost Temporary Limit"
-    min: 0
-    max: 100
-    step: 1
-    initial: 60
-    unit_of_measurement: "A"
-    icon: mdi:gauge
 ```
 
 ### Zone Tracking
@@ -121,7 +101,5 @@ input_text:
 | `input_datetime.deye_last_rescue_time` | DateTime | Timestamp of last rescue activation |
 | `input_boolean.deye_rescue_active` | Boolean | Indicates rescue mode is active (priority system) |
 | `input_boolean.deye_ev_charging_active` | Boolean | Indicates EV charging is active (highest priority) |
-| `input_boolean.deye_defrost_detected` | Boolean | Heat pump defrost detection flag |
 | `input_number.deye_load_previous` | Number (0-10000W) | Previous load reading for spike detection |
-| `input_number.deye_defrost_temporary_limit` | Number (0-100A) | Temporary discharge limit during defrost |
 | `input_text.deye_discharge_zone` | Text | Current discharge zone (none/low/deep/super) |

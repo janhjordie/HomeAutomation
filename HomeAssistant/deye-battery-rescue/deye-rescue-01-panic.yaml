@@ -1,5 +1,5 @@
-alias: "Deye-Rescue-01 v2.4.0: Panic & Voltage Protection"
-description: "Consolidated battery rescue automation combining load-sensitive rescue (Deye-01) and emergency low-volt guard (Deye-08). Intelligently manages grid charging with multi-level volt protection, SOC limits, concurrent trigger handling, and rescue frequency tracking for adaptive learning."
+alias: "Deye-Rescue-01 v1.0.0: Panic & Voltage Protection"
+description: "Consolidated battery rescue automation combining load-sensitive rescue (Deye-01) and emergency low-volt guard (Deye-08). Intelligently manages grid charging with multi-level volt protection, SOC limits, concurrent trigger handling, and rescue frequency tracking for adaptive learning. v2.4.3: Added post-write confirmation notification showing actual discharge value after cleanup."
 
 mode: queued
 max: 10
@@ -382,6 +382,16 @@ actions:
           - condition: template
             value_template: "{{ is_load_fast or trigger.id in ['emergency_voltage','emergency_idle_low'] }}"
         sequence:
+          - action: persistent_notification.create
+            data:
+              notification_id: "{{ notify_id }}_cleanup_start"
+              title: "🔄 Cleanup Path: ACTIVE"
+              message: >
+                Trigger: {{ trigger.id }}
+                is_load_fast: {{ is_load_fast }}
+                EV active: {{ ev_active }}
+                Rescue active: {{ rescue_active }}
+          
           # Mark rescue inactive FIRST (so Deye-03 can enforce SOC limits)
           - action: input_boolean.turn_off
             target:
@@ -397,17 +407,77 @@ actions:
                     target:
                       entity_id: switch.solarcust0186_grid_charge
 
-          # Restore discharge current (Deye-03 will override if SOC limits apply)
+          # Restore discharge current with SOC-based limit (SOC limit always wins)
           - choose:
               - conditions:
                   - condition: template
                     value_template: "{{ not ev_active }}"
                 sequence:
+                  - variables:
+                      # SOC-based sliding power cap (80W per % point)
+                      # Formula: POWER_MIN + ((SOC - 25) / (50 - 25)) * (3000 - 1000)
+                      soc_current: "{{ states('sensor.solarcust0186_battery_charge_level') | float(50) }}"
+                      soc_min: 25
+                      soc_max: 50
+                      power_max_soc: 3000
+                      power_min_soc: 1000
+                      soc_power_limit_w: |
+                        {%- if soc_current >= soc_max -%}
+                          {{ power_max_soc }}
+                        {%- elif soc_current <= soc_min -%}
+                          {{ power_min_soc }}
+                        {%- else -%}
+                          {{ power_min_soc + ((soc_current - soc_min) / (soc_max - soc_min)) * (power_max_soc - power_min_soc) }}
+                        {%- endif -%}
+                      soc_limit_a: "{{ (soc_power_limit_w | float) / 48 | round(0) }}"
+                      # Restore to min of normal discharge and SOC limit
+                      restore_discharge_a: "{{ [discharge_a_normal | float, soc_limit_a | float] | min | round(0) }}"
+                      current_discharge: "{{ states('number.solarcust0186_maximum_battery_discharge_current') | float(0) }}"
+
+                  - alias: Debug notification for SOC limit calculation
+                    action: persistent_notification.create
+                    data:
+                      notification_id: "{{ notify_id }}_cleanup_debug"
+                      title: "🔧 Deye-01 Cleanup: SOC Limit Debug"
+                      message: >
+                        SOC: {{ soc_current }}%
+                        
+                        SOC Limit Calculation:
+                        Min SOC: {{ soc_min }}% | Max SOC: {{ soc_max }}%
+                        Power range: {{ power_min_soc }}W - {{ power_max_soc }}W
+                        Calculated: {{ soc_power_limit_w | round(0) }}W
+                        
+                        Current Limit: {{ soc_limit_a }}A @ 48V
+                        Normal Discharge: {{ discharge_a_normal }}A
+                        
+                        Will restore to: {{ restore_discharge_a }}A
+                        Current value: {{ current_discharge }}A
+                        
+                        Deye-02 should trigger on this write ✓
+
                   - action: number.set_value
                     target:
                       entity_id: number.solarcust0186_maximum_battery_discharge_current
                     data:
-                      value: "{{ discharge_a_normal }}"
+                      value: "{{ restore_discharge_a }}"
+
+                  - delay: "00:00:02"
+
+                  - alias: Confirm actual discharge value after write
+                    action: persistent_notification.create
+                    data:
+                      notification_id: "{{ notify_id }}_cleanup_confirm"
+                      title: "✅ Discharge Value CONFIRMED"
+                      message: >
+                        Attempted: {{ restore_discharge_a }}A
+                        Actual NOW: {{ states('number.solarcust0186_maximum_battery_discharge_current') | float(0) | round(0) }}A
+                        
+                        {% if (states('number.solarcust0186_maximum_battery_discharge_current') | float(0) | round(0)) == (restore_discharge_a | float(0) | round(0)) %}
+                        ✓ SUCCESS - Value matches
+                        {% else %}
+                        ⚠️ MISMATCH - Value was changed by another system!
+                        Likely: SolarBalance or Deye-02 override
+                        {% endif %}
 
                   - action: number.set_value
                     target:
@@ -429,12 +499,35 @@ actions:
               message: >
                 Volt: {{ states('sensor.solarcust0186_battery_voltage') }}V
                 SOC: {{ states('sensor.solarcust0186_battery_charge_level') }}%
-                Discharge restored to: {{ discharge_a_normal }}A
+                
+                Discharge restored to: {{ states('number.solarcust0186_maximum_battery_discharge_current') | float(0) | round(0) }}A
+                (SOC-limited: {{ restore_discharge_a }}A | Normal: {{ discharge_a_normal }}A)
+                
+                ✓ Deye-02 will enforce zone limits if active
 
           - action: notify.mobile_app_jans_iphone
             data:
               title: "Rescue Complete"
-              message: "🛑 Volt: {{ states('sensor.solarcust0186_battery_voltage') }}V"
+              message: "🛑 Volt: {{ states('sensor.solarcust0186_battery_voltage') }}V → {{ states('number.solarcust0186_maximum_battery_discharge_current') | float(0) | round(0) }}A"
+
+      - conditions:
+          - condition: template
+            value_template: "{{ not (is_load_fast or trigger.id in ['emergency_voltage','emergency_idle_low']) }}"
+        sequence:
+          - action: persistent_notification.create
+            data:
+              notification_id: "{{ notify_id }}_cleanup_skip"
+              title: "⏭️ Cleanup Path: SKIPPED"
+              message: >
+                Trigger: {{ trigger.id }}
+                is_load_fast: {{ is_load_fast }}
+                
+                Cleanup only runs on:
+                - load_panic, load_hard
+                - load_preemptive_load/batt_high/batt_veryhigh
+                - emergency_voltage, emergency_idle_low
+                
+                Other triggers (soft, soc_low, startup, grid_change) skip cleanup
 
 variables:
   STOP_VOLT: 50.2

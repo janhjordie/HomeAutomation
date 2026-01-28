@@ -1,0 +1,47 @@
+alias: "TEST: Force Discharge to 35A"
+description: "Simple test automation to verify discharge current control works"
+
+trigger:
+  - platform: state
+    entity_id: number.solarcust0186_maximum_battery_discharge_current
+
+condition: []
+
+action:
+  - action: persistent_notification.create
+    data:
+      notification_id: test_discharge_trigger
+      title: "🧪 TEST: Discharge Changed Detected"
+      message: >
+        Current value: {{ states('number.solarcust0186_maximum_battery_discharge_current') }}A
+        
+        Will force to 35A in 3 seconds...
+        
+        Trigger: {{ trigger.from_state.state }} → {{ trigger.to_state.state }}
+
+  - delay: "00:00:03"
+
+  - action: number.set_value
+    target:
+      entity_id: number.solarcust0186_maximum_battery_discharge_current
+    data:
+      value: 35
+
+  - delay: "00:00:02"
+
+  - action: persistent_notification.create
+    data:
+      notification_id: test_discharge_confirm
+      title: "✅ TEST: Set to 35A Complete"
+      message: >
+        Attempted: 35A
+        Actual value NOW: {{ states('number.solarcust0186_maximum_battery_discharge_current') }}A
+        
+        {% if states('number.solarcust0186_maximum_battery_discharge_current') | float(0) == 35 %}
+        ✓ SUCCESS - Control works!
+        {% else %}
+        ⚠️ FAILED - Something else changed it immediately
+        {% endif %}
+
+mode: queued
+max: 5
