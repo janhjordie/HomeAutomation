@@ -4,5 +4,12 @@
 			"path": "."
 		}
 	],
-	"settings": {}
+	"settings": {
+		"chat.tools.terminal.autoApprove": {
+			"/^python3 -c \"import yaml; yaml\\.safe_load\\(open\\('HomeAssistant/deye-battery-rescue/deye-rescue-01-panic\\.yaml'\\)\\); print\\('✅ Deye-01 v1\\.0\\.2 YAML is valid'\\)\"$/": {
+				"approve": true,
+				"matchCommandLine": true
+			}
+		}
+	}
 }
