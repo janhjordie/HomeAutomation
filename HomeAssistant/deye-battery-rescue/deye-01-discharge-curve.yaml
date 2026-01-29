@@ -75,8 +75,8 @@ actions:
       # Curve params
       SOC_MAX: 45           # Above this: flat max power
       SOC_MIN: 15           # Below this: min power (floor)
-      POWER_MAX: 2600       # Max curve power at 45% SOC (before boost)
-      POWER_MIN: 800        # Min power at 15% SOC
+      POWER_MAX: 3000       # Max curve power at 45% SOC (before boost)
+      POWER_MIN: 1000        # Min power at 15% SOC
       BOOST: 1.05           # 5% boost factor
       FLAT_DISCHARGE_A: 60  # Flat discharge above SOC_MAX
 
