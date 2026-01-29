@@ -1,0 +1,23 @@
+# Helper entities for EV charging tracking (Deye-02 v1.0.9)
+# Add these to your Home Assistant configuration.yaml:
+#
+# input_datetime: !include deye-infra/deye-ev-helpers.yaml
+# counter: !include deye-infra/deye-ev-helpers.yaml
+#
+# Or add via UI: Settings -> Devices & Services -> Helpers
+
+input_datetime:
+  deye_ev_charge_end_time:
+    name: "Deye EV Charge End Time"
+    has_date: true
+    has_time: true
+    icon: mdi:ev-station-clock
+
+counter:
+  deye_ev_webhook_count:
+    name: "Deye EV Webhook Count"
+    icon: mdi:counter
+    restore: true
+    initial: 0
+
+# Note: input_boolean.deye_ev_charging_active already exists (from Deye-03)

@@ -1,42 +1,95 @@
-alias: "Deye-Rescue-02 v1.0.6: SOC-Based Discharge Limiter (Authority Mode)"
-description: "🔒 AUTHORITATIVE: EXPONENTIAL curve from 15-50% SOC. More protection at low SOC, more power at high SOC. v1.0.6: Exponential + lowered floor to 15% SOC. Enforces every 15 seconds."
+alias: "Deye-02 v1.0.9: SOC-Based Discharge Limiter (Authority Mode)"
+description: "🔒 AUTHORITATIVE: Exponential discharge curve under SOC<45%. EV charging = 0A discharge for 1 hour per webhook. Uses real battery voltage for A calc. Enforces on change + every 15s."
+mode: queued
+max: 10
 
 triggers:
-  # ⚡ HIGHEST PRIORITY: React IMMEDIATELY when discharge changes (any value)
+  # EV charging webhook from Homey
+  - id: ev_webhook
+    trigger: webhook
+    webhook_id: deye_ev_start_easee
+
+  # React immediately if someone changes the discharge cap (SolarBalance, etc.)
   - trigger: state
     entity_id: number.solarcust0186_maximum_battery_discharge_current
-  
+
   # React to SOC changes
   - trigger: state
     entity_id: sensor.solarcust0186_battery_charge_level
-      
-  # Home Assistant startup
+
+  # HA startup
   - trigger: homeassistant
     event: start
-    
-  # 🔄 AGGRESSIVE periodic check: every 15 seconds (fast response)
+
+  # Periodic authority check
   - trigger: time_pattern
     seconds: "/15"
-    
+
 conditions: []
 
 actions:
-  # Calculate SOC-based limit FIRST (always required)
+  # Handle EV webhook first
+  - if:
+      - condition: template
+        value_template: "{{ trigger.id == 'ev_webhook' }}"
+    then:
+      # Set EV charging active flag
+      - action: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.deye_ev_charging_active
+      
+      # Set end time to 1 hour from now
+      - action: input_datetime.set_datetime
+        target:
+          entity_id: input_datetime.deye_ev_charge_end_time
+        data:
+          datetime: "{{ (now() + timedelta(hours=1)).isoformat() }}"
+      
+      # Increment webhook counter for tracking
+      - action: counter.increment
+        target:
+          entity_id: counter.deye_ev_webhook_count
+      
+      # Immediate notification
+      - action: persistent_notification.create
+        data:
+          notification_id: deye_ev_webhook_received
+          title: "⚡ EV Charging Started"
+          message: >
+            Webhook received at {{ now().strftime('%H:%M:%S') }}
+            Discharge will be 0A for 1 hour
+            End time: {{ (now() + timedelta(hours=1)).strftime('%H:%M:%S') }}
+  
   - variables:
       # Current sensor values
       soc: "{{ states('sensor.solarcust0186_battery_charge_level') | float(50) }}"
-      current_cap: "{{ states('number.solarcust0186_maximum_battery_discharge_current') | float(0) }}"
-      
-      # SOC-based power curve (AUTHORITATIVE - EXPONENTIAL)
-      SOC_MAX: 45           # Above this: max power
-      SOC_MIN: 15           # Below this: min power (lowered from 25!)
-      POWER_MAX: 2500       # Max power at 50% SOC
-      POWER_MIN: 800        # Min power at 15% SOC
-      BOOST: 1.05           # 5% boost for stable voltage
-      
-      # EXPONENTIAL curve: power = MIN + (MAX-MIN) × normalized²
-      # This gives more protection at low SOC, more power at high SOC
-      soc_normalized: "{{ ((soc - SOC_MIN) / (SOC_MAX - SOC_MIN)) | float }}"
+      batt_v: "{{ states('sensor.solarcust0186_battery_voltage') | float(48) }}"
+      current_cap_a: "{{ states('number.solarcust0186_maximum_battery_discharge_current') | float(0) }}"
+
+      # EV charging state - check if 1 hour has passed
+      ev_end_time: "{{ states('input_datetime.deye_ev_charge_end_time') }}"
+      ev_active_flag: "{{ is_state('input_boolean.deye_ev_charging_active', 'on') }}"
+      ev_time_expired: "{{ ev_end_time != 'unknown' and now() >= (ev_end_time | as_datetime) }}"
+      ev_charging: "{{ ev_active_flag and not ev_time_expired }}"
+
+      # Curve params
+      SOC_MAX: 45
+      SOC_MIN: 15
+      POWER_MAX: 2500
+      POWER_MIN: 800
+      BOOST: 1.05
+
+      # Connection state
+      is_connected: "{{ is_state('binary_sensor.solarcust0186_connection_status', 'on') }}"
+
+      # Check if EV charge timeout expired and cleanup needed
+      cleanup_ev: "{{ ev_active_flag and ev_time_expired }}"
+
+      # Determine target discharge: 0A if EV charging, otherwise SOC curve
+      # IMPORTANT: if EV/other logic sets cap to 0, do not fight it
+      cap_enabled: "{{ current_cap_a > 0 or ev_charging }}"
+
+      # Compute watts limit (exponential curve under SOC_MAX)
       soc_power_limit_w: >-
         {% if soc >= SOC_MAX %}
           {{ (POWER_MAX * BOOST) | round(0) }}
@@ -44,76 +97,72 @@ actions:
           {{ (POWER_MIN * BOOST) | round(0) }}
         {% else %}
           {% set normalized = (soc - SOC_MIN) / (SOC_MAX - SOC_MIN) %}
+          {% set normalized = [0, [normalized, 1] | min] | max %}
           {% set exponential = normalized * normalized %}
           {{ ((POWER_MIN + (POWER_MAX - POWER_MIN) * exponential) * BOOST) | round(0) }}
         {% endif %}
-      
-      # Convert to amps (at 48V nominal)
-      soc_limit_a: "{{ (soc_power_limit_w / 48) | round(0) }}"
-      
-      # Connection and automation states
-      is_connected: "{{ is_state('binary_sensor.solarcust0186_connection_status', 'on') }}"
-      is_discharging: "{{ current_cap > 0 }}"
-      rescue_active: "{{ is_state('input_boolean.deye_rescue_active', 'on') }}"
-      ev_active: "{{ is_state('input_boolean.deye_ev_charging_active', 'on') }}"
 
-  # DEBUG: Show why enforcement happens or skips
+      # Convert to amps using REAL voltage (avoid division by 0)
+      soc_limit_a: >-
+        {% set v = batt_v if batt_v > 1 else 48 %}
+        {{ (soc_power_limit_w / v) | round(0) }}
+
+      # Final target: 0A if EV charging, otherwise SOC curve limit
+      target_discharge_a: "{{ 0 if ev_charging else soc_limit_a }}"
+
+      # Only enforce if different
+      needs_enforce: "{{ (current_cap_a | round(0) | int) != (target_discharge_a | round(0) | int) }}"
+
+      # Only notify when SOC is in the curve region (below SOC_MAX) or EV active
+      notify_allowed: "{{ soc < SOC_MAX or ev_charging }}"
+
+  # Cleanup EV flag if timeout expired
   - if:
       - condition: template
-        value_template: "{{ (current_cap | round(0) | int) != (soc_limit_a | round(0) | int) }}"
+        value_template: "{{ cleanup_ev }}"
     then:
+      - action: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.deye_ev_charging_active
+      
       - action: persistent_notification.create
         data:
-          notification_id: deye_soc_limiter_needed
-          title: "⚡ Deye-02 ENFORCING v1.0.2"
+          notification_id: deye_ev_timeout
+          title: "✅ EV Charge Timeout"
           message: >
-            📊 SOC: {{ soc | round(1) }}%
-            
-            💾 Current Discharge: {{ current_cap | round(0) }}A
-            🎯 SOC Curve Limit: {{ soc_limit_a | round(0) }}A ({{ soc_power_limit_w | round(0) }}W)
-            
-            🔒 ENFORCING: {{ current_cap | round(0) }}A → {{ soc_limit_a | round(0) }}A
-            
-            Status:
-            • Connection: {{ '✓ ON' if is_connected else '✗ OFF' }}
-            • Discharging: {{ '✓ YES' if is_discharging else '✗ NO' }}
-            • Rescue Active: {{ rescue_active }}
-            • EV Charging: {{ ev_active }}
-    else:
-      - action: persistent_notification.create
-        data:
-          notification_id: deye_soc_limiter_ok
-          title: "✅ Deye-02 OK v1.0.2"
-          message: >
-            📊 SOC: {{ soc | round(1) }}%
-            ✓ Already at limit: {{ current_cap | round(0) }}A = {{ soc_limit_a | round(0) }}A ({{ soc_power_limit_w | round(0) }}W)
+            1 hour expired at {{ now().strftime('%H:%M:%S') }}
+            Discharge will resume per SOC curve
 
-  # 🚨 ENFORCEMENT: Always enforce SOC limit if different (NO CONDITIONS!)
+  # ENFORCE (authoritative)
   - if:
       - condition: template
-        value_template: "{{ is_connected and is_discharging and (current_cap | round(0) | int) != (soc_limit_a | round(0) | int) }}"
+        value_template: "{{ is_connected and cap_enabled and needs_enforce }}"
     then:
       - action: number.set_value
         target:
           entity_id: number.solarcust0186_maximum_battery_discharge_current
         data:
-          value: "{{ soc_limit_a }}"
-      
-      - delay: "00:00:01"
-      
-      - action: persistent_notification.create
-        data:
-          notification_id: deye_soc_limiter_confirmed
-          title: "✅ Deye-02 ENFORCED v1.0.2"
-          message: >
-            ⏰ {{ now().strftime('%H:%M:%S') }}
-            
-            Set: {{ current_cap | round(0) }}A → {{ soc_limit_a | round(0) }}A
-            
-            📊 SOC: {{ soc | round(1) }}%
-            📈 Power Limit: {{ soc_power_limit_w | round(0) }}W @ 48V
-            
-            ✓ SOC Curve is NOW the authoritative source
+          value: "{{ target_discharge_a }}"
 
-mode: queued
-max: 10
+      - delay: "00:00:01"
+
+      # Notify ONLY when SOC < 45% or EV active
+      - if:
+          - condition: template
+            value_template: "{{ notify_allowed }}"
+        then:
+          - action: persistent_notification.create
+            data:
+              notification_id: deye_soc_limiter_enforced
+              title: "✅ Deye-02 ENFORCED v1.0.9"
+              message: >
+                ⏰ {{ now().strftime('%H:%M:%S') }}
+                {% if ev_charging %}
+                ⚡ EV CHARGING MODE
+                Discharge: 0A (until {{ as_timestamp(ev_end_time) | timestamp_custom('%H:%M:%S') }})
+                {% else %}
+                SOC: {{ soc | round(1) }}%
+                Volt: {{ batt_v | round(2) }}V
+                Cap: {{ current_cap_a | round(0) }}A → {{ target_discharge_a | round(0) }}A
+                Limit: {{ soc_power_limit_w | round(0) }}W
+                {% endif %}

@@ -1,5 +1,5 @@
-alias: "Deye-Monitor-01 v1.0.1: Enhanced CSV Logging"
-description: "Logs battery, inverter, and automation data to CSV file every minute. Tracks rescue states, automation flags, SOC limits, and voltage conditions for conflict analysis and trending."
+alias: "Deye-Monitor-01 v1.0.2: Enhanced CSV Logging"
+description: "Logs battery, inverter, automation data, and EV charging events to CSV file every minute. Tracks rescue states, EV webhooks, discharge enforcement, SOC limits, and voltage conditions."
 
 triggers:
   - minutes: /1
@@ -27,6 +27,8 @@ variables:
   # Automation state flags
   rescue_active: "{{ states('input_boolean.deye_rescue_active') }}"
   ev_charging_active: "{{ states('input_boolean.deye_ev_charging_active') }}"
+  ev_charge_end_time: "{{ states('input_datetime.deye_ev_charge_end_time') }}"
+  ev_webhook_count: "{{ states('counter.deye_ev_webhook_count') | int(0) }}"
   
   # Current values
   soc: "{{ states('sensor.solarcust0186_battery_charge_level') | float(50) }}"
@@ -35,20 +37,23 @@ variables:
   max_charge: "{{ states('number.solarcust0186_maximum_battery_charge_current') | float(0) }}"
   max_grid_charge: "{{ states('number.solarcust0186_maximum_battery_grid_charge_current') | float(0) }}"
   
-  # SOC-based limit calculation (Deye-02 logic)
-  soc_min: 25
-  soc_max: 50
-  power_min_soc: 600
+  # SOC-based limit calculation (Deye-02 v1.0.8 exponential curve)
+  soc_min: 15
+  soc_max: 45
+  power_min_soc: 800
   power_max_soc: 2500
+  boost: 1.05
   soc_power_limit_w: >-
     {% if soc >= soc_max %}
-      {{ power_max_soc }}
+      {{ (power_max_soc * boost) | round(0) }}
     {% elif soc <= soc_min %}
-      {{ power_min_soc }}
+      {{ (power_min_soc * boost) | round(0) }}
     {% else %}
-      {{ (power_min_soc + ((soc - soc_min) / (soc_max - soc_min)) * (power_max_soc - power_min_soc)) | round(0) }}
+      {% set normalized = (soc - soc_min) / (soc_max - soc_min) %}
+      {% set exponential = normalized * normalized %}
+      {{ ((power_min_soc + (power_max_soc - power_min_soc) * exponential) * boost) | round(0) }}
     {% endif %}
-  soc_limit_a: "{{ ((soc_power_limit_w | float) / 48) | round(0) }}"
+  soc_limit_a: "{{ ((soc_power_limit_w | float) / volt if volt > 1 else 48) | round(0) }}"
   
   # Seasonal logic
   month: "{{ now().month }}"
@@ -76,7 +81,7 @@ variables:
   # Zone name
   zone: "{{ states('input_text.deye_discharge_zone') }}"
   
-  # CSV line - enhanced with automation state, SOC limits, voltage status
+  # CSV line - enhanced with EV webhook tracking
   line: >-
     {{ now().isoformat() }}, 
     soc={{ soc | round(1) }}, 
@@ -91,11 +96,11 @@ variables:
     grid_charge={{ states('switch.solarcust0186_grid_charge') }},
     rescue_active={{ rescue_active }},
     ev_charging_active={{ ev_charging_active }},
+    ev_charge_end={{ ev_charge_end_time }},
+    ev_webhook_count={{ ev_webhook_count }},
     max_discharge_a={{ max_discharge | round(0) }},
     max_charge_a={{ max_charge | round(0) }},
     max_grid_charge_a={{ max_grid_charge | round(0) }},
     soc_limit_a={{ soc_limit_a }},
     soc_power_w={{ soc_power_limit_w | round(0) }},
-    seasonal_discharge_a={{ seasonal_discharge_a }},
-    charge_guarded_a={{ max_charge_guarded }},
     is_critical_soc={{ is_critical_soc }}
