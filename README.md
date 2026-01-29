@@ -49,8 +49,8 @@ where normalized = (SOC - 15) / (45 - 15)
                                ↓
          ┌─────────────────────────────────────────┐
          │      HOME ASSISTANT - SINGLE AUTOMATION │
-         │   Deye-02: Exponential Discharge Curve  │
-         │         (Authority Mode v1.0.9)         │
+         │   Deye-01: Exponential Discharge Curve  │
+         │         (Authority Mode v1.0.10)        │
          └─────────────────────────────────────────┘
               │
               │ Enforces every 15 seconds:
@@ -82,14 +82,14 @@ OPTIONAL: HEATING SYSTEM
 ### Ultra-Simplified Architecture
 
 **Active Automations:**
-- **Deye-02 v1.0.9** — Exponential discharge curve + EV charging handler (ONLY automation needed!)
-- **Deye-04** — Counter reset for analytics (non-critical)
+- **Deye-01 v1.0.10** — Exponential discharge curve + EV charging handler (ONLY automation needed!)
+- **Deye-02 v1.0.0** — Counter reset for analytics (non-critical)
 - **CSV Logging** — Monitoring and audit trail
 
-**Disabled/Legacy:**
-- ~~Deye-01 (Voltage Rescue)~~ — Not needed with exponential curve
-- ~~Deye-03 (EV Guard)~~ — Merged into Deye-02 v1.0.9
-- ~~Deye-05 (Charge Guard)~~ — SolarBalance handles charging
+**Disabled/Archived (in archive/ folder):**
+- ~~deye-rescue-01-panic.yaml~~ — Voltage rescue not needed with exponential curve
+- ~~deye-rescue-03-ev-guard.yaml~~ — Merged into Deye-01 v1.0.10
+- ~~deye-rescue-05-lowsoc-charge-guard.yaml~~ — SolarBalance handles charging
 
 **Why So Simple?**
 The exponential curve **prevents** problems instead of **reacting** to them:
@@ -99,26 +99,31 @@ The exponential curve **prevents** problems instead of **reacting** to them:
 
 ---
 
-## 📊 Exponential Discharge Curve (Deye-02 v1.0.9)
+## 📊 Discharge Curve (Deye-01 v1.0.10)
 
-**Formula:** `power = 800 + (2500-800) × normalized² × 1.05`
+**Flat 60A above 45% SOC, exponential curve 15-45% SOC**
+
+**Formula (15-45% SOC):** `power = 800 + (2600-800) × normalized² × 1.05`
 
 ```
-SOC%  │ Normalized │ Exponential (n²) │ Power (W) │ Current @ 48V (A) │ Current @ 51V (A)
-──────┼────────────┼──────────────────┼───────────┼───────────────────┼──────────────────
-45%   │ 1.00       │ 1.00             │ 2625W     │ 55A               │ 51A
-40%   │ 0.83       │ 0.69             │ 2047W     │ 43A               │ 40A
-35%   │ 0.67       │ 0.44             │ 1516W     │ 32A               │ 30A
-30%   │ 0.50       │ 0.25             │ 1129W     │ 24A               │ 22A
-25%   │ 0.33       │ 0.11             │ 852W      │ 18A               │ 17A
-20%   │ 0.17       │ 0.03             │ 788W      │ 16A               │ 15A
-15%   │ 0.00       │ 0.00             │ 840W      │ 18A               │ 16A (floor)
-<15%  │ n/a        │ n/a              │ 840W      │ 18A               │ 16A (constant)
+SOC%  │ Mode           │ Normalized │ Exponential (n²) │ Power (W) │ Current @ 48V (A) │ Current @ 51V (A)
+──────┼────────────────┼────────────┼──────────────────┼───────────┼───────────────────┼──────────────────
+100%  │ FLAT MAX       │ n/a        │ n/a              │ 2880W     │ 60A               │ 60A
+60%   │ FLAT MAX       │ n/a        │ n/a              │ 2880W     │ 60A               │ 60A
+45%   │ TRANSITION     │ 1.00       │ 1.00             │ 2730W     │ 57A               │ 54A
+40%   │ Exponential    │ 0.83       │ 0.69             │ 2110W     │ 44A               │ 41A
+35%   │ Exponential    │ 0.67       │ 0.44             │ 1567W     │ 33A               │ 31A
+30%   │ Exponential    │ 0.50       │ 0.25             │ 1313W     │ 27A               │ 26A
+25%   │ Exponential    │ 0.33       │ 0.11             │ 1036W     │ 22A               │ 20A
+20%   │ Exponential    │ 0.17       │ 0.03             │ 884W      │ 18A               │ 17A
+15%   │ FLOOR          │ 0.00       │ 0.00             │ 840W      │ 18A               │ 16A
+<15%  │ FLOOR          │ n/a        │ n/a              │ 840W      │ 18A               │ 16A (constant)
 ```
 
 **Key Features:**
-- **15-45% SOC Range:** 30% usable capacity (was 25-50% = 25%)
-- **Exponential Protection:** More aggressive limiting at low SOC
+- **Flat 60A above 45% SOC:** Full power when battery is healthy (45-100%)
+- **Exponential Protection (15-45% SOC):** More aggressive limiting at low SOC
+- **15-45% SOC Range:** 30% usable capacity with protection
 - **Real Voltage Calculation:** Uses actual battery voltage (not fixed 48V)
 - **5% Boost Factor:** Voltage proven stable, allows slightly more power
 - **LiFePO4 Optimized:** 8,000+ cycle life expectancy
@@ -176,9 +181,10 @@ SOC%  │ Normalized │ Exponential (n²) │ Power (W) │ Current @ 48V (A) �
 1. **Copy automation files:**
    ```bash
    # Main automation (ONLY file needed!)
-   cp HomeAssistant/deye-battery-rescue/deye-rescue-02-discharge-cap.yaml ~/.config/homeassistant/automations/
+   cp HomeAssistant/deye-battery-rescue/deye-01-discharge-curve.yaml ~/.config/homeassistant/automations/
    
    # Optional: Analytics & monitoring
+   cp HomeAssistant/deye-battery-rescue/deye-02-counter-reset.yaml ~/.config/homeassistant/automations/
    cp HomeAssistant/deye-analytics/deye-monitor-01-logging.yaml ~/.config/homeassistant/automations/
    cp HomeAssistant/deye-analytics/deye-analytics-01-learn-voltage.yaml ~/.config/homeassistant/automations/
    ```
@@ -222,13 +228,13 @@ SOC%  │ Normalized │ Exponential (n²) │ Power (W) │ Current @ 48V (A) �
 ## 📋 Key Files
 
 ### Active Automations
-- **[deye-rescue-02-discharge-cap.yaml](HomeAssistant/deye-battery-rescue/deye-rescue-02-discharge-cap.yaml)** — ⭐ **MAIN SOLUTION** — Exponential discharge curve + EV charging (v1.0.9)
-- **[deye-rescue-04-counter-reset.yaml](HomeAssistant/deye-battery-rescue/deye-rescue-04-counter-reset.yaml)** — Optional: Rescue frequency tracking
+- **[deye-01-discharge-curve.yaml](HomeAssistant/deye-battery-rescue/deye-01-discharge-curve.yaml)** — ⭐ **MAIN SOLUTION** — Discharge curve (60A flat >45%, exponential 15-45%) + EV charging (v1.0.10)
+- **[deye-02-counter-reset.yaml](HomeAssistant/deye-battery-rescue/deye-02-counter-reset.yaml)** — Optional: Rescue frequency tracking (v1.0.0)
 
-### Legacy/Disabled Automations
-- **[deye-rescue-01-panic.yaml](HomeAssistant/deye-battery-rescue/deye-rescue-01-panic.yaml)** — ❌ DISABLED — Voltage-based emergency rescue (not needed)
-- **[deye-rescue-03-ev-guard.yaml](HomeAssistant/deye-battery-rescue/deye-rescue-03-ev-guard.yaml)** — ❌ DISABLED — Merged into Deye-02 v1.0.9
-- **[deye-rescue-05-lowsoc-charge-guard.yaml](HomeAssistant/deye-battery-rescue/deye-rescue-05-lowsoc-charge-guard.yaml)** — ❌ DISABLED — SolarBalance handles charging
+### Archived Automations (archive/ folder)
+- **[archive/deye-rescue-01-panic.yaml](HomeAssistant/deye-battery-rescue/archive/deye-rescue-01-panic.yaml)** — ❌ ARCHIVED — Voltage-based emergency rescue (not needed)
+- **[archive/deye-rescue-03-ev-guard.yaml](HomeAssistant/deye-battery-rescue/archive/deye-rescue-03-ev-guard.yaml)** — ❌ ARCHIVED — Merged into Deye-01 v1.0.10
+- **[archive/deye-rescue-05-lowsoc-charge-guard.yaml](HomeAssistant/deye-battery-rescue/archive/deye-rescue-05-lowsoc-charge-guard.yaml)** — ❌ ARCHIVED — SolarBalance handles charging
 
 ### Configuration
 - **[deye-ev-helpers.yaml](HomeAssistant/deye-infra/deye-ev-helpers.yaml)** — EV charging helper entities
@@ -253,7 +259,7 @@ SOC%  │ Normalized │ Exponential (n²) │ Power (W) │ Current @ 48V (A) �
 **Real-time feedback when SOC < 45% or EV charging:**
 
 - ⚡ **EV Charging Started** — Webhook received, discharge set to 0A for 1 hour
-- ✅ **Deye-02 Enforced** — Discharge current changed to comply with SOC curve or EV mode
+- ✅ **Deye-01 Enforced** — Discharge current changed to comply with SOC curve or EV mode
 - ✅ **EV Charge Timeout** — 1 hour expired, discharge resumed per SOC curve
 
 **Key info shown:**
@@ -296,7 +302,7 @@ Check [.github/copilot-instructions.md](.github/copilot-instructions.md) for tro
 - SolarBalance may update inverter settings (we override when needed)
 
 ### Step 2: Calculate (When Triggered)
-Deye-02 v1.0.9 fires on:
+Deye-01 v1.0.10 fires on:
 - **EV webhook** received from Homey
 - Discharge current changes (ANY value)
 - SOC changes
@@ -336,7 +342,7 @@ Else:
 ```
 
 ### Step 4: Monitor Again
-- SolarBalance may change discharge → Deye-02 detects within 15s → Corrects it
+- SolarBalance may change discharge → Deye-01 detects within 15s → Corrects it
 - Voltage stays stable → No emergency intervention needed
 - EV timeout expires → Auto-cleanup, resume curve
 
@@ -350,13 +356,14 @@ Else:
 **Tested Results (January 2026):**
 - ✅ **Voltage stable at 50.9V** even at 20% SOC
 - ✅ **971W output at 20% SOC** with no collapse
-- ✅ **Zero rescues needed** for 30+ minutes with only Deye-02 active
-- ✅ **15-45% SOC range** = 30% usable capacity (was 25%)
-- ✅ **Deye-01/03/05 disabled** — exponential curve is the complete solution
+- ✅ **Zero rescues needed** for 30+ minutes with only Deye-01 active
+- ✅ **Full 60A power when SOC > 45%** (healthy battery)
+- ✅ **15-45% SOC range** = 30% usable capacity with exponential protection
+- ✅ **All legacy rescues archived** — discharge curve is the complete solution
 
 ### Version Management
-- **Current Production:** Deye-02 v1.0.9
-- **Always increment PATCH version on changes** (1.0.9 → 1.0.10)
+- **Current Production:** Deye-01 v1.0.10
+- **Always increment PATCH version on changes** (1.0.10 → 1.0.11)
 - Version appears in automation alias AND notification titles
 
 ### YAML Validation
@@ -368,7 +375,7 @@ python3 -c "import yaml; yaml.safe_load(open('file.yaml'))"
 ### SolarBalance Compatibility
 This automation **coexists with SolarBalance:**
 - SolarBalance updates inverter every 1-15 minutes (grid optimization)
-- Deye-02 overrides discharge within 15 seconds (battery protection)
+- Deye-01 overrides discharge within 15 seconds (battery protection)
 - SolarBalance handles all charging (no interference)
 - No conflicts — our discharge protection is faster
 
@@ -411,5 +418,5 @@ This repository is shared to help others with Deye hybrid inverters and Rosen Ba
 ---
 
 **Last Updated:** January 29, 2026  
-**Current Version:** Deye-02 v1.0.9 (Exponential Curve + EV Integration)  
+**Current Version:** Deye-01 v1.0.10 (Flat 60A >45% + Exponential 15-45% + EV Integration)  
 **Status:** Production-Ready — Single automation solution proven stable
