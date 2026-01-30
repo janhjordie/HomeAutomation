@@ -50,7 +50,7 @@ where normalized = (SOC - 15) / (45 - 15)
          ┌─────────────────────────────────────────┐
          │      HOME ASSISTANT - SINGLE AUTOMATION │
          │   Deye-01: Exponential Discharge Curve  │
-         │         (Authority Mode v1.0.10)        │
+         │         (Authority Mode v1.0.19)        │
          └─────────────────────────────────────────┘
               │
               │ Enforces every 15 seconds:
@@ -82,7 +82,7 @@ OPTIONAL: HEATING SYSTEM
 ### Ultra-Simplified Architecture
 
 **Active Automations:**
-- **Deye-01 v1.0.10** — Exponential discharge curve + EV charging handler (ONLY automation needed!)
+- **Deye-01 v1.0.19** — Exponential discharge curve + EV charging handler + 60A hard cap (ONLY automation needed!)
 - **Deye-02 v1.0.0** — Counter reset for analytics (non-critical)
 - **CSV Logging** — Monitoring and audit trail
 
@@ -99,31 +99,33 @@ The exponential curve **prevents** problems instead of **reacting** to them:
 
 ---
 
-## 📊 Discharge Curve (Deye-01 v1.0.10)
+## 📊 Discharge Curve (Deye-01 v1.0.19)
 
-**Flat 60A above 45% SOC, exponential curve 15-45% SOC**
+**Flat 60A from 100-40% SOC, exponential curve 10-40% SOC, 60A absolute maximum**
 
-**Formula (15-45% SOC):** `power = 800 + (2600-800) × normalized² × 1.05`
+**Formula (10-40% SOC):** `power = 800 + (3000-800) × normalized² × 1.05`
 
 ```
 SOC%  │ Mode           │ Normalized │ Exponential (n²) │ Power (W) │ Current @ 48V (A) │ Current @ 51V (A)
 ──────┼────────────────┼────────────┼──────────────────┼───────────┼───────────────────┼──────────────────
-100%  │ FLAT MAX       │ n/a        │ n/a              │ 2880W     │ 60A               │ 60A
-60%   │ FLAT MAX       │ n/a        │ n/a              │ 2880W     │ 60A               │ 60A
-45%   │ TRANSITION     │ 1.00       │ 1.00             │ 2730W     │ 57A               │ 54A
-40%   │ Exponential    │ 0.83       │ 0.69             │ 2110W     │ 44A               │ 41A
-35%   │ Exponential    │ 0.67       │ 0.44             │ 1567W     │ 33A               │ 31A
-30%   │ Exponential    │ 0.50       │ 0.25             │ 1313W     │ 27A               │ 26A
-25%   │ Exponential    │ 0.33       │ 0.11             │ 1036W     │ 22A               │ 20A
-20%   │ Exponential    │ 0.17       │ 0.03             │ 884W      │ 18A               │ 17A
-15%   │ FLOOR          │ 0.00       │ 0.00             │ 840W      │ 18A               │ 16A
-<15%  │ FLOOR          │ n/a        │ n/a              │ 840W      │ 18A               │ 16A (constant)
+100%  │ FLAT MAX       │ n/a        │ n/a              │ 2880W     │ 60A (HARD CAP)    │ 60A (HARD CAP)
+80%   │ FLAT MAX       │ n/a        │ n/a              │ 2880W     │ 60A (HARD CAP)    │ 60A (HARD CAP)
+60%   │ FLAT MAX       │ n/a        │ n/a              │ 2880W     │ 60A (HARD CAP)    │ 60A (HARD CAP)
+40%   │ TRANSITION     │ 1.00       │ 1.00             │ 3150W     │ 60A (capped)      │ 60A (capped)
+35%   │ Exponential    │ 0.83       │ 0.69             │ 2425W     │ 51A               │ 48A
+30%   │ Exponential    │ 0.67       │ 0.44             │ 1843W     │ 38A               │ 36A
+25%   │ Exponential    │ 0.50       │ 0.25             │ 1418W     │ 30A               │ 28A
+20%   │ Exponential    │ 0.33       │ 0.11             │ 1083W     │ 23A               │ 21A
+15%   │ Exponential    │ 0.17       │ 0.03             │ 909W      │ 19A               │ 18A
+10%   │ FLOOR          │ 0.00       │ 0.00             │ 840W      │ 18A               │ 16A
+<10%  │ FLOOR          │ n/a        │ n/a              │ 840W      │ 18A               │ 16A (constant)
 ```
 
 **Key Features:**
-- **Flat 60A above 45% SOC:** Full power when battery is healthy (45-100%)
-- **Exponential Protection (15-45% SOC):** More aggressive limiting at low SOC
-- **15-45% SOC Range:** 30% usable capacity with protection
+- **Flat 60A from 100-40% SOC:** Full power when battery is healthy (40-100%)
+- **60A Absolute Maximum:** Hard cap prevents SolarBalance from setting excessive discharge (was setting 90A)
+- **Exponential Protection (10-40% SOC):** More aggressive limiting at low SOC
+- **10-40% SOC Range:** 30% usable capacity with protection
 - **Real Voltage Calculation:** Uses actual battery voltage (not fixed 48V)
 - **5% Boost Factor:** Voltage proven stable, allows slightly more power
 - **LiFePO4 Optimized:** 8,000+ cycle life expectancy
