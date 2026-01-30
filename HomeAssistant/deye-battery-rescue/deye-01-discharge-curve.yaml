@@ -1,5 +1,5 @@
-alias: "Deye-01 v1.0.10: SOC-Based Discharge Limiter (Authority Mode)"
-description: "🔒 AUTHORITATIVE: Flat 60A above 45% SOC, exponential curve 15-45% SOC. EV charging = 0A for 1 hour. Uses real battery voltage. Enforces every 15s."
+alias: "Deye-01 v1.0.11: SOC-Based Discharge Limiter (Authority Mode + Voltage Protection)"
+description: "🔒 AUTHORITATIVE: Flat 60A above 40% SOC, exponential curve 10-40% SOC. EV charging = 0A for 1 hour. Adaptive voltage rate limiting. Enforces every 15s."
 mode: queued
 max: 10
 
@@ -73,12 +73,40 @@ actions:
       ev_charging: "{{ ev_active_flag and not ev_time_expired }}"
 
       # Curve params
-      SOC_MAX: 45           # Above this: flat max power
-      SOC_MIN: 15           # Below this: min power (floor)
-      POWER_MAX: 3000       # Max curve power at 45% SOC (before boost)
-      POWER_MIN: 1000        # Min power at 15% SOC
+      SOC_MAX: 40           # Above this: flat max power
+      SOC_MIN: 10           # Below this: min power (floor)
+      POWER_MAX: 3000       # Max curve power at 40% SOC (before boost)
+      POWER_MIN: 800        # Min power at 10% SOC
       BOOST: 1.05           # 5% boost factor
       FLAT_DISCHARGE_A: 60  # Flat discharge above SOC_MAX
+
+      # Voltage protection params
+      prev_volt: "{{ states('input_number.deye_previous_voltage') | float(batt_v) }}"
+      volt_delta: "{{ batt_v - prev_volt }}"
+      volt_rate_per_min: "{{ (volt_delta / 15) * 60 }}"  # V/min change rate
+
+      # Voltage penalty calculation (hybrid: threshold + rate)
+      volt_penalty_threshold: >-
+        {% if batt_v < 49.5 %}
+          15
+        {% elif batt_v < 50.0 %}
+          10
+        {% elif batt_v < 50.5 and soc < SOC_MAX %}
+          5
+        {% else %}
+          0
+        {% endif %}
+      
+      volt_penalty_rate: >-
+        {% if volt_rate_per_min < -0.4 %}
+          10
+        {% elif volt_rate_per_min < -0.2 %}
+          5
+        {% else %}
+          0
+        {% endif %}
+      
+      volt_penalty_a: "{{ [volt_penalty_threshold | int, volt_penalty_rate | int] | max }}"
 
       # Connection state
       is_connected: "{{ is_state('binary_sensor.solarcust0186_connection_status', 'on') }}"
@@ -112,8 +140,11 @@ actions:
           {{ (soc_power_limit_w / v) | round(0) }}
         {% endif %}
 
-      # Final target: 0A if EV charging, otherwise SOC curve limit
-      target_discharge_a: "{{ 0 if ev_charging else soc_limit_a }}"
+      # Apply voltage penalty to SOC limit (never below 15A minimum)
+      voltage_protected_limit_a: "{{ [soc_limit_a - volt_penalty_a, 15] | max }}"
+
+      # Final target: 0A if EV charging, otherwise voltage-protected limit
+      target_discharge_a: "{{ 0 if ev_charging else voltage_protected_limit_a }}"
 
       # Only enforce if different
       needs_enforce: "{{ (current_cap_a | round(0) | int) != (target_discharge_a | round(0) | int) }}"
@@ -149,6 +180,13 @@ actions:
         data:
           value: "{{ target_discharge_a }}"
 
+      # Store current voltage for next rate calculation
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.deye_previous_voltage
+        data:
+          value: "{{ batt_v }}"
+
       - delay: "00:00:01"
 
       # Notify ONLY when SOC < 45% or EV active
@@ -167,11 +205,14 @@ actions:
                 Discharge: 0A (until {{ as_timestamp(ev_end_time) | timestamp_custom('%H:%M:%S') }})
                 {% else %}
                 SOC: {{ soc | round(1) }}%
-                Volt: {{ batt_v | round(2) }}V
+                Volt: {{ batt_v | round(2) }}V (Δ {{ volt_delta | round(2) }}V, {{ volt_rate_per_min | round(2) }}V/min)
                 Cap: {{ current_cap_a | round(0) }}A → {{ target_discharge_a | round(0) }}A
                 {% if soc >= SOC_MAX %}
                 Mode: FLAT MAX (60A)
                 {% else %}
                 Limit: {{ soc_power_limit_w | round(0) }}W (exponential curve)
+                {% if volt_penalty_a > 0 %}
+                ⚠️ Voltage penalty: -{{ volt_penalty_a }}A ({{ voltage_protected_limit_a }}A enforced)
+                {% endif %}
                 {% endif %}
                 {% endif %}

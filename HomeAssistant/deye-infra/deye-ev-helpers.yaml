@@ -1,8 +1,9 @@
-# Helper entities for EV charging tracking (Deye-02 v1.0.9)
+# Helper entities for EV charging + voltage rate tracking (Deye-01 v1.0.11)
 # Add these to your Home Assistant configuration.yaml:
 #
 # input_datetime: !include deye-infra/deye-ev-helpers.yaml
 # counter: !include deye-infra/deye-ev-helpers.yaml
+# input_number: !include deye-infra/deye-ev-helpers.yaml
 #
 # Or add via UI: Settings -> Devices & Services -> Helpers
 
@@ -19,5 +20,15 @@ counter:
     icon: mdi:counter
     restore: true
     initial: 0
+
+input_number:
+  deye_previous_voltage:
+    name: "Deye Previous Voltage"
+    min: 40
+    max: 60
+    step: 0.01
+    mode: box
+    unit_of_measurement: "V"
+    icon: mdi:sine-wave
 
 # Note: input_boolean.deye_ev_charging_active already exists (from Deye-03)

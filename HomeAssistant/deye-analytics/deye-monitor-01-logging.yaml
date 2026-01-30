@@ -1,5 +1,5 @@
-alias: "Deye-Monitor-01 v1.0.2: Enhanced CSV Logging"
-description: "Logs battery, inverter, automation data, and EV charging events to CSV file every minute. Tracks rescue states, EV webhooks, discharge enforcement, SOC limits, and voltage conditions."
+alias: "Deye-Monitor-01 v1.0.4: Enhanced CSV Logging"
+description: "Logs battery, inverter, automation data, EV charging, and voltage rate tracking to CSV every minute. Essential for evaluating voltage protection effectiveness."
 
 triggers:
   - minutes: /1
@@ -24,8 +24,7 @@ variables:
   batt_discharge_w: "{{ batt_w if batt_w > 0 else 0 }}"
   batt_charge_w: "{{ (batt_w * -1) if batt_w < 0 else 0 }}"
   
-  # Automation state flags
-  rescue_active: "{{ states('input_boolean.deye_rescue_active') }}"
+  # Automation state flags (EV charging only)
   ev_charging_active: "{{ states('input_boolean.deye_ev_charging_active') }}"
   ev_charge_end_time: "{{ states('input_datetime.deye_ev_charge_end_time') }}"
   ev_webhook_count: "{{ states('counter.deye_ev_webhook_count') | int(0) }}"
@@ -37,15 +36,15 @@ variables:
   max_charge: "{{ states('number.solarcust0186_maximum_battery_charge_current') | float(0) }}"
   max_grid_charge: "{{ states('number.solarcust0186_maximum_battery_grid_charge_current') | float(0) }}"
   
-  # SOC-based limit calculation (Deye-02 v1.0.8 exponential curve)
-  soc_min: 15
-  soc_max: 45
+  # SOC-based limit calculation (Deye-01 v1.0.11 exponential curve)
+  soc_min: 10
+  soc_max: 40
   power_min_soc: 800
-  power_max_soc: 2500
+  power_max_soc: 3000
   boost: 1.05
   soc_power_limit_w: >-
     {% if soc >= soc_max %}
-      {{ (power_max_soc * boost) | round(0) }}
+      {{ (60 * volt) | round(0) }}
     {% elif soc <= soc_min %}
       {{ (power_min_soc * boost) | round(0) }}
     {% else %}
@@ -54,6 +53,34 @@ variables:
       {{ ((power_min_soc + (power_max_soc - power_min_soc) * exponential) * boost) | round(0) }}
     {% endif %}
   soc_limit_a: "{{ ((soc_power_limit_w | float) / volt if volt > 1 else 48) | round(0) }}"
+  
+  # Voltage rate tracking (for voltage protection evaluation)
+  prev_volt: "{{ states('input_number.deye_previous_voltage') | float(volt) }}"
+  volt_delta: "{{ volt - prev_volt }}"
+  volt_rate_per_min: "{{ (volt_delta / 1) * 1 if volt_delta != 0 else 0 }}"  # Change per minute
+  
+  # Voltage penalty calculation (matches Deye-01 logic)
+  volt_penalty_threshold: >-
+    {% if volt < 49.5 %}
+      15
+    {% elif volt < 50.0 %}
+      10
+    {% elif volt < 50.5 and soc < soc_max %}
+      5
+    {% else %}
+      0
+    {% endif %}
+  volt_penalty_rate: >-
+    {% set rate_per_min = (volt_delta / 1) * 1 %}
+    {% if rate_per_min < -0.4 %}
+      10
+    {% elif rate_per_min < -0.2 %}
+      5
+    {% else %}
+      0
+    {% endif %}
+  volt_penalty_a: "{{ [volt_penalty_threshold | int, volt_penalty_rate | int] | max }}"
+  voltage_protected_limit_a: "{{ [soc_limit_a - volt_penalty_a, 15] | max }}"
   
   # Seasonal logic
   month: "{{ now().month }}"
@@ -81,11 +108,13 @@ variables:
   # Zone name
   zone: "{{ states('input_text.deye_discharge_zone') }}"
   
-  # CSV line - enhanced with EV webhook tracking
+  # CSV line - EV webhook tracking + voltage rate protection data
   line: >-
     {{ now().isoformat() }}, 
     soc={{ soc | round(1) }}, 
     volt={{ volt | round(2) }}, 
+    volt_delta={{ volt_delta | round(3) }},
+    volt_rate_per_min={{ volt_rate_per_min | round(3) }},
     volt_status={{ volt_status }},
     batt_w={{ batt_w }}, 
     batt_mode={{ batt_mode }}, 
@@ -94,7 +123,6 @@ variables:
     load_w={{ states('sensor.solarcust0186_load_totalpower') }},
     zone={{ zone }}, 
     grid_charge={{ states('switch.solarcust0186_grid_charge') }},
-    rescue_active={{ rescue_active }},
     ev_charging_active={{ ev_charging_active }},
     ev_charge_end={{ ev_charge_end_time }},
     ev_webhook_count={{ ev_webhook_count }},
@@ -102,5 +130,7 @@ variables:
     max_charge_a={{ max_charge | round(0) }},
     max_grid_charge_a={{ max_grid_charge | round(0) }},
     soc_limit_a={{ soc_limit_a }},
+    volt_penalty_a={{ volt_penalty_a }},
+    voltage_protected_limit_a={{ voltage_protected_limit_a }},
     soc_power_w={{ soc_power_limit_w | round(0) }},
     is_critical_soc={{ is_critical_soc }}
