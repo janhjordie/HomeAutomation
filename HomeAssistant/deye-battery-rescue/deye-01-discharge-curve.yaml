@@ -1,4 +1,4 @@
-alias: "Deye-01 v1.0.19: SOC-Based Discharge Limiter (Authority Mode + Voltage Protection)"
+alias: "Deye-01 v1.0.20: SOC-Based Discharge Limiter (Authority Mode + Voltage Protection)"
 description: "🔒 AUTHORITATIVE: Flat 60A above 40% SOC, exponential curve 10-40% SOC. EV charging = 0A for 1 hour. Adaptive voltage rate limiting. Enforces every 15s."
 mode: queued
 max: 10
@@ -159,8 +159,8 @@ actions:
       # Safety violation: someone set it above the hard cap
       safety_violation: "{{ current_cap_a > FLAT_DISCHARGE_A and soc >= SOC_MAX }}"
 
-      # Notify if: below 40% SOC, EV active, OR safety violation being corrected
-      notify_allowed: "{{ soc <= SOC_MAX or ev_charging or (safety_violation and needs_enforce) }}"
+      # Notify if: below 40% SOC or EV active
+      notify_allowed: "{{ soc <= SOC_MAX or ev_charging }}"
 
   # Cleanup EV flag if timeout expired
   - if:
@@ -178,27 +178,6 @@ actions:
           message: >
             1 hour expired at {{ now().strftime('%H:%M:%S') }}
             Discharge will resume per SOC curve
-
-  # Log safety violations ALWAYS (before enforcement check)
-  - if:
-      - condition: template
-        value_template: "{{ safety_violation }}"
-    then:
-      - action: persistent_notification.create
-        data:
-          notification_id: deye_safety_diagnostic
-          title: "🔍 SAFETY VIOLATION DETECTED v1.0.19"
-          message: >
-            ⏰ {{ now().strftime('%H:%M:%S') }}
-            Current: {{ current_cap_a | round(0) }}A
-            Target: {{ target_discharge_a | round(0) }}A
-            SOC: {{ soc | round(1) }}%
-            
-            ENFORCEMENT CONDITIONS:
-            ✓ needs_enforce: {{ needs_enforce }}
-            {{ '✓' if cap_enabled else '✗' }} cap_enabled: {{ cap_enabled }}
-            
-            WILL {{ 'ENFORCE' if (cap_enabled and needs_enforce) else 'NOT ENFORCE - CHECK cap_enabled' }}
 
   # ENFORCE (authoritative)
   - if:
@@ -228,16 +207,10 @@ actions:
           - action: persistent_notification.create
             data:
               notification_id: deye_soc_limiter_enforced
-              title: "{{ '⚠️ SAFETY LIMIT' if safety_violation else '✅ Deye-01 ENFORCED' }} v1.0.19"
+              title: "✅ Deye-01 ENFORCED v1.0.20"
               message: >
                 ⏰ {{ now().strftime('%H:%M:%S') }}
-                {% if safety_violation %}
-                🚨 CORRECTED EXCESSIVE DISCHARGE
-                SOC: {{ soc | round(1) }}% (>40% = max 60A enforced)
-                Volt: {{ batt_v | round(2) }}V
-                Was: {{ current_cap_a | round(0) }}A → Now: {{ target_discharge_a | round(0) }}A
-                Source: Likely SolarBalance or manual override
-                {% elif ev_charging %}
+                {% if ev_charging %}
                 ⚡ EV CHARGING MODE
                 Discharge: 0A (until {{ (ev_end_time | as_timestamp(0)) | timestamp_custom('%H:%M:%S', 'N/A') }})
                 {% else %}
