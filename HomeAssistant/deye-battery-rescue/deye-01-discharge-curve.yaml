@@ -1,101 +1,75 @@
-alias: "Deye-01 v1.0.20: SOC-Based Discharge Limiter (Authority Mode + Voltage Protection)"
-description: "🔒 AUTHORITATIVE: Flat 60A above 40% SOC, exponential curve 10-40% SOC. EV charging = 0A for 1 hour. Adaptive voltage rate limiting. Enforces every 15s."
-mode: queued
-max: 10
-
+alias: >-
+  Deye-01 v1.0.22: SOC-Based Discharge Limiter (Authority Mode + Voltage
+  Protection)
+description: >-
+  🔒 AUTHORITATIVE: Flat 60A above 40% SOC, exponential curve 10-40% SOC. EV
+  charging = 0A for 1 hour. Adaptive voltage rate limiting. Enforces every 15s.
 triggers:
-  # EV charging webhook from Homey
   - id: ev_webhook
     trigger: webhook
     webhook_id: deye_ev_start_easee
-
-  # React immediately if someone changes the discharge cap (SolarBalance, etc.)
   - id: discharge_changed
     trigger: state
     entity_id: number.solarcust0186_maximum_battery_discharge_current
-
-  # React to SOC changes
   - id: soc_changed
     trigger: state
     entity_id: sensor.solarcust0186_battery_charge_level
-
-  # HA startup
   - id: ha_start
     trigger: homeassistant
     event: start
-
-  # Periodic authority check
   - id: periodic
     trigger: time_pattern
-    seconds: "/15"
-
+    seconds: /15
 conditions: []
-
 actions:
-  # Handle EV webhook first
   - if:
       - condition: template
         value_template: "{{ trigger.id == 'ev_webhook' }}"
     then:
-      # Set EV charging active flag
       - action: input_boolean.turn_on
         target:
           entity_id: input_boolean.deye_ev_charging_active
-      
-      # Set end time to 1 hour from now
       - action: input_datetime.set_datetime
         target:
           entity_id: input_datetime.deye_ev_charge_end_time
         data:
           datetime: "{{ (now() + timedelta(hours=1)).isoformat() }}"
-      
-      # Increment webhook counter for tracking
       - action: counter.increment
         target:
           entity_id: counter.deye_ev_webhook_count
-      
-      # Immediate notification
       - action: persistent_notification.create
         data:
           notification_id: deye_ev_webhook_received
-          title: "⚡ EV Charging Started"
+          title: ⚡ EV Charging Started
           message: >
-            Webhook received at {{ now().strftime('%H:%M:%S') }}
-            Discharge will be 0A for 1 hour
-            End time: {{ (now() + timedelta(hours=1)).strftime('%H:%M:%S') }}
-  
+            Webhook received at {{ now().strftime('%H:%M:%S') }} Discharge will
+            be 0A for 1 hour End time: {{ (now() +
+            timedelta(hours=1)).strftime('%H:%M:%S') }}
   - variables:
-      # Current sensor values
       soc: "{{ states('sensor.solarcust0186_battery_charge_level') | float(50) }}"
       batt_v: "{{ states('sensor.solarcust0186_battery_voltage') | float(48) }}"
-      current_cap_a: "{{ states('number.solarcust0186_maximum_battery_discharge_current') | float(0) }}"
-
-      # EV charging state - check if 1 hour has passed
+      current_cap_a: >-
+        {{ states('number.solarcust0186_maximum_battery_discharge_current') |
+        float(0) }}
       ev_end_time: "{{ states('input_datetime.deye_ev_charge_end_time') }}"
       ev_active_flag: "{{ is_state('input_boolean.deye_ev_charging_active', 'on') }}"
-      ev_time_expired: >
+      ev_time_expired: |
         {% if ev_end_time == 'unknown' or ev_end_time == '' %}
           true
         {% else %}
           {{ now() >= (strptime(ev_end_time, '%Y-%m-%d %H:%M:%S') | as_local) }}
         {% endif %}
       ev_charging: "{{ ev_active_flag and not ev_time_expired }}"
-
-      # Curve params
-      SOC_MAX: 40           # Above this: flat max power
-      SOC_MIN: 10           # Below this: min power (floor)
-      POWER_MAX: 3000       # Max curve power at 40% SOC (before boost)
-      POWER_MIN: 800        # Min power at 10% SOC
-      BOOST: 1.05           # 5% boost factor
-      FLAT_DISCHARGE_A: 60  # Flat discharge above SOC_MAX
-
-      # Voltage protection params
+      SOC_MAX: 40
+      SOC_MIN: 20
+      POWER_MAX: 3000
+      POWER_MIN: 900
+      BOOST: 1.05
+      FLAT_DISCHARGE_A: 60
       prev_volt: "{{ states('input_number.deye_previous_voltage') | float(batt_v) }}"
       volt_delta: "{{ batt_v - prev_volt }}"
-      volt_rate_per_min: "{{ (volt_delta / 15) * 60 }}"  # V/min change rate
-
-      # Voltage penalty calculation (hybrid: threshold + rate)
-      volt_penalty_threshold: >-
+      volt_rate_per_min: "{{ (volt_delta / 15) * 60 }}"
+      volt_penalty_threshold: |-
         {% if batt_v < 49.5 %}
           15
         {% elif batt_v < 50.0 %}
@@ -105,8 +79,7 @@ actions:
         {% else %}
           0
         {% endif %}
-      
-      volt_penalty_rate: >-
+      volt_penalty_rate: |-
         {% if volt_rate_per_min < -0.4 %}
           10
         {% elif volt_rate_per_min < -0.2 %}
@@ -114,18 +87,10 @@ actions:
         {% else %}
           0
         {% endif %}
-      
       volt_penalty_a: "{{ [volt_penalty_threshold | int, volt_penalty_rate | int] | max }}"
-
-      # Check if EV charge timeout expired and cleanup needed
       cleanup_ev: "{{ ev_active_flag and ev_time_expired }}"
-
-      # Determine target discharge: 0A if EV charging, otherwise SOC curve
-      # IMPORTANT: if EV/other logic sets cap to 0, do not fight it
       cap_enabled: "{{ current_cap_a > 0 or ev_charging }}"
-
-      # Compute watts limit (flat 60A above SOC_MAX, exponential curve below)
-      soc_power_limit_w: >-
+      soc_power_limit_w: |-
         {% if soc >= SOC_MAX %}
           {{ (FLAT_DISCHARGE_A * batt_v) | round(0) }}
         {% elif soc <= SOC_MIN %}
@@ -136,33 +101,19 @@ actions:
           {% set exponential = normalized * normalized %}
           {{ ((POWER_MIN + (POWER_MAX - POWER_MIN) * exponential) * BOOST) | round(0) }}
         {% endif %}
-
-      # Convert to amps using REAL voltage (avoid division by 0)
-      # CRITICAL SAFETY: Cap at FLAT_DISCHARGE_A (60A) regardless of power curve calculation
-      soc_limit_a: >-
-        {% set v = batt_v if batt_v > 1 else 48 %}
-        {% if soc >= SOC_MAX %}
+      soc_limit_a: |-
+        {% set v = batt_v if batt_v > 1 else 48 %} {% if soc >= SOC_MAX %}
           {{ FLAT_DISCHARGE_A }}
         {% else %}
           {{ [((soc_power_limit_w / v) | round(0)), FLAT_DISCHARGE_A] | min }}
         {% endif %}
-
-      # Apply voltage penalty to SOC limit (never below 15A minimum)
       voltage_protected_limit_a: "{{ [soc_limit_a - volt_penalty_a, 15] | max }}"
-
-      # Final target: 0A if EV charging, otherwise voltage-protected limit
-      target_discharge_a: "{{ 0 if ev_charging else voltage_protected_limit_a }}"
-
-      # Only enforce if different
-      needs_enforce: "{{ (current_cap_a | round(0) | int) != (target_discharge_a | round(0) | int) }}"
-
-      # Safety violation: someone set it above the hard cap
+      target_discharge_a: "{{ 0 if (ev_charging or batt_v < 50 or soc <= SOC_MIN) else voltage_protected_limit_a }}"
+      needs_enforce: >-
+        {{ (current_cap_a | round(0) | int) != (target_discharge_a | round(0) |
+        int) }}
       safety_violation: "{{ current_cap_a > FLAT_DISCHARGE_A and soc >= SOC_MAX }}"
-
-      # Notify if: below 40% SOC or EV active
       notify_allowed: "{{ soc <= SOC_MAX or ev_charging }}"
-
-  # Cleanup EV flag if timeout expired
   - if:
       - condition: template
         value_template: "{{ cleanup_ev }}"
@@ -170,16 +121,13 @@ actions:
       - action: input_boolean.turn_off
         target:
           entity_id: input_boolean.deye_ev_charging_active
-      
       - action: persistent_notification.create
         data:
           notification_id: deye_ev_timeout
-          title: "✅ EV Charge Timeout"
+          title: ✅ EV Charge Timeout
           message: >
-            1 hour expired at {{ now().strftime('%H:%M:%S') }}
-            Discharge will resume per SOC curve
-
-  # ENFORCE (authoritative)
+            1 hour expired at {{ now().strftime('%H:%M:%S') }} Discharge will
+            resume per SOC curve
   - if:
       - condition: template
         value_template: "{{ cap_enabled and needs_enforce }}"
@@ -189,17 +137,12 @@ actions:
           entity_id: number.solarcust0186_maximum_battery_discharge_current
         data:
           value: "{{ target_discharge_a }}"
-
-      # Store current voltage for next rate calculation
       - action: input_number.set_value
         target:
           entity_id: input_number.deye_previous_voltage
         data:
           value: "{{ batt_v }}"
-
       - delay: "00:00:01"
-
-      # Notify ONLY when SOC < 45% or EV active
       - if:
           - condition: template
             value_template: "{{ notify_allowed }}"
@@ -207,22 +150,18 @@ actions:
           - action: persistent_notification.create
             data:
               notification_id: deye_soc_limiter_enforced
-              title: "✅ Deye-01 ENFORCED v1.0.20"
+              title: ✅ Deye-01 ENFORCED v1.0.22
               message: >
-                ⏰ {{ now().strftime('%H:%M:%S') }}
-                {% if ev_charging %}
-                ⚡ EV CHARGING MODE
-                Discharge: 0A (until {{ (ev_end_time | as_timestamp(0)) | timestamp_custom('%H:%M:%S', 'N/A') }})
-                {% else %}
-                SOC: {{ soc | round(1) }}%
-                Volt: {{ batt_v | round(2) }}V (Δ {{ volt_delta | round(2) }}V, {{ volt_rate_per_min | round(2) }}V/min)
-                Cap: {{ current_cap_a | round(0) }}A → {{ target_discharge_a | round(0) }}A
-                {% if soc >= SOC_MAX %}
-                Mode: FLAT MAX (60A)
-                {% else %}
-                Limit: {{ soc_power_limit_w | round(0) }}W (exponential curve)
-                {% if volt_penalty_a > 0 %}
-                ⚠️ Voltage penalty: -{{ volt_penalty_a }}A ({{ voltage_protected_limit_a }}A enforced)
-                {% endif %}
-                {% endif %}
-                {% endif %}
+                ⏰ {{ now().strftime('%H:%M:%S') }} {% if ev_charging %} ⚡ EV
+                CHARGING MODE Discharge: 0A (until {{ (ev_end_time |
+                as_timestamp(0)) | timestamp_custom('%H:%M:%S', 'N/A') }}) {%
+                else %} SOC: {{ soc | round(1) }}% Volt: {{ batt_v | round(2)
+                }}V (Δ {{ volt_delta | round(2) }}V, {{ volt_rate_per_min |
+                round(2) }}V/min) Cap: {{ current_cap_a | round(0) }}A → {{
+                target_discharge_a | round(0) }}A {% if soc >= SOC_MAX %} Mode:
+                FLAT MAX (60A) {% else %} Limit: {{ soc_power_limit_w | round(0)
+                }}W (exponential curve) {% if volt_penalty_a > 0 %} ⚠️ Voltage
+                penalty: -{{ volt_penalty_a }}A ({{ voltage_protected_limit_a
+                }}A enforced) {% endif %} {% endif %} {% endif %}
+mode: queued
+max: 10
