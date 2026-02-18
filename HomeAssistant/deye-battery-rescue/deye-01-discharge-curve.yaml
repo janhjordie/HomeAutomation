@@ -1,9 +1,9 @@
 alias: >-
-  Deye-01 v1.0.22: SOC-Based Discharge Limiter (Authority Mode + Voltage
-  Protection)
-description: >-
-  🔒 AUTHORITATIVE: Flat 60A above 40% SOC, exponential curve 10-40% SOC. EV
-  charging = 0A for 1 hour. Adaptive voltage rate limiting. Enforces every 15s.
+  Deye-01 v1.0.38: SOC-Based Discharge Limiter (15-30% Curve, Voltage-Safe)
+description: >
+  🔒 AUTHORITATIVE: Voltage protection ALWAYS active (49.8-51.2V zones).
+  SOC curve: Flat 60A above 30%, exponential 15-30%, min 600W below 15%.
+  Final limit = min(voltage_limit, soc_limit) × derating. Enforces every 15s.
 triggers:
   - id: ev_webhook
     trigger: webhook
@@ -60,36 +60,32 @@ actions:
           {{ now() >= (strptime(ev_end_time, '%Y-%m-%d %H:%M:%S') | as_local) }}
         {% endif %}
       ev_charging: "{{ ev_active_flag and not ev_time_expired }}"
-      SOC_MAX: 40
-      SOC_MIN: 20
-      POWER_MAX: 3000
-      POWER_MIN: 900
+      SOC_MAX: 30
+      SOC_MIN: 15
+      POWER_MAX: 3500
+      POWER_MIN: 600
       BOOST: 1.05
       FLAT_DISCHARGE_A: 60
       prev_volt: "{{ states('input_number.deye_previous_voltage') | float(batt_v) }}"
       volt_delta: "{{ batt_v - prev_volt }}"
       volt_rate_per_min: "{{ (volt_delta / 15) * 60 }}"
-      volt_penalty_threshold: |-
-        {% if batt_v < 49.5 %}
-          15
-        {% elif batt_v < 50.0 %}
-          10
-        {% elif batt_v < 50.5 and soc < SOC_MAX %}
-          5
-        {% else %}
-          0
-        {% endif %}
-      volt_penalty_rate: |-
-        {% if volt_rate_per_min < -0.4 %}
-          10
-        {% elif volt_rate_per_min < -0.2 %}
-          5
-        {% else %}
-          0
-        {% endif %}
-      volt_penalty_a: "{{ [volt_penalty_threshold | int, volt_penalty_rate | int] | max }}"
+      is_low_soc_zone: "{{ soc < 30 }}"
+      fast_voltage_drop: "{{ volt_rate_per_min < -0.25 }}"
       cleanup_ev: "{{ ev_active_flag and ev_time_expired }}"
-      cap_enabled: "{{ current_cap_a > 0 or ev_charging }}"
+      voltage_hard_limit_w: |-
+        {% if batt_v < 49.8 %}
+          50
+        {% elif batt_v < 50.2 %}
+          300
+        {% elif batt_v < 50.5 %}
+          600
+        {% elif batt_v < 50.8 %}
+          900
+        {% elif batt_v < 51.2 %}
+          1200
+        {% else %}
+          9999
+        {% endif %}
       soc_power_limit_w: |-
         {% if soc >= SOC_MAX %}
           {{ (FLAT_DISCHARGE_A * batt_v) | round(0) }}
@@ -101,14 +97,21 @@ actions:
           {% set exponential = normalized * normalized %}
           {{ ((POWER_MIN + (POWER_MAX - POWER_MIN) * exponential) * BOOST) | round(0) }}
         {% endif %}
-      soc_limit_a: |-
-        {% set v = batt_v if batt_v > 1 else 48 %} {% if soc >= SOC_MAX %}
-          {{ FLAT_DISCHARGE_A }}
+      voltage_protected_w: "{{ [voltage_hard_limit_w, soc_power_limit_w] | min }}"
+      soc_derating: |-
+        {% if is_low_soc_zone and batt_v < 51.0 %}
+          0.7
+        {% elif fast_voltage_drop and batt_v < 51.5 %}
+          0.6
         {% else %}
-          {{ [((soc_power_limit_w / v) | round(0)), FLAT_DISCHARGE_A] | min }}
+          1.0
         {% endif %}
-      voltage_protected_limit_a: "{{ [soc_limit_a - volt_penalty_a, 15] | max }}"
-      target_discharge_a: "{{ 0 if (ev_charging or batt_v < 50 or soc <= SOC_MIN) else voltage_protected_limit_a }}"
+      final_power_limit_w: "{{ (voltage_protected_w * soc_derating) | round(0) }}"
+      soc_limit_a: |-
+        {% set v = [batt_v, 48] | max %}
+        {{ [(final_power_limit_w / v) | round(0), FLAT_DISCHARGE_A] | min }}
+      target_discharge_a: "{{ 0 if ev_charging else soc_limit_a }}"
+      cap_enabled: "{{ target_discharge_a > 0 or current_cap_a > 0 or ev_charging }}"
       needs_enforce: >-
         {{ (current_cap_a | round(0) | int) != (target_discharge_a | round(0) |
         int) }}
@@ -150,18 +153,22 @@ actions:
           - action: persistent_notification.create
             data:
               notification_id: deye_soc_limiter_enforced
-              title: ✅ Deye-01 ENFORCED v1.0.22
+              title: ✅ Deye-01 ENFORCED v1.0.38
               message: >
                 ⏰ {{ now().strftime('%H:%M:%S') }} {% if ev_charging %} ⚡ EV
                 CHARGING MODE Discharge: 0A (until {{ (ev_end_time |
                 as_timestamp(0)) | timestamp_custom('%H:%M:%S', 'N/A') }}) {%
                 else %} SOC: {{ soc | round(1) }}% Volt: {{ batt_v | round(2)
                 }}V (Δ {{ volt_delta | round(2) }}V, {{ volt_rate_per_min |
-                round(2) }}V/min) Cap: {{ current_cap_a | round(0) }}A → {{
-                target_discharge_a | round(0) }}A {% if soc >= SOC_MAX %} Mode:
-                FLAT MAX (60A) {% else %} Limit: {{ soc_power_limit_w | round(0)
-                }}W (exponential curve) {% if volt_penalty_a > 0 %} ⚠️ Voltage
-                penalty: -{{ volt_penalty_a }}A ({{ voltage_protected_limit_a
-                }}A enforced) {% endif %} {% endif %} {% endif %}
+                round(2) }}V/min) {% if fast_voltage_drop %} 🚨 FAST DROP (-{{
+                (volt_rate_per_min * -1) | round(2) }}V/min) {% endif %} Power:
+                {{ final_power_limit_w | round(0) }}W (volt={{ voltage_hard_limit_w }}W, soc={{ soc_power_limit_w }}W → {{ voltage_protected_w }}W ×
+                {{ soc_derating }}x) Zone: {{ 'NORMAL' if batt_v >= 51.2 else
+                ('SOFT1' if batt_v >= 50.6 else ('SOFT2' if batt_v >= 50.2 else
+                ('CRITICAL' if batt_v >= 49.8 else 'CUTOFF'))) }} Cap: {{
+                current_cap_a | round(0) }}A → {{ target_discharge_a | round(0)
+                }}A {% if soc >= SOC_MAX %} Mode: FLAT MAX (60A) {% else %} {%
+                if is_low_soc_zone %} ⚠️ Low SOC derating (0.7x) {% endif %} {%
+                endif %} {% endif %}
 mode: queued
 max: 10
