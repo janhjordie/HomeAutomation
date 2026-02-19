@@ -31,4 +31,35 @@ input_number:
     unit_of_measurement: "V"
     icon: mdi:sine-wave
 
+  deye_voltage_lockout_until:
+    name: "Deye Voltage Lockout Until"
+    min: 0
+    max: 9999999999
+    step: 1
+    mode: box
+    icon: mdi:lock-clock
+
+input_boolean:
+  deye_voltage_lockout_active:
+    name: "Deye Voltage Lockout Active"
+    initial: false
+    icon: mdi:battery-lock
+
+  deye_critical_voltage_recovery_lock:
+    name: "Deye Critical Voltage Recovery Lock"
+    initial: false
+    icon: mdi:lock-alert
+    description: "Locks discharge during voltage floor (<46.5V). Automatically releases when voltage exceeds 51.5V."
+
+input_select:
+  deye_recovery_mode:
+    name: "Deye Battery Recovery Mode"
+    options:
+      - "normal"
+      - "recoverable"
+      - "critical"
+    initial: "normal"
+    icon: mdi:battery-heart
+    description: "Tracks battery state during voltage floor: normal=active, recoverable=1A limit (SOC>=25%), critical=0A lock (SOC<25%)"
+
 # Note: input_boolean.deye_ev_charging_active already exists (from Deye-03)

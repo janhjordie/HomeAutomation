@@ -61,11 +61,11 @@ variables:
   
   # Voltage penalty calculation (matches Deye-01 logic)
   volt_penalty_threshold: >-
-    {% if volt < 49.5 %}
+    {% if volt < 48.0 %}
       15
-    {% elif volt < 50.0 %}
+    {% elif volt < 48.5 %}
       10
-    {% elif volt < 50.5 and soc < soc_max %}
+    {% elif volt < 49.0 %}
       5
     {% else %}
       0

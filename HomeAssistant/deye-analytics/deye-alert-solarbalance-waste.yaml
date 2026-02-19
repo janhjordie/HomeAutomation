@@ -1,0 +1,38 @@
+alias: Deye-Alert v1.0.0: SolarBalance Waste Detection
+description: >
+  Alert when battery is high (>80%), discharge cap is high (>100A), 
+  but actual discharge is low (<500W) while importing from grid (>1kW).
+  This indicates SolarBalance is blocking discharge unnecessarily.
+triggers:
+  - trigger: template
+    value_template: |
+      {% set soc = states('sensor.solarcust0186_battery_charge_level') | float(0) %}
+      {% set cap_a = states('number.solarcust0186_maximum_battery_discharge_current') | float(0) %}
+      {% set actual_discharge = states('sensor.solarcust0186_battery_power') | float(0) %}
+      {% set grid_import = states('sensor.solarcust0186_load_totalpower') | float(0) - states('sensor.solarcust0186_pv_totalpower') | float(0) - actual_discharge %}
+      {{ soc > 80 and cap_a > 100 and actual_discharge < 500 and grid_import > 1000 }}
+    for: "00:02:00"
+conditions: []
+actions:
+  - variables:
+      soc: "{{ states('sensor.solarcust0186_battery_charge_level') | float(0) }}"
+      cap_a: "{{ states('number.solarcust0186_maximum_battery_discharge_current') | float(0) }}"
+      actual_discharge: "{{ states('sensor.solarcust0186_battery_power') | float(0) }}"
+      grid_import: "{{ (states('sensor.solarcust0186_load_totalpower') | float(0) - states('sensor.solarcust0186_pv_totalpower') | float(0) - actual_discharge) | round(0) }}"
+  - action: persistent_notification.create
+    data:
+      notification_id: deye_solarbalance_waste
+      title: ⚠️ SolarBalance Blocking Discharge
+      message: |
+        🔋 Battery: {{ soc | round(0) }}% ({{ cap_a | round(0) }}A cap allowed)
+        ⚡ Actual discharge: {{ actual_discharge | round(0) }}W
+        🏠 Grid import: {{ grid_import | round(0) }}W
+        
+        💰 WASTING MONEY: Buying grid power while battery is full!
+        
+        Likely cause: SolarBalance controlling work mode.
+        Check inverter display for current work mode.
+        
+        Time: {{ now().strftime('%H:%M:%S') }}
+mode: single
+max_exceeded: silent
