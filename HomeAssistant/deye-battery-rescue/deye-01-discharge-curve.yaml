@@ -1,11 +1,11 @@
 alias: >-
-  Deye-01 v1.0.52: SOC-Based Discharge Limiter (Interpolated Option C Curve)
+  Deye-01 v1.0.54: SOC-Based Discharge Limiter (Interpolated Option C Curve)
 description: >
   Controls discharge using linear interpolation between SOC tiers (Option C).
   Provides smooth tapering (e.g., 43A @ 50% SOC) to preserve winter capacity.
-  DUAL-LEVEL RECOVERY LOCK (v1.0.48): 
-  - When voltage < 46.5V + SOC < 25%: CRITICAL → 0A discharge lock until 51.5V (full SolarBalance recovery)
-  - When voltage < 46.5V + SOC >= 25%: RECOVERABLE → 1A minimal discharge until 51.5V (partial protection)
+  TOTAL RECOVERY LOCK (v1.0.54): 
+  - When voltage < 47.0V: COMPLETE LOCK → 0A discharge until 51.5V (regardless of SOC)
+  - Prevents deep discharge during temporary voltage sags even if SOC > 25%.
 triggers:
   - id: ev_webhook
     trigger: webhook
@@ -88,12 +88,12 @@ actions:
       cleanup_ev: "{{ ev_active_flag and ev_time_expired }}"
       recovery_lock_active: "{{ is_state('input_boolean.deye_critical_voltage_recovery_lock', 'on') }}"
       recovery_mode: "{{ states('input_select.deye_recovery_mode') }}"
-      volt_floor_hit: "{{ batt_v < 46.5 }}"
+      volt_floor_hit: "{{ batt_v < 47.0 }}"
       is_battery_critical: "{{ volt_floor_hit and soc < 25 }}"
       is_battery_recoverable: "{{ volt_floor_hit and soc >= 25 }}"
       volt_limit_a: |-
         {% if batt_v < 47.0 %}
-          1
+          0
         {% elif batt_v < 47.2 %}
           3
         {% elif batt_v < 47.5 %}
@@ -132,7 +132,7 @@ actions:
         {% if recovery_mode == 'critical' %}
           0
         {% elif recovery_mode == 'recoverable' %}
-          1
+          0
         {% elif recovery_lock_active %}
           0
         {% elif ev_charging %}
@@ -159,7 +159,7 @@ actions:
             Discharge will resume per SOC curve
   - if:
       - condition: template
-        value_template: "{{ batt_v < 46.5 }}"
+        value_template: "{{ batt_v < 47.0 }}"
     then:
       - if:
           - condition: template
@@ -194,11 +194,11 @@ actions:
           - action: persistent_notification.create
             data:
               notification_id: deye_recoverable_voltage_floor_engaged
-              title: ⚠️ VOLTAGE FLOOR - MINIMAL DISCHARGE RESTRICTED
+              title: ⚠️ VOLTAGE FLOOR - DISCHARGE LOCKED
               message: >
-                Voltage {{ batt_v | round(2) }}V at floor, but SOC {{ soc | round(0) }}% is recoverable
-                Discharge LIMITED to 1A (minimal load only)
-                Once voltage stabilizes above 49V, restrictions ease
+                Voltage {{ batt_v | round(2) }}V at floor, SOC {{ soc | round(0) }}% is safe but voltage sag is too high.
+                Discharge LOCKED to 0A (protection mode)
+                Once voltage recovers to 51.5V, restrictions ease.
                 Time: {{ now().strftime('%H:%M:%S') }}
   - if:
       - condition: template
