@@ -1,0 +1,91 @@
+---
+alias: "Deye-Guard-03 v1.0.0: SolarBalance TOU Charge Limit Protection"
+description: >
+  Prevents SolarBalance from modifying Time Point 5 battery charge limit during
+  critical evening hours (17:00-21:00). Enforces 15% charge limit to ensure
+  battery capacity is available for peak discharge period.
+  
+  **Why:** SolarBalance may try to increase charge limit based on grid prices,
+  but this conflicts with our battery protection strategy during high-load hours.
+  
+  **When:** 17:00-21:00 (peak electricity prices + cooking + heat pump)
+  
+  **Action:** Immediately restore 15% charge limit if changed by external system.
+
+mode: queued
+max: 5
+
+trigger:
+  - platform: state
+    entity_id: number.solarcust0186_time_point_5_batt_charge_limit
+    id: charge_limit_changed
+
+condition:
+  - condition: time
+    after: "17:00:00"
+    before: "21:00:00"
+    # Only enforce during critical evening hours
+
+variables:
+  current_limit: "{{ states('number.solarcust0186_time_point_5_batt_charge_limit') | int(0) }}"
+  target_limit: 15
+  changed_from: "{{ trigger.from_state.state | int(0) }}"
+  changed_to: "{{ trigger.to_state.state | int(0) }}"
+
+action:
+  - choose:
+      # Case 1: Limit was changed away from our target (15%)
+      - conditions:
+          - condition: template
+            value_template: "{{ current_limit != target_limit }}"
+        sequence:
+          - service: logbook.log
+            data:
+              name: "Deye SolarBalance Guard"
+              message: >
+                🛡️ BLOCKING: SolarBalance changed TOU5 charge limit from {{ changed_from }}% to {{ changed_to }}%
+                during critical hours. Restoring to {{ target_limit }}%.
+              entity_id: number.solarcust0186_time_point_5_batt_charge_limit
+          
+          - delay:
+              milliseconds: 500
+          
+          - service: number.set_value
+            target:
+              entity_id: number.solarcust0186_time_point_5_batt_charge_limit
+            data:
+              value: "{{ target_limit }}"
+          
+          - service: notify.persistent_notification
+            data:
+              title: "⚡ SolarBalance Override Blocked"
+              message: >
+                Time Point 5 charge limit was changed from {{ changed_from }}% to {{ changed_to }}%
+                during peak hours ({{ now().strftime('%H:%M') }}).
+                
+                **Restored to {{ target_limit }}%** to maintain battery protection strategy.
+                
+                This prevents SolarBalance from reducing available discharge capacity during
+                17:00-21:00 critical period.
+
+      # Case 2: Already at target - log confirmation
+      - conditions:
+          - condition: template
+            value_template: "{{ current_limit == target_limit }}"
+        sequence:
+          - service: logbook.log
+            data:
+              name: "Deye SolarBalance Guard"
+              message: >
+                ✅ TOU5 charge limit change detected ({{ changed_from }}% → {{ changed_to }}%),
+                but already at target {{ target_limit }}%. No action needed.
+              entity_id: number.solarcust0186_time_point_5_batt_charge_limit
+
+    # Default: This shouldn't happen, but log for debugging
+    default:
+      - service: logbook.log
+        data:
+          name: "Deye SolarBalance Guard"
+          message: >
+            ⚠️ Unexpected state in SolarBalance guard. Current: {{ current_limit }}%,
+            Target: {{ target_limit }}%, From: {{ changed_from }}%, To: {{ changed_to }}%

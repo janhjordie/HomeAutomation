@@ -1,0 +1,18 @@
+# Helper entities for Deye battery automation communication
+# Add this to your configuration.yaml or include it in a separate helpers.yaml file
+
+input_boolean:
+  deye_emergency_charge_needed:
+    name: "Deye Emergency Charge Needed"
+    icon: mdi:battery-alert
+
+input_datetime:
+  deye_charge_start_time:
+    name: "Deye Charge Start Time"
+    has_date: true
+    has_time: true
+    
+  deye_charge_end_time:
+    name: "Deye Charge End Time"
+    has_date: true
+    has_time: true

@@ -1,0 +1,172 @@
+alias: >-
+  Deye-01 v1.0.61: Pure Discharge Limiter (SOC/Voltage Curves)
+description: >
+  Controls discharge using load-aware logic + interpolated SOC curve.
+  ADAPTIVE MODE:
+  - High Stress (Load > 2500W avg OR Temp < 2°C): Strict SOC curve (max 60A/90A)
+  - Low Stress: Relaxed 65A limit (relies on voltage floor for safety)
+  - SOC < 50%: ALWAYS enforces SOC curve regardless of load stress
+  VOLTAGE FLOOR: When voltage < 48.0V → 0A discharge + triggers charge automation
+triggers:
+  - id: discharge_changed
+    trigger: state
+    entity_id: number.solarcust0186_maximum_battery_discharge_current
+  - id: soc_changed
+    trigger: state
+    entity_id: sensor.solarcust0186_battery_charge_level
+  - id: voltage_changed
+    trigger: state
+    entity_id: sensor.solarcust0186_battery_voltage
+  - id: ha_start
+    trigger: homeassistant
+    event: start
+  - id: periodic
+    trigger: time_pattern
+    seconds: /30
+conditions: []
+actions:
+  - variables:
+      soc: "{{ states('sensor.solarcust0186_battery_charge_level') | float(50) }}"
+      batt_v: "{{ states('sensor.solarcust0186_battery_voltage') | float(48) }}"
+      current_cap_a: >-
+        {{ states('number.solarcust0186_maximum_battery_discharge_current') |
+        float(0) }}
+      is_winter: "{{ now().month in [10, 11, 12, 1, 2, 3] }}"
+      # --- Adaptive Stress Logic (New v1.0.55) ---
+      # High Load: Avg load > 2500W OR Outdoor Temp < 2°C (Heat pump working hard)
+      # If low stress: Use 65A limit (relaxed). If high stress: Use strict SOC curve.
+      load_avg: "{{ states('sensor.house_load_avg_15m') | float(states('sensor.solarcust0186_load_totalpower') | float(0)) }}"
+      outdoor_temp: "{{ states('sensor.ecodan_outdoor_avg_60m') | float(0) }}"
+      is_high_load_stress: "{{ load_avg > 2500 or outdoor_temp < 2 }}"
+      # Limit Logic:
+      # - Winter + High Stress = 60A (Protect battery)
+      # - Summer + High Stress = 90A (Full power)
+      # - Low Stress (Any season) = 65A (Relaxed limit for efficiency, overrides low SOC tiers)
+      DISCHARGE_STRATEGY_A: >-
+        {% if is_winter %}
+          {% if is_high_load_stress %} 60 {% else %} 65 {% endif %}
+        {% else %}
+          {% if is_high_load_stress %} 90 {% else %} 90 {% endif %}
+        {% endif %}
+      DISCHARGE_MAX_A: "{{ DISCHARGE_STRATEGY_A }}"
+      # --- SOC Tiers ---
+      SOC_T1: 50
+      SOC_T2: 45
+      SOC_T3: 40
+      SOC_T4: 35
+      # --- Winter Amps at Tiers ---
+      W_V1: 60
+      W_V2: 50
+      W_V3: 35
+      W_V4: 20
+      # --- Summer Amps at Tiers ---
+      S_V1: 90
+      S_V2: 70
+      S_V3: 50
+      S_V4: 30
+      POWER_MIN: 600
+      recovery_lock_active: "{{ is_state('input_boolean.deye_critical_voltage_recovery_lock', 'on') }}"
+      recovery_start_time: "{{ states('input_datetime.deye_last_rescue_time') }}"
+      recovery_time_expired: |
+        {% if recovery_start_time == 'unknown' or recovery_start_time == '' %}
+          true
+        {% else %}
+          {{ now() >= (strptime(recovery_start_time, '%Y-%m-%d %H:%M:%S') | as_local + timedelta(hours=2)) }}
+        {% endif %}
+      current_hour: "{{ now().hour }}"
+      active_tou_entity: >-
+        {% if current_hour < 6 %}
+          number.solarcust0186_time_point_1_batt_charge_limit
+        {% elif current_hour < 10 %}
+          number.solarcust0186_time_point_2_batt_charge_limit
+        {% elif current_hour < 14 %}
+          number.solarcust0186_time_point_3_batt_charge_limit
+        {% elif current_hour < 17 %}
+          number.solarcust0186_time_point_4_batt_charge_limit
+        {% elif current_hour < 21 %}
+          number.solarcust0186_time_point_5_batt_charge_limit
+        {% else %}
+          number.solarcust0186_time_point_6_batt_charge_limit
+        {% endif %}
+      active_tou_limit: "{{ states(active_tou_entity) | float(0) }}"
+      recovery_mode: "{{ states('input_select.deye_recovery_mode') }}"
+      volt_floor_hit: "{{ batt_v < 48.0 }}"
+      is_battery_critical: "{{ volt_floor_hit and soc < 35 }}"
+      is_battery_recoverable: "{{ volt_floor_hit and soc >= 35 }}"
+      volt_limit_a: |-
+        {% if batt_v < 48.0 %}
+          0
+        {% elif batt_v < 48.2 %}
+          3
+        {% elif batt_v < 48.5 %}
+          8
+        {% elif batt_v < 49.0 %}
+          15
+        {% elif batt_v < 49.5 %}
+          30
+        {% elif batt_v < 50.0 %}
+          50
+        {% else %}
+          {{ DISCHARGE_MAX_A }}
+        {% endif %}
+      soc_limit_a: |-
+        {% if not is_high_load_stress and soc >= 50 %}
+          {{ DISCHARGE_MAX_A }}
+        {% else %}
+          {% set v1 = W_V1 if is_winter else S_V1 %}
+          {% set v2 = W_V2 if is_winter else S_V2 %}
+          {% set v3 = W_V3 if is_winter else S_V3 %}
+          {% set v4 = W_V4 if is_winter else S_V4 %}
+          {% set v_min = (POWER_MIN / batt_v) | round(0) %}
+          
+          {% if soc >= SOC_T1 %}
+            {{ v1 }}
+          {% elif soc >= SOC_T2 %}
+            {% set ratio = (soc - SOC_T2) / (SOC_T1 - SOC_T2) %}
+            {{ (v2 + (v1 - v2) * ratio) | round(0) }}
+          {% elif soc >= SOC_T3 %}
+            {% set ratio = (soc - SOC_T3) / (SOC_T2 - SOC_T3) %}
+            {{ (v3 + (v2 - v3) * ratio) | round(0) }}
+          {% elif soc >= SOC_T4 %}
+            {% set ratio = (soc - SOC_T4) / (SOC_T3 - SOC_T4) %}
+            {{ (v4 + (v3 - v4) * ratio) | round(0) }}
+          {% else %}
+            {{ v_min }}
+          {% endif %}
+        {% endif %}
+      target_discharge_a: >-
+        {% if voltage_critical %}
+          0
+        {% else %}
+          {{ [soc_limit_a | int, volt_limit_a | int] | min }}
+        {% endif %}
+      needs_enforce: >-
+        {{ (current_cap_a | round(0) | int) != (target_discharge_a | round(0) |
+        int) }}
+  - if:
+      - condition: template
+        value_template: "{{ charge_automation_needed }}"
+    then:
+      - action: automation.trigger
+        target:
+          entity_id: automation.deye_01_charge_trigger
+      - action: persistent_notification.create
+        data:
+          notification_id: deye_charge_trigger_activated
+          title: 🔋 VOLTAGE CRITICAL - CHARGE TRIGGERED
+          message: >
+            Voltage {{ batt_v | round(2) }}V < 48.0V detected.
+            Discharge set to 0A. Charge automation triggered.
+            SOC: {{ soc | round(1) }}%
+            Time: {{ now().strftime('%H:%M:%S') }}
+  - if:
+      - condition: template
+        value_template: "{{ needs_enforce }}"
+    then:
+      - action: number.set_value
+        target:
+          entity_id: number.solarcust0186_maximum_battery_discharge_current
+        data:
+          value: "{{ target_discharge_a }}"
+mode: queued
+max: 10

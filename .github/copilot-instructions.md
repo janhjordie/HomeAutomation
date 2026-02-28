@@ -285,7 +285,34 @@ Used in Deye-02 to respect higher-priority rescues; if rescue_active=on, SOC lim
 
 ---
 
+## Analysis & Debugging
+
+### CSV Log Analysis Trigger
+**Use this exact phrase to trigger comprehensive battery analysis:**
+```
+"Analyze HomeAssistant/deye_weekly_log-X.csv"
+```
+
+- **Focus**: Evening period 17:00-22:00 (critical battery stress window)
+- **Output**: Auto-generates analysis report (`HomeAssistant/deye_weekly_log-X-report.md`)
+- **Key metrics**: Voltage safety, SOC patterns, discharge limiting, heat pump impact
+- **Guide**: See [DEYE-ANALYSIS-GUIDE.md](DEYE-ANALYSIS-GUIDE.md) for complete methodology
+
+### Heat Pump Curve Analysis Trigger
+**Use this exact phrase to trigger heat pump temperature curve analysis:**
+```
+"Analyze HomeAssistant/ecodan/ecodan_curve_samples-X.csv"
+```
+
+- **Focus**: Outdoor temperature vs flow temperature correlation for weather-compensated control
+- **Output**: Updates existing `HomeAssistant/ecodan/ecodan_curve.md` with new key temperature points
+- **Key metrics**: Temperature range coverage, flow temp optimization, efficiency patterns
+- **Strategy**: See [HomeAssistant/ecodan/ecodan_strategy.md](HomeAssistant/ecodan/ecodan_strategy.md) for weather-compensated control implementation
+
+---
+
 ## References
+- [DEYE-ANALYSIS-GUIDE.md](DEYE-ANALYSIS-GUIDE.md) — Complete CSV analysis methodology & framework
 - [SYSTEM-DIAGRAM.md](HomeAssistant/SYSTEM-DIAGRAM.md) — Visual automation priority & voltage curves
 - [SYSTEM-GOALS.md](HomeAssistant/SYSTEM-GOALS.md) — Operational objectives & future enhancements
 - [MIGRATION-GUIDE.md](MIGRATION-GUIDE.md) — v2.0 consolidation details

@@ -1,0 +1,93 @@
+alias: >-
+  Deye-01-Charge-Trigger v1.0.1: Emergency Battery Charging (2A for 2h)
+description: >
+  Triggered by voltage floor detection from discharge curve automation.
+  Sets TOU limits to 40%, enables 2A grid charging for 2 hours.
+  After completion, restores TOU to 90% and stops all interference.
+  SolarBalance takes over after this automation completes.
+triggers:
+  - trigger: state
+    entity_id: input_boolean.deye_emergency_charge_needed
+    to: "on"
+conditions:
+  - condition: numeric_state
+    entity_id: sensor.solarcust0186_battery_voltage
+    below: 48.5
+actions:
+  - variables:
+      batt_v: "{{ states('sensor.solarcust0186_battery_voltage') | float(48) }}"
+      soc: "{{ states('sensor.solarcust0186_battery_charge_level') | float(50) }}"
+      start_time: "{{ now().isoformat() }}"
+      end_time: "{{ (now() + timedelta(hours=2)).isoformat() }}"
+  - action: input_datetime.set_datetime
+    target:
+      entity_id: input_datetime.deye_charge_start_time
+    data:
+      datetime: "{{ start_time }}"
+  - action: input_datetime.set_datetime
+    target:
+      entity_id: input_datetime.deye_charge_end_time
+    data:
+      datetime: "{{ end_time }}"
+  - action: switch.turn_on
+    target:
+      entity_id: switch.solarcust0186_grid_charge
+  - action: number.set_value
+    target:
+      entity_id: number.solarcust0186_maximum_battery_grid_charge_current
+    data:
+      value: 2
+  - action: number.set_value
+    target:
+      entity_id: number.solarcust0186_maximum_battery_charge_current
+    data:
+      value: 2
+  - action: number.set_value
+    target:
+      entity_id: number.solarcust0186_time_point_5_batt_charge_limit
+    data:
+      value: 40
+  - action: number.set_value
+    target:
+      entity_id: number.solarcust0186_time_point_6_batt_charge_limit
+    data:
+      value: 40
+  - action: persistent_notification.create
+    data:
+      notification_id: deye_emergency_charge_started
+      title: 🔋 EMERGENCY CHARGE STARTED (2A for 2h)
+      message: >
+        Critical voltage {{ batt_v | round(2) }}V detected.
+        2A grid charging enabled until {{ (now() + timedelta(hours=2)).strftime('%H:%M:%S') }}
+        TOU limits set to 40% to override SolarBalance.
+        SOC: {{ soc | round(1) }}%
+        Started: {{ now().strftime('%H:%M:%S') }}
+  - delay: "02:00:00"
+  - action: switch.turn_off
+    target:
+      entity_id: switch.solarcust0186_grid_charge
+  - action: number.set_value
+    target:
+      entity_id: number.solarcust0186_time_point_5_batt_charge_limit
+    data:
+      value: 90
+  - action: number.set_value
+    target:
+      entity_id: number.solarcust0186_time_point_6_batt_charge_limit
+    data:
+      value: 90
+  - variables:
+      final_voltage: "{{ states('sensor.solarcust0186_battery_voltage') | float(48) }}"
+      final_soc: "{{ states('sensor.solarcust0186_battery_charge_level') | float(50) }}"
+  - action: persistent_notification.create
+    data:
+      notification_id: deye_emergency_charge_completed
+      title: ✅ EMERGENCY CHARGE COMPLETED - SOLARBALANCE RESUMED
+      message: >
+        2 hours of 2A charging completed.
+        Grid charge turned OFF. TOU limits restored to 90%.
+        SolarBalance will now manage charging/discharge normally.
+        Final Voltage: {{ final_voltage | round(2) }}V (was {{ batt_v | round(2) }}V)
+        Final SOC: {{ final_soc | round(1) }}% (was {{ soc | round(1) }}%)
+        Completed: {{ now().strftime('%H:%M:%S') }}
+mode: single

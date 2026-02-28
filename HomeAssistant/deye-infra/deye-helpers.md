@@ -67,6 +67,26 @@ input_boolean:
     icon: mdi:ev-station
 ```
 
+```yaml
+input_boolean:
+  deye_critical_voltage_recovery_lock:
+    name: "Deye Critical Voltage Recovery Lock"
+    initial: off
+    icon: mdi:lock-alert
+```
+
+```yaml
+input_select:
+  deye_recovery_mode:
+    name: "Deye Battery Recovery Mode"
+    options:
+      - "normal"
+      - "recoverable"
+      - "critical"
+    initial: "normal"
+    icon: mdi:shield-alert
+```
+
 ### Load Tracking
 
 ```yaml
@@ -101,5 +121,7 @@ input_text:
 | `input_datetime.deye_last_rescue_time` | DateTime | Timestamp of last rescue activation |
 | `input_boolean.deye_rescue_active` | Boolean | Indicates rescue mode is active (priority system) |
 | `input_boolean.deye_ev_charging_active` | Boolean | Indicates EV charging is active (highest priority) |
+| `input_boolean.deye_critical_voltage_recovery_lock` | Boolean | Indicates critical voltage recovery lock is active |
+| `input_select.deye_recovery_mode` | Select | Indicates the current recovery mode (normal, recoverable, critical) |
 | `input_number.deye_load_previous` | Number (0-10000W) | Previous load reading for spike detection |
 | `input_text.deye_discharge_zone` | Text | Current discharge zone (none/low/deep/super) |

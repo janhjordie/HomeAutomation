@@ -1,4 +1,4 @@
-alias: "Deye-Monitor-01 v1.0.4: Enhanced CSV Logging"
+alias: "Deye-Monitor-01 v1.0.6: Enhanced CSV Logging"
 description: "Logs battery, inverter, automation data, EV charging, and voltage rate tracking to CSV every minute. Essential for evaluating voltage protection effectiveness."
 
 triggers:
@@ -89,13 +89,13 @@ variables:
   
   # Voltage conditions
   volt_status: |-
-    {% if volt < 47.2 %}
+    {% if volt < 47.7 %}
       CRITICAL_EMERGENCY
-    {% elif volt < 47.8 %}
+    {% elif volt < 48.3 %}
       CRITICAL_LOW
-    {% elif volt < 48.5 %}
+    {% elif volt < 49.0 %}
       WARNING
-    {% elif volt < 50.0 %}
+    {% elif volt < 50.5 %}
       CAUTION
     {% else %}
       NORMAL

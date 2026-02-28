@@ -1,0 +1,9 @@
+sensor:
+  - platform: filter
+    name: "House Load Avg 15m"
+    unique_id: house_load_avg_15m
+    entity_id: sensor.solarcust0186_load_totalpower
+    filters:
+      - filter: time_simple_moving_average
+        window_size: "00:15"
+        precision: 0
