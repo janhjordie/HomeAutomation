@@ -1,10 +1,10 @@
 alias: >-
-  Deye-01 v1.0.62: Pure Discharge Limiter with Seasonal SOC Tiers
+  Deye-01 v1.0.63: Pure Discharge Limiter with Linear SOC Curves
 description: >
-  Controls discharge using load-aware logic + seasonal SOC curves.
-  SEASONAL SOC TIERS:
-  - Summer Mode (Load avg < 2200W): Relaxed SOC tiers (35/30/25/20/15%)
-  - Winter Mode (Load avg ≥ 2200W): Strict SOC tiers (50/45/40/35/25%)
+  Controls discharge using load-aware logic + linear seasonal SOC curves.
+  LINEAR SOC CURVES:
+  - Summer Mode (Load avg < 2200W): Smoothly scales 25A → 5A between 30% → 15% SOC
+  - Winter Mode (Load avg ≥ 2200W): Smoothly scales 60A → 8A between 40% → 15% SOC
   ADAPTIVE MODE:
   - High Stress (Load > 2500W avg OR Temp < 2°C): Strict SOC curve (max 60A/90A)
   - Low Stress: Relaxed 65A limit (relies on voltage floor for safety)
@@ -54,37 +54,27 @@ actions:
           {% if is_high_load_stress %} 90 {% else %} 90 {% endif %}
         {% endif %}
       DISCHARGE_MAX_A: "{{ DISCHARGE_STRATEGY_A }}"
-      # --- Seasonal SOC Tiers ---
-      # Winter SOC Tiers (High heat pump load, strict protection)
-      W_SOC_T1: 40
-      W_SOC_T2: 32
-      W_SOC_T3: 26
-      W_SOC_T4: 20
-      W_SOC_T5: 15
-      # Summer SOC Tiers (Low heat pump load, relaxed protection)
-      S_SOC_T1: 25
-      S_SOC_T2: 22
-      S_SOC_T3: 20
-      S_SOC_T4: 17
-      S_SOC_T5: 15
-      # Active SOC Tiers (based on load average)
-      SOC_T1: "{{ S_SOC_T1 if is_summer_load else W_SOC_T1 }}"
-      SOC_T2: "{{ S_SOC_T2 if is_summer_load else W_SOC_T2 }}"
-      SOC_T3: "{{ S_SOC_T3 if is_summer_load else W_SOC_T3 }}"
-      SOC_T4: "{{ S_SOC_T4 if is_summer_load else W_SOC_T4 }}"
-      SOC_T5: "{{ S_SOC_T5 if is_summer_load else W_SOC_T5 }}"
-      # --- Winter Amps at Tiers ---
-      W_V1: 60
-      W_V2: 50
-      W_V3: 35
-      W_V4: 20
-      W_V5: 8
-      # --- Summer Amps at Tiers ---
-      S_V1: 90
-      S_V2: 70
-      S_V3: 50
-      S_V4: 30
-      S_V5: 12
+      # --- Seasonal SOC Curves ---
+      # Define Start and End Points for pure linear interpolation
+      
+      # Winter Curve (Strict protection for high loads)
+      W_SOC_MAX: 40
+      W_SOC_MIN: 15
+      W_AMP_MAX: 60
+      W_AMP_MIN: 8
+
+      # Summer Curve (Relaxed protection for low loads)
+      S_SOC_MAX: 30
+      S_SOC_MIN: 15
+      S_AMP_MAX: 25
+      S_AMP_MIN: 5
+
+      # Active Curve Selection (based on load average)
+      ACTIVE_SOC_MAX: "{{ S_SOC_MAX if is_summer_load else W_SOC_MAX }}"
+      ACTIVE_SOC_MIN: "{{ S_SOC_MIN if is_summer_load else W_SOC_MIN }}"
+      ACTIVE_AMP_MAX: "{{ S_AMP_MAX if is_summer_load else W_AMP_MAX }}"
+      ACTIVE_AMP_MIN: "{{ S_AMP_MIN if is_summer_load else W_AMP_MIN }}"
+      
       POWER_MIN: 600
       # Voltage floor check - trigger charge automation if needed
       voltage_critical: "{{ batt_v < 48.0 }}"
@@ -109,30 +99,16 @@ actions:
         {% if not is_high_load_stress and soc >= 50 %}
           {{ DISCHARGE_MAX_A }}
         {% else %}
-          {% set v1 = W_V1 if is_winter else S_V1 %}
-          {% set v2 = W_V2 if is_winter else S_V2 %}
-          {% set v3 = W_V3 if is_winter else S_V3 %}
-          {% set v4 = W_V4 if is_winter else S_V4 %}
-          {% set v5 = W_V5 if is_winter else S_V5 %}
           {% set v_min_calc = (POWER_MIN / batt_v) | round(0) %}
-          {% set v_min = [v_min_calc, 5] | min %}
+          {% set v_min_absolute = [v_min_calc, ACTIVE_AMP_MIN] | min %}
           
-          {% if soc >= SOC_T1 %}
-            {{ v1 }}
-          {% elif soc >= SOC_T2 %}
-            {% set ratio = (soc - SOC_T2) / (SOC_T1 - SOC_T2) %}
-            {{ (v2 + (v1 - v2) * ratio) | round(0) }}
-          {% elif soc >= SOC_T3 %}
-            {% set ratio = (soc - SOC_T3) / (SOC_T2 - SOC_T3) %}
-            {{ (v3 + (v2 - v3) * ratio) | round(0) }}
-          {% elif soc >= SOC_T4 %}
-            {% set ratio = (soc - SOC_T4) / (SOC_T3 - SOC_T4) %}
-            {{ (v4 + (v3 - v4) * ratio) | round(0) }}
-          {% elif soc >= SOC_T5 %}
-            {% set ratio = (soc - SOC_T5) / (SOC_T4 - SOC_T5) %}
-            {{ (v5 + (v4 - v5) * ratio) | round(0) }}
+          {% if soc >= ACTIVE_SOC_MAX %}
+            {{ ACTIVE_AMP_MAX }}
+          {% elif soc <= ACTIVE_SOC_MIN %}
+            {{ v_min_absolute }}
           {% else %}
-            {{ v_min }}
+            {% set ratio = (soc - ACTIVE_SOC_MIN) / (ACTIVE_SOC_MAX - ACTIVE_SOC_MIN) %}
+            {{ (ACTIVE_AMP_MIN + (ACTIVE_AMP_MAX - ACTIVE_AMP_MIN) * ratio) | round(0) }}
           {% endif %}
         {% endif %}
       target_discharge_a: >-
