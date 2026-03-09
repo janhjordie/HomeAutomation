@@ -1,7 +1,10 @@
 // =================================================================
-// SÆT FLOW KUN FRA temperature_data_target (kun i heating mode)
-// + POST STATUS TIL HOME ASSISTANT WEBHOOK
+// POST MELCloud TELEMETRY TIL HOME ASSISTANT WEBHOOK (v1.0.0)
+// Valgfri flow-target styring kan aktiveres senere, men er slået fra
+// i room mode hvor target_temperature.flow_heat ikke bruges.
 // =================================================================
+
+const SCRIPT_VERSION       = 'v1.0.0';
 
 // --- DEVICES & VARIABLER -----------------------------------------
 const HEATPUMP_DEVICE_ID     = '4d696a96-ea94-4d7d-b97f-027e86658a80';
@@ -9,6 +12,7 @@ const HEATPUMP_SETPOINT_CAP  = 'target_temperature.flow_heat';
 const HEATPUMP_MODE_CAP      = 'operational_state';           // bruges til at tjekke “heating”
 const OUTDOOR_AVG_VAR        = 'currentOutdoorTemp';
 const TARGET_VAR_NAME        = 'temperature_data_target';     // JSON med { points:[{outdoor, avg_flow, avg_room, samples}, ...] }
+const ENABLE_FLOW_TARGET_CONTROL = false;
 
 // --- HOME ASSISTANT WEBHOOK --------------------------------------
 const HA_WEBHOOK_URL         = 'http://homeassistant.local:8123/api/webhook/melcloud_homey';
@@ -131,7 +135,26 @@ try {
   if (!Number.isFinite(outdoorRaw)) throw new Error(`Ugyldig værdi i '${OUTDOOR_AVG_VAR}': ${outVar.value}`);
   const outDeg = toOutdoorInt(outdoorRaw);
 
-  // 3) Hent temperature_data_target
+  // 3) Room mode: post kun telemetri til HA, spring flow target over.
+  if (!ENABLE_FLOW_TARGET_CONTROL) {
+    const payload = {
+      ts: runAt,
+      source: "homey",
+      device: { id: hp.id, name: hp.name },
+      status: "telemetry_only",
+      opState,
+      outdoor: outDeg,
+      measurements: {
+        flowNow, returnNow, tankNow, powerNow, freqNow,
+        flowTargetCurrent
+      }
+    };
+    await postToHA(payload);
+    log(`ℹ️ Room mode telemetry only | Ude: ${outDeg}°C | Flow nu: ${flowNow ?? 'ukendt'}°C`);
+    return payload;
+  }
+
+  // 4) Hent temperature_data_target
   const targetData = await loadTargetData();
   if (!targetData || !targetData.points.length) {
     const payload = {
@@ -151,7 +174,7 @@ try {
     return payload;
   }
 
-  // 4) Find match for aktuel udendørsgrad
+  // 5) Find match for aktuel udendørsgrad
   const point = targetData.points.find(p => Number(p?.outdoor) === outDeg);
   if (!point || !Number.isFinite(point.avg_flow)) {
     const payload = {
@@ -171,13 +194,13 @@ try {
     return payload;
   }
 
-  // 5) Brug avg_flow direkte (kun clamp)
+  // 6) Brug avg_flow direkte (kun clamp)
   const target = clamp(Number(point.avg_flow), SETPOINT_MIN, SETPOINT_MAX);
 
-  // 6) Sæt kun hvis nødvendigt
+  // 7) Sæt kun hvis nødvendigt
   const result = await setFlowTempIfDifferent(target);
 
-  // 7) Post til HA
+  // 8) Post til HA
   const payload = {
     ts: runAt,
     source: "homey",
@@ -195,7 +218,7 @@ try {
 
   await postToHA(payload);
 
-  // 8) Log & return
+  // 9) Log & return
   log(`🔥 Heating | Ude: ${outDeg}°C | Target: ${target}°C | Sent=${result.sent}`);
   return payload;
 
