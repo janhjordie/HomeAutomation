@@ -1,5 +1,5 @@
 alias: >-
-  Deye-01 v1.0.65: Pure Discharge Limiter with Linear SOC Curves
+  Deye-01 v1.0.66: Pure Discharge Limiter with Linear SOC Curves
 description: >
   Controls discharge using load-aware logic + linear seasonal SOC curves.
   LINEAR SOC CURVES:
@@ -8,7 +8,7 @@ description: >
   ADAPTIVE MODE:
   - High Stress (Load > 2500W avg OR Temp < 2°C): Strict SOC curve (max 60A/90A)
   - Low Stress: Relaxed 65A limit (relies on voltage floor for safety)
-  VOLTAGE FLOOR: When voltage < 48.0V → 0A discharge + triggers charge automation
+  VOLTAGE FLOOR: When voltage < 50.0V → 0A discharge + latches protection until SOC > 40%
 triggers:
   - id: discharge_changed
     trigger: state
@@ -76,22 +76,18 @@ actions:
       ACTIVE_AMP_MIN: "{{ S_AMP_MIN if is_summer_load else W_AMP_MIN }}"
       
       POWER_MIN: 600
+      VOLTAGE_FLOOR_V: 50.0
+      RECOVERY_SOC: 40
+      emergency_charge_latched: "{{ is_state('input_boolean.deye_emergency_charge_needed', 'on') }}"
+      recovery_ready: >-
+        {{ batt_v >= VOLTAGE_FLOOR_V and soc > RECOVERY_SOC and
+        is_state('switch.solarcust0186_grid_charge', 'off') }}
       # Voltage floor check - trigger charge automation if needed
-      voltage_critical: "{{ batt_v < 49.0 }}"
+      voltage_critical: "{{ batt_v < VOLTAGE_FLOOR_V }}"
       soc_emergency: "{{ soc <= 15 }}"
       volt_limit_a: |-
-        {% if batt_v < 48.0 %}
+        {% if batt_v < VOLTAGE_FLOOR_V %}
           0
-        {% elif batt_v < 48.2 %}
-          3
-        {% elif batt_v < 48.5 %}
-          8
-        {% elif batt_v < 49.0 %}
-          15
-        {% elif batt_v < 49.5 %}
-          30
-        {% elif batt_v < 50.0 %}
-          50
         {% else %}
           {{ DISCHARGE_MAX_A }}
         {% endif %}
@@ -108,7 +104,7 @@ actions:
           {{ (ACTIVE_AMP_MIN + (ACTIVE_AMP_MAX - ACTIVE_AMP_MIN) * ratio) | round(0) }}
         {% endif %}
       target_discharge_a: >-
-        {% if voltage_critical or soc_emergency %}
+        {% if voltage_critical or soc_emergency or emergency_charge_latched %}
           0
         {% else %}
           {{ [soc_limit_a | int, volt_limit_a | int] | min }}
@@ -118,7 +114,7 @@ actions:
         int) }}
   - if:
       - condition: template
-        value_template: "{{ (voltage_critical or soc_emergency) and not is_state('input_boolean.deye_emergency_charge_needed', 'on') }}"
+        value_template: "{{ (voltage_critical or soc_emergency) and not emergency_charge_latched }}"
     then:
       - action: input_boolean.turn_on
         target:
@@ -126,14 +122,30 @@ actions:
       - action: persistent_notification.create
         data:
           notification_id: deye_charge_trigger_activated
-          title: 🔋 CRITICAL BATTERY - CHARGE TRIGGERED
+          title: 🔋 CRITICAL BATTERY - DISCHARGE LOCKED
           message: >
             {% if voltage_critical %}
-            Voltage {{ batt_v | round(2) }}V < 48.0V detected.
+            Voltage {{ batt_v | round(2) }}V < {{ VOLTAGE_FLOOR_V }}V detected.
             {% else %}
             SOC {{ soc | round(1) }}% ≤ 15% (SolarBalance minimum) detected.
             {% endif %}
-            Discharge set to 0A. Charge automation triggered.
+            Discharge locked at 0A until SOC > {{ RECOVERY_SOC }}% and charging has stopped.
+            SOC: {{ soc | round(1) }}% | Voltage: {{ batt_v | round(2) }}V
+            Time: {{ now().strftime('%H:%M:%S') }}
+  - if:
+      - condition: template
+        value_template: "{{ emergency_charge_latched and recovery_ready and not (voltage_critical or soc_emergency) }}"
+    then:
+      - action: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.deye_emergency_charge_needed
+      - action: persistent_notification.create
+        data:
+          notification_id: deye_charge_trigger_released
+          title: ✅ BATTERY RECOVERY COMPLETE
+          message: >
+            Voltage is back above {{ VOLTAGE_FLOOR_V }}V and SOC recovered above {{ RECOVERY_SOC }}%.
+            Low-voltage discharge lock released.
             SOC: {{ soc | round(1) }}% | Voltage: {{ batt_v | round(2) }}V
             Time: {{ now().strftime('%H:%M:%S') }}
   - if:
