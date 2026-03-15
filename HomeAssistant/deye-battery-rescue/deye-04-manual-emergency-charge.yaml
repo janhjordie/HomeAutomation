@@ -1,0 +1,141 @@
+alias: >-
+  Deye-04 v1.0.1: Manual Emergency Charge Control
+description: >
+  Mirrors the manual emergency charge helper into the emergency charge latch and
+  directly writes the emergency charge entities as a fallback path.
+  Turn input_boolean.deye_manual_emergency_charge on to force the same 5A
+  recovery-charge path used by the low-voltage protection logic.
+triggers:
+  - id: manual_toggle
+    trigger: state
+    entity_id: input_boolean.deye_manual_emergency_charge
+  - id: ha_start
+    trigger: homeassistant
+    event: start
+conditions: []
+actions:
+  - variables:
+      manual_emergency_charge_active: "{{ is_state('input_boolean.deye_manual_emergency_charge', 'on') }}"
+      emergency_charge_latched: "{{ is_state('input_boolean.deye_emergency_charge_needed', 'on') }}"
+      batt_v: "{{ states('sensor.solarcust0186_battery_voltage') | float(48) }}"
+      soc: "{{ states('sensor.solarcust0186_battery_charge_level') | float(50) }}"
+      EMERGENCY_CHARGE_A: 5
+      RECOVERY_SOC: 40
+      NORMAL_TOU_LIMIT: 90
+      current_hour: "{{ now().hour }}"
+      active_tou_entity: >-
+        {% if current_hour < 6 %}
+          number.solarcust0186_time_point_1_batt_charge_limit
+        {% elif current_hour < 10 %}
+          number.solarcust0186_time_point_2_batt_charge_limit
+        {% elif current_hour < 14 %}
+          number.solarcust0186_time_point_3_batt_charge_limit
+        {% elif current_hour < 17 %}
+          number.solarcust0186_time_point_4_batt_charge_limit
+        {% elif current_hour < 21 %}
+          number.solarcust0186_time_point_5_batt_charge_limit
+        {% else %}
+          number.solarcust0186_time_point_6_batt_charge_limit
+        {% endif %}
+      emergency_tou_limit: >-
+        {% set soc_int = soc | round(0) | int %}
+        {{ [[soc_int + 5, RECOVERY_SOC] | max, 100] | min }}
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ manual_emergency_charge_active }}"
+        sequence:
+          - if:
+              - condition: template
+                value_template: "{{ not emergency_charge_latched }}"
+            then:
+              - action: input_boolean.turn_on
+                target:
+                  entity_id: input_boolean.deye_emergency_charge_needed
+          - action: switch.turn_on
+            target:
+              entity_id: switch.solarcust0186_grid_charge
+          - action: number.set_value
+            target:
+              entity_id: number.solarcust0186_maximum_battery_charge_current
+            data:
+              value: "{{ EMERGENCY_CHARGE_A }}"
+          - action: number.set_value
+            target:
+              entity_id: number.solarcust0186_maximum_battery_grid_charge_current
+            data:
+              value: "{{ EMERGENCY_CHARGE_A }}"
+          - action: number.set_value
+            target:
+              entity_id: "{{ active_tou_entity }}"
+            data:
+              value: "{{ emergency_tou_limit }}"
+          - action: number.set_value
+            target:
+              entity_id: number.solarcust0186_batt_charge_limit
+            data:
+              value: "{{ emergency_tou_limit }}"
+          - action: number.set_value
+            target:
+              entity_id: number.solarcust0186_soba_low_batt_soc_limit
+            data:
+              value: "{{ emergency_tou_limit }}"
+          - action: switch.turn_off
+            target:
+              entity_id: switch.solarcust0186_solarbalance_enabled
+            continue_on_error: true
+          - action: persistent_notification.create
+            data:
+              notification_id: deye_manual_emergency_charge_enabled
+              title: 🔧 MANUAL EMERGENCY CHARGE ENABLED
+              message: >
+                Manual emergency charge override enabled.
+                Emergency charge latch turned ON and emergency charge entities forced.
+                Grid charge: ON | Charge current: {{ EMERGENCY_CHARGE_A }}A
+                Active TOU slot {{ active_tou_entity.split('.')[-1] }}: {{ emergency_tou_limit }}%
+                SOC: {{ soc | round(1) }}% | Voltage: {{ batt_v | round(2) }}V
+                Time: {{ now().strftime('%H:%M:%S') }}
+      - conditions:
+          - condition: template
+            value_template: "{{ not manual_emergency_charge_active }}"
+        sequence:
+          - if:
+              - condition: template
+                value_template: "{{ emergency_charge_latched }}"
+            then:
+              - action: input_boolean.turn_off
+                target:
+                  entity_id: input_boolean.deye_emergency_charge_needed
+          - action: switch.turn_off
+            target:
+              entity_id: switch.solarcust0186_grid_charge
+          - action: number.set_value
+            target:
+              entity_id: "{{ active_tou_entity }}"
+            data:
+              value: "{{ NORMAL_TOU_LIMIT }}"
+          - action: number.set_value
+            target:
+              entity_id: number.solarcust0186_batt_charge_limit
+            data:
+              value: "{{ NORMAL_TOU_LIMIT }}"
+          - action: number.set_value
+            target:
+              entity_id: number.solarcust0186_soba_low_batt_soc_limit
+            data:
+              value: "{{ NORMAL_TOU_LIMIT }}"
+          - action: switch.turn_on
+            target:
+              entity_id: switch.solarcust0186_solarbalance_enabled
+            continue_on_error: true
+          - action: persistent_notification.create
+            data:
+              notification_id: deye_manual_emergency_charge_disabled
+              title: ✅ MANUAL EMERGENCY CHARGE DISABLED
+              message: >
+                Manual emergency charge override disabled.
+                Emergency charge latch turned OFF and manual emergency charge entities restored.
+                SOC: {{ soc | round(1) }}% | Voltage: {{ batt_v | round(2) }}V
+                Time: {{ now().strftime('%H:%M:%S') }}
+mode: queued
+max: 5

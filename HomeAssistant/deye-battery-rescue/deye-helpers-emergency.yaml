@@ -6,6 +6,10 @@ input_boolean:
     name: "Deye Emergency Charge Needed"
     icon: mdi:battery-alert
 
+  deye_manual_emergency_charge:
+    name: "Deye Manual Emergency Charge"
+    icon: mdi:battery-charging-high
+
 input_datetime:
   deye_charge_start_time:
     name: "Deye Charge Start Time"
