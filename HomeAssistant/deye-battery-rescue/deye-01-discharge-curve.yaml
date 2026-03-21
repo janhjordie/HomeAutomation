@@ -1,14 +1,10 @@
-alias: >-
-  Deye-01 v1.0.66: Pure Discharge Limiter with Linear SOC Curves
+alias: "Deye-01 v1.0.74: Pure Discharge Limiter with Dynamic TOU"
 description: >
-  Controls discharge using load-aware logic + linear seasonal SOC curves.
-  LINEAR SOC CURVES:
-  - Summer Mode (Load avg < 2200W): Smoothly scales 25A → 5A between 30% → 15% SOC
-  - Winter Mode (Load avg ≥ 2200W): Smoothly scales 60A → 8A between 40% → 15% SOC
-  ADAPTIVE MODE:
-  - High Stress (Load > 2500W avg OR Temp < 2°C): Strict SOC curve (max 60A/90A)
-  - Low Stress: Relaxed 65A limit (relies on voltage floor for safety)
-  VOLTAGE FLOOR: When voltage < 50.0V → 0A discharge + latches protection until SOC > 40%
+  Controls discharge with an always-on SOC curve and dynamic TOU slot
+  detection. The active TOU charge-limit entity is selected from the current
+  inverter time-point starts, and discharge is only allowed when current SOC is
+  above the active TOU limit. When TOU allows discharge, the discharge cap is
+  always enforced from the SOC curve and battery voltage.
 triggers:
   - id: discharge_changed
     trigger: state
@@ -19,6 +15,42 @@ triggers:
   - id: voltage_changed
     trigger: state
     entity_id: sensor.solarcust0186_battery_voltage
+  - id: tou_changed_1
+    trigger: state
+    entity_id: number.solarcust0186_time_point_1_batt_charge_limit
+  - id: tou_changed_2
+    trigger: state
+    entity_id: number.solarcust0186_time_point_2_batt_charge_limit
+  - id: tou_changed_3
+    trigger: state
+    entity_id: number.solarcust0186_time_point_3_batt_charge_limit
+  - id: tou_changed_4
+    trigger: state
+    entity_id: number.solarcust0186_time_point_4_batt_charge_limit
+  - id: tou_changed_5
+    trigger: state
+    entity_id: number.solarcust0186_time_point_5_batt_charge_limit
+  - id: tou_changed_6
+    trigger: state
+    entity_id: number.solarcust0186_time_point_6_batt_charge_limit
+  - id: tou_start_changed_1
+    trigger: state
+    entity_id: number.solarcust0186_time_point_1_start
+  - id: tou_start_changed_2
+    trigger: state
+    entity_id: number.solarcust0186_time_point_2_start
+  - id: tou_start_changed_3
+    trigger: state
+    entity_id: number.solarcust0186_time_point_3_start
+  - id: tou_start_changed_4
+    trigger: state
+    entity_id: number.solarcust0186_time_point_4_start
+  - id: tou_start_changed_5
+    trigger: state
+    entity_id: number.solarcust0186_time_point_5_start
+  - id: tou_start_changed_6
+    trigger: state
+    entity_id: number.solarcust0186_time_point_6_start
   - id: ha_start
     trigger: homeassistant
     event: start
@@ -33,121 +65,73 @@ actions:
       current_cap_a: >-
         {{ states('number.solarcust0186_maximum_battery_discharge_current') |
         float(0) }}
-      is_winter: "{{ now().month in [10, 11, 12, 1, 2, 3] }}"
-      # --- Adaptive Stress Logic ---
-      # High Load: Avg load > 2500W OR Outdoor Temp < 2°C (Heat pump working hard)
-      # If low stress: Use 65A limit (relaxed). If high stress: Use strict SOC curve.
-      load_avg: "{{ states('sensor.house_load_avg_15m') | float(states('sensor.solarcust0186_load_totalpower') | float(0)) }}"
+      load_avg: >-
+        {{ states('sensor.house_load_avg_15m') |
+        float(states('sensor.solarcust0186_load_totalpower') | float(0)) }}
       outdoor_temp: "{{ states('sensor.ecodan_outdoor_avg_60m') | float(0) }}"
-      # Summer/Winter Load Detection
-      SUMMER_LOAD_THRESHOLD: 2200
-      is_summer_load: "{{ load_avg < SUMMER_LOAD_THRESHOLD }}"
-      is_high_load_stress: "{{ load_avg > 2500 or outdoor_temp < 2 }}"
-      # Limit Logic:
-      # - Winter + High Stress = 60A (Protect battery)
-      # - Summer + High Stress = 90A (Full power)
-      # - Low Stress (Any season) = 65A (Relaxed limit for efficiency, overrides low SOC tiers)
-      DISCHARGE_STRATEGY_A: >-
-        {% if is_winter %}
-          {% if is_high_load_stress %} 60 {% else %} 65 {% endif %}
+      DISCHARGE_STRATEGY_A: |-
+        {% set winter = now().month in [10, 11, 12, 1, 2, 3] %}
+        {% set high_stress = (load_avg | float(0)) > 2500 or (outdoor_temp | float(0)) < 2 %}
+        {% if winter %}
+          {% if high_stress %} 60 {% else %} 65 {% endif %}
         {% else %}
-          {% if is_high_load_stress %} 90 {% else %} 90 {% endif %}
+          90
         {% endif %}
       DISCHARGE_MAX_A: "{{ DISCHARGE_STRATEGY_A }}"
-      # --- Seasonal SOC Curves ---
-      # Define Start and End Points for pure linear interpolation
-      
-      # Winter Curve (Strict protection for high loads)
-      W_SOC_MAX: 40
-      W_SOC_MIN: 15
-      W_AMP_MAX: 60
-      W_AMP_MIN: 8
-
-      # Summer Curve (Relaxed protection for low loads)
-      S_SOC_MAX: 35
-      S_SOC_MIN: 15
-      S_AMP_MAX: 45
-      S_AMP_MIN: 5
-
-      # Active Curve Selection (based on load average)
-      ACTIVE_SOC_MAX: "{{ S_SOC_MAX if is_summer_load else W_SOC_MAX }}"
-      ACTIVE_SOC_MIN: "{{ S_SOC_MIN if is_summer_load else W_SOC_MIN }}"
-      ACTIVE_AMP_MAX: "{{ S_AMP_MAX if is_summer_load else W_AMP_MAX }}"
-      ACTIVE_AMP_MIN: "{{ S_AMP_MIN if is_summer_load else W_AMP_MIN }}"
-      
+      SOC_CURVE_MAX: 50
+      SOC_CURVE_MIN: 25
+      POWER_MAX: 2500
       POWER_MIN: 600
-      VOLTAGE_FLOOR_V: 50.0
-      RECOVERY_SOC: 40
-      emergency_charge_latched: "{{ is_state('input_boolean.deye_emergency_charge_needed', 'on') }}"
-      recovery_ready: >-
-        {{ batt_v >= VOLTAGE_FLOOR_V and soc > RECOVERY_SOC and
-        is_state('switch.solarcust0186_grid_charge', 'off') }}
-      # Voltage floor check - trigger charge automation if needed
-      voltage_critical: "{{ batt_v < VOLTAGE_FLOOR_V }}"
-      soc_emergency: "{{ soc <= 15 }}"
-      volt_limit_a: |-
-        {% if batt_v < VOLTAGE_FLOOR_V %}
-          0
-        {% else %}
-          {{ DISCHARGE_MAX_A }}
-        {% endif %}
+      current_time_hhmm: "{{ now().hour * 100 + now().minute }}"
+      active_tou_entity: >-
+        {% set schedule = [
+          {'start': states('number.solarcust0186_time_point_1_start') | int(0), 'limit_entity': 'number.solarcust0186_time_point_1_batt_charge_limit'},
+          {'start': states('number.solarcust0186_time_point_2_start') | int(0), 'limit_entity': 'number.solarcust0186_time_point_2_batt_charge_limit'},
+          {'start': states('number.solarcust0186_time_point_3_start') | int(0), 'limit_entity': 'number.solarcust0186_time_point_3_batt_charge_limit'},
+          {'start': states('number.solarcust0186_time_point_4_start') | int(0), 'limit_entity': 'number.solarcust0186_time_point_4_batt_charge_limit'},
+          {'start': states('number.solarcust0186_time_point_5_start') | int(0), 'limit_entity': 'number.solarcust0186_time_point_5_batt_charge_limit'},
+          {'start': states('number.solarcust0186_time_point_6_start') | int(0), 'limit_entity': 'number.solarcust0186_time_point_6_batt_charge_limit'}
+        ] %}
+        {% set now_hhmm = current_time_hhmm | int %}
+        {% set active = namespace(limit_entity=schedule[0].limit_entity) %}
+        {% for slot in schedule %}
+          {% set next_slot = schedule[(loop.index0 + 1) % (schedule | count)] %}
+          {% set start = slot.start | int %}
+          {% set next_start = next_slot.start | int %}
+          {% set in_slot = (now_hhmm >= start and now_hhmm < next_start) if start < next_start else (now_hhmm >= start or now_hhmm < next_start) %}
+          {% if in_slot %}
+            {% set active.limit_entity = slot.limit_entity %}
+          {% endif %}
+        {% endfor %}
+        {{ active.limit_entity }}
+      active_tou_limit: "{{ states(active_tou_entity) | float(0) }}"
+      tou_allows_discharge: "{{ (soc | float(50)) > (active_tou_limit | float(0)) }}"
       soc_limit_a: |-
-        {% set v_min_calc = (POWER_MIN / batt_v) | round(0) %}
-        {% set v_min_absolute = [v_min_calc, ACTIVE_AMP_MIN] | min %}
-        
-        {% if soc >= ACTIVE_SOC_MAX %}
-          {{ ACTIVE_AMP_MAX }}
-        {% elif soc <= ACTIVE_SOC_MIN %}
-          {{ v_min_absolute }}
+        {% set soc_min = SOC_CURVE_MIN | float(25) %}
+        {% set soc_max = SOC_CURVE_MAX | float(50) %}
+        {% set power_min = POWER_MIN | float(600) %}
+        {% set power_max = POWER_MAX | float(2500) %}
+        {% set soc_value = soc | float(50) %}
+        {% set batt_v_safe = [batt_v | float(48), 1] | max %}
+
+        {% if soc_value >= soc_max %}
+          {{ (power_max / batt_v_safe) | round(0) }}
+        {% elif soc_value <= soc_min %}
+          {{ (power_min / batt_v_safe) | round(0) }}
         {% else %}
-          {% set ratio = (soc - ACTIVE_SOC_MIN) / (ACTIVE_SOC_MAX - ACTIVE_SOC_MIN) %}
-          {{ (ACTIVE_AMP_MIN + (ACTIVE_AMP_MAX - ACTIVE_AMP_MIN) * ratio) | round(0) }}
+          {% set ratio = (soc_value - soc_min) / (soc_max - soc_min) %}
+          {% set power_limit = power_min + ((power_max - power_min) * ratio) %}
+          {{ (power_limit / batt_v_safe) | round(0) }}
         {% endif %}
       target_discharge_a: >-
-        {% if voltage_critical or soc_emergency or emergency_charge_latched %}
-          0
+        {% if tou_allows_discharge %}
+          {{ [soc_limit_a | int(0), DISCHARGE_MAX_A | int(0)] | min }}
         {% else %}
-          {{ [soc_limit_a | int, volt_limit_a | int] | min }}
+          0
         {% endif %}
       needs_enforce: >-
-        {{ (current_cap_a | round(0) | int) != (target_discharge_a | round(0) |
+        {{ (current_cap_a | float(0) | round(0) | int) != (target_discharge_a | float(0) | round(0) |
         int) }}
-  - if:
-      - condition: template
-        value_template: "{{ (voltage_critical or soc_emergency) and not emergency_charge_latched }}"
-    then:
-      - action: input_boolean.turn_on
-        target:
-          entity_id: input_boolean.deye_emergency_charge_needed
-      - action: persistent_notification.create
-        data:
-          notification_id: deye_charge_trigger_activated
-          title: 🔋 CRITICAL BATTERY - DISCHARGE LOCKED
-          message: >
-            {% if voltage_critical %}
-            Voltage {{ batt_v | round(2) }}V < {{ VOLTAGE_FLOOR_V }}V detected.
-            {% else %}
-            SOC {{ soc | round(1) }}% ≤ 15% (SolarBalance minimum) detected.
-            {% endif %}
-            Discharge locked at 0A until SOC > {{ RECOVERY_SOC }}% and charging has stopped.
-            SOC: {{ soc | round(1) }}% | Voltage: {{ batt_v | round(2) }}V
-            Time: {{ now().strftime('%H:%M:%S') }}
-  - if:
-      - condition: template
-        value_template: "{{ emergency_charge_latched and recovery_ready and not (voltage_critical or soc_emergency) }}"
-    then:
-      - action: input_boolean.turn_off
-        target:
-          entity_id: input_boolean.deye_emergency_charge_needed
-      - action: persistent_notification.create
-        data:
-          notification_id: deye_charge_trigger_released
-          title: ✅ BATTERY RECOVERY COMPLETE
-          message: >
-            Voltage is back above {{ VOLTAGE_FLOOR_V }}V and SOC recovered above {{ RECOVERY_SOC }}%.
-            Low-voltage discharge lock released.
-            SOC: {{ soc | round(1) }}% | Voltage: {{ batt_v | round(2) }}V
-            Time: {{ now().strftime('%H:%M:%S') }}
   - if:
       - condition: template
         value_template: "{{ needs_enforce }}"
