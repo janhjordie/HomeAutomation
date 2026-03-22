@@ -1,10 +1,11 @@
-alias: "Deye-01 v1.0.74: Pure Discharge Limiter with Dynamic TOU"
+alias: "Deye-01 v1.0.83: Pure Discharge Limiter with Dynamic TOU"
 description: >
-  Controls discharge with an always-on SOC curve and dynamic TOU slot
-  detection. The active TOU charge-limit entity is selected from the current
-  inverter time-point starts, and discharge is only allowed when current SOC is
-  above the active TOU limit. When TOU allows discharge, the discharge cap is
-  always enforced from the SOC curve and battery voltage.
+  Controls discharge with dynamic TOU slot detection. The active TOU
+  charge-limit entity is selected from the current inverter time-point starts.
+  The SOC curve is only enforced when the active dynamic TOU limit is 15% and
+  current SOC is at or below SOC_CURVE_MAX. When TOU is above the curve limit
+  and SOC is above SOC_CURVE_MAX, the automation leaves the current discharge
+  unchanged. A hard voltage floor at 50.0V forces discharge to 0A.
 triggers:
   - id: discharge_changed
     trigger: state
@@ -60,37 +61,44 @@ triggers:
 conditions: []
 actions:
   - variables:
-      soc: "{{ states('sensor.solarcust0186_battery_charge_level') | float(50) }}"
-      batt_v: "{{ states('sensor.solarcust0186_battery_voltage') | float(48) }}"
+      HIGH_STRESS_LOAD_W: 2500
+      HIGH_STRESS_OUTDOOR_TEMP_C: 2
+      WINTER_DISCHARGE_HIGH_STRESS_A: 60
+      WINTER_DISCHARGE_NORMAL_A: 65
+      SUMMER_DISCHARGE_A: 90
+      SOC_CURVE_MAX: 40
+      SOC_CURVE_MIN: 15
+      CURVE_TOU_LIMIT: 15
+      SOC_CURVE_POWER_MAX: 2500
+      SOC_CURVE_POWER_MIN: 600
+      VOLTAGE_FLOOR_V: 50.0
+      MIN_BATTERY_V_FOR_DIVISION: 1
+      soc: "{{ states('sensor.solarcust0186_battery_charge_level') | float }}"
+      batt_v: "{{ states('sensor.solarcust0186_battery_voltage') | float }}"
       current_cap_a: >-
         {{ states('number.solarcust0186_maximum_battery_discharge_current') |
-        float(0) }}
+        float }}
       load_avg: >-
-        {{ states('sensor.house_load_avg_15m') |
-        float(states('sensor.solarcust0186_load_totalpower') | float(0)) }}
-      outdoor_temp: "{{ states('sensor.ecodan_outdoor_avg_60m') | float(0) }}"
-      DISCHARGE_STRATEGY_A: |-
+        {{ states('sensor.house_load_avg_15m') | float }}
+      outdoor_temp: "{{ states('sensor.ecodan_outdoor_avg_60m') | float }}"
+      DISCHARGE_STRATEGY_LIMIT_SOURCE_A: |-
         {% set winter = now().month in [10, 11, 12, 1, 2, 3] %}
-        {% set high_stress = (load_avg | float(0)) > 2500 or (outdoor_temp | float(0)) < 2 %}
+        {% set high_stress = (load_avg | float) > HIGH_STRESS_LOAD_W or (outdoor_temp | float) < HIGH_STRESS_OUTDOOR_TEMP_C %}
         {% if winter %}
-          {% if high_stress %} 60 {% else %} 65 {% endif %}
+          {% if high_stress %} {{ WINTER_DISCHARGE_HIGH_STRESS_A }} {% else %} {{ WINTER_DISCHARGE_NORMAL_A }} {% endif %}
         {% else %}
-          90
+          {{ SUMMER_DISCHARGE_A }}
         {% endif %}
-      DISCHARGE_MAX_A: "{{ DISCHARGE_STRATEGY_A }}"
-      SOC_CURVE_MAX: 50
-      SOC_CURVE_MIN: 25
-      POWER_MAX: 2500
-      POWER_MIN: 600
+      DISCHARGE_STRATEGY_LIMIT_A: "{{ DISCHARGE_STRATEGY_LIMIT_SOURCE_A }}"
       current_time_hhmm: "{{ now().hour * 100 + now().minute }}"
       active_tou_entity: >-
         {% set schedule = [
-          {'start': states('number.solarcust0186_time_point_1_start') | int(0), 'limit_entity': 'number.solarcust0186_time_point_1_batt_charge_limit'},
-          {'start': states('number.solarcust0186_time_point_2_start') | int(0), 'limit_entity': 'number.solarcust0186_time_point_2_batt_charge_limit'},
-          {'start': states('number.solarcust0186_time_point_3_start') | int(0), 'limit_entity': 'number.solarcust0186_time_point_3_batt_charge_limit'},
-          {'start': states('number.solarcust0186_time_point_4_start') | int(0), 'limit_entity': 'number.solarcust0186_time_point_4_batt_charge_limit'},
-          {'start': states('number.solarcust0186_time_point_5_start') | int(0), 'limit_entity': 'number.solarcust0186_time_point_5_batt_charge_limit'},
-          {'start': states('number.solarcust0186_time_point_6_start') | int(0), 'limit_entity': 'number.solarcust0186_time_point_6_batt_charge_limit'}
+          {'start': states('number.solarcust0186_time_point_1_start') | int, 'limit_entity': 'number.solarcust0186_time_point_1_batt_charge_limit'},
+          {'start': states('number.solarcust0186_time_point_2_start') | int, 'limit_entity': 'number.solarcust0186_time_point_2_batt_charge_limit'},
+          {'start': states('number.solarcust0186_time_point_3_start') | int, 'limit_entity': 'number.solarcust0186_time_point_3_batt_charge_limit'},
+          {'start': states('number.solarcust0186_time_point_4_start') | int, 'limit_entity': 'number.solarcust0186_time_point_4_batt_charge_limit'},
+          {'start': states('number.solarcust0186_time_point_5_start') | int, 'limit_entity': 'number.solarcust0186_time_point_5_batt_charge_limit'},
+          {'start': states('number.solarcust0186_time_point_6_start') | int, 'limit_entity': 'number.solarcust0186_time_point_6_batt_charge_limit'}
         ] %}
         {% set now_hhmm = current_time_hhmm | int %}
         {% set active = namespace(limit_entity=schedule[0].limit_entity) %}
@@ -104,15 +112,21 @@ actions:
           {% endif %}
         {% endfor %}
         {{ active.limit_entity }}
-      active_tou_limit: "{{ states(active_tou_entity) | float(0) }}"
-      tou_allows_discharge: "{{ (soc | float(50)) > (active_tou_limit | float(0)) }}"
+      active_tou_limit: "{{ states(active_tou_entity) | float }}"
+      dynamic_tou_is_curve_slot: >-
+        {{ (active_tou_limit | float | round(0) | int) == CURVE_TOU_LIMIT }}
+      no_action_zone: >-
+        {{ (active_tou_limit | float) > CURVE_TOU_LIMIT and (soc | float) > SOC_CURVE_MAX }}
+      discharge_curve_active: >-
+        {{ (soc | float) <= SOC_CURVE_MAX and dynamic_tou_is_curve_slot }}
+      voltage_floor_hit: "{{ (batt_v | float) <= VOLTAGE_FLOOR_V }}"
       soc_limit_a: |-
-        {% set soc_min = SOC_CURVE_MIN | float(25) %}
-        {% set soc_max = SOC_CURVE_MAX | float(50) %}
-        {% set power_min = POWER_MIN | float(600) %}
-        {% set power_max = POWER_MAX | float(2500) %}
-        {% set soc_value = soc | float(50) %}
-        {% set batt_v_safe = [batt_v | float(48), 1] | max %}
+        {% set soc_min = SOC_CURVE_MIN %}
+        {% set soc_max = SOC_CURVE_MAX %}
+        {% set power_min = SOC_CURVE_POWER_MIN %}
+        {% set power_max = SOC_CURVE_POWER_MAX %}
+        {% set soc_value = soc | float %}
+        {% set batt_v_safe = [batt_v | float, MIN_BATTERY_V_FOR_DIVISION] | max %}
 
         {% if soc_value >= soc_max %}
           {{ (power_max / batt_v_safe) | round(0) }}
@@ -124,13 +138,17 @@ actions:
           {{ (power_limit / batt_v_safe) | round(0) }}
         {% endif %}
       target_discharge_a: >-
-        {% if tou_allows_discharge %}
-          {{ [soc_limit_a | int(0), DISCHARGE_MAX_A | int(0)] | min }}
-        {% else %}
+        {% if voltage_floor_hit %}
           0
+        {% elif no_action_zone %}
+          {{ current_cap_a | int }}
+        {% elif discharge_curve_active %}
+          {{ [soc_limit_a | int, DISCHARGE_STRATEGY_LIMIT_A | int] | min }}
+        {% else %}
+          {{ DISCHARGE_STRATEGY_LIMIT_A | int }}
         {% endif %}
       needs_enforce: >-
-        {{ (current_cap_a | float(0) | round(0) | int) != (target_discharge_a | float(0) | round(0) |
+        {{ (current_cap_a | float | round(0) | int) != (target_discharge_a | float | round(0) |
         int) }}
   - if:
       - condition: template
