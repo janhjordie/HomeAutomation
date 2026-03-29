@@ -87,6 +87,102 @@ sensor:
     state_class: measurement
     state: "{{ states('input_number.deye_pv_value_yesterday_kr') | float(0) | round(2) }}"
 
+  - name: "Deye Grid Buy Cost Total"
+    unique_id: deye_grid_buy_cost_total
+    unit_of_measurement: "kr"
+    state_class: total_increasing
+    state: "{{ states('input_number.deye_grid_buy_cost_total_kr') | float(0) | round(2) }}"
+
+  - name: "Deye Grid Sell Value Total"
+    unique_id: deye_grid_sell_value_total
+    unit_of_measurement: "kr"
+    state_class: total_increasing
+    state: "{{ states('input_number.deye_grid_sell_value_total_kr') | float(0) | round(2) }}"
+
+  - name: "Deye PV Value Total"
+    unique_id: deye_pv_value_total
+    unit_of_measurement: "kr"
+    state_class: total_increasing
+    state: "{{ states('input_number.deye_pv_value_total_kr') | float(0) | round(2) }}"
+
+  - name: "Deye Battery Support Value Today"
+    unique_id: deye_battery_support_value_today
+    unit_of_measurement: "kr"
+    state_class: measurement
+    state: "{{ states('input_number.deye_battery_discharge_value_today_kr') | float(0) | round(2) }}"
+
+  - name: "Deye Battery Support Value Yesterday"
+    unique_id: deye_battery_support_value_yesterday
+    unit_of_measurement: "kr"
+    state_class: measurement
+    state: "{{ states('input_number.deye_battery_discharge_value_yesterday_kr') | float(0) | round(2) }}"
+
+  - name: "Deye Battery Support Value Total"
+    unique_id: deye_battery_support_value_total
+    unit_of_measurement: "kr"
+    state_class: total_increasing
+    state: "{{ states('input_number.deye_battery_discharge_value_total_kr') | float(0) | round(2) }}"
+
+  - name: "Deye PV Value This Week"
+    unique_id: deye_pv_value_this_week
+    unit_of_measurement: "kr"
+    state_class: measurement
+    state: "{{ states('sensor.deye_pv_value_weekly') | float(0) | round(2) }}"
+
+  - name: "Deye PV Value Last Week"
+    unique_id: deye_pv_value_last_week
+    unit_of_measurement: "kr"
+    state_class: measurement
+    state: "{{ state_attr('sensor.deye_pv_value_weekly', 'last_period') | float(0) | round(2) }}"
+
+  - name: "Deye PV Value This Month"
+    unique_id: deye_pv_value_this_month
+    unit_of_measurement: "kr"
+    state_class: measurement
+    state: "{{ states('sensor.deye_pv_value_monthly') | float(0) | round(2) }}"
+
+  - name: "Deye PV Value Last Month"
+    unique_id: deye_pv_value_last_month
+    unit_of_measurement: "kr"
+    state_class: measurement
+    state: "{{ state_attr('sensor.deye_pv_value_monthly', 'last_period') | float(0) | round(2) }}"
+
+  - name: "Deye Grid Buy Cost This Week"
+    unique_id: deye_grid_buy_cost_this_week
+    unit_of_measurement: "kr"
+    state_class: measurement
+    state: "{{ states('sensor.deye_grid_buy_cost_weekly') | float(0) | round(2) }}"
+
+  - name: "Deye Grid Buy Cost This Month"
+    unique_id: deye_grid_buy_cost_this_month
+    unit_of_measurement: "kr"
+    state_class: measurement
+    state: "{{ states('sensor.deye_grid_buy_cost_monthly') | float(0) | round(2) }}"
+
+  - name: "Deye Grid Sell Value This Week"
+    unique_id: deye_grid_sell_value_this_week
+    unit_of_measurement: "kr"
+    state_class: measurement
+    state: "{{ states('sensor.deye_grid_sell_value_weekly') | float(0) | round(2) }}"
+
+  - name: "Deye Grid Sell Value This Month"
+    unique_id: deye_grid_sell_value_this_month
+    unit_of_measurement: "kr"
+    state_class: measurement
+    state: "{{ states('sensor.deye_grid_sell_value_monthly') | float(0) | round(2) }}"
+
+  - name: "Deye Battery Support Value This Week"
+    unique_id: deye_battery_support_value_this_week
+    unit_of_measurement: "kr"
+    state_class: measurement
+    state: "{{ states('sensor.deye_battery_support_value_weekly') | float(0) | round(2) }}"
+
+  - name: "Deye Battery Support Value This Month"
+    unique_id: deye_battery_support_value_this_month
+    unit_of_measurement: "kr"
+    state_class: measurement
+    state: "{{ states('sensor.deye_battery_support_value_monthly') | float(0) | round(2) }}"
+
   - name: "Deye House Load Live"
     unique_id: deye_house_load_live
     unit_of_measurement: "W"

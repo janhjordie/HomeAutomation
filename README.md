@@ -239,9 +239,11 @@ SOC%  │ Mode           │ Normalized │ Exponential (n²) │ Power (W) │ 
 - **[archive/deye-rescue-05-lowsoc-charge-guard.yaml](HomeAssistant/deye-battery-rescue/archive/deye-rescue-05-lowsoc-charge-guard.yaml)** — ❌ ARCHIVED — SolarBalance handles charging
 
 ### Configuration
-- **[deye-ev-helpers.yaml](HomeAssistant/deye-infra/deye-ev-helpers.yaml)** — EV charging helper entities
-- **[deye-helpers.md](HomeAssistant/deye-infra/deye-helpers.md)** — Legacy helper documentation
-- **[deye-config.yaml](HomeAssistant/deye-infra/deye-config.yaml)** — Centralized constants (reference only)
+- **[configuration.yaml](HomeAssistant/config/configuration.yaml)** — Mirror of Home Assistant `/config/configuration.yaml`
+- **[automations.yaml](HomeAssistant/config/automations.yaml)** — Mirror of Home Assistant `/config/automations.yaml`
+- **[deye-ev-helpers.yaml](HomeAssistant/config/includes/deye-ev-helpers.yaml)** — EV charging helper entities
+- **[deye-helpers.md](HomeAssistant/config/deye-helpers.md)** — Legacy helper documentation
+- **[deye-config.yaml](HomeAssistant/config/includes/deye-config.yaml)** — Centralized constants (reference only)
 
 ### Analytics & Monitoring
 - **[deye-monitor-01-logging.yaml](HomeAssistant/deye-analytics/deye-monitor-01-logging.yaml)** — CSV activity logging with EV tracking (v1.0.2)

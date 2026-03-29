@@ -1,9 +1,9 @@
 # Helper entities for EV charging + voltage rate tracking (Deye-01 v1.0.11)
 # Add these to your Home Assistant configuration.yaml:
 #
-# input_datetime: !include deye-infra/deye-ev-helpers.yaml
-# counter: !include deye-infra/deye-ev-helpers.yaml
-# input_number: !include deye-infra/deye-ev-helpers.yaml
+# input_datetime: !include includes/deye-ev-helpers.yaml
+# counter: !include includes/deye-ev-helpers.yaml
+# input_number: !include includes/deye-ev-helpers.yaml
 #
 # Or add via UI: Settings -> Devices & Services -> Helpers
 

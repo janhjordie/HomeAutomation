@@ -1,0 +1,113 @@
+# SoBa dashboard sensors for live Today / Yesterday energy views.
+# Add to Home Assistant configuration.yaml:
+#
+# utility_meter: !include includes/deye-soba-dashboard-sensors.yaml
+# template: !include includes/deye-soba-dashboard-sensors-template.yaml
+
+deye_grid_bought_today:
+  source: sensor.solarcust0186_total_energy_bought
+  name: "Deye Grid Bought Today"
+  unique_id: deye_grid_bought_today
+  cycle: daily
+
+deye_grid_sold_today:
+  source: sensor.solarcust0186_total_energy_sold
+  name: "Deye Grid Sold Today"
+  unique_id: deye_grid_sold_today
+  cycle: daily
+
+deye_consumption_today:
+  source: sensor.solarcust0186_total_consumption
+  name: "Deye Consumption Today"
+  unique_id: deye_consumption_today
+  cycle: daily
+
+deye_pv_today:
+  source: sensor.solarcust0186_total_pv_production
+  name: "Deye PV Today"
+  unique_id: deye_pv_today
+  cycle: daily
+
+deye_battery_charge_today:
+  source: sensor.solarcust0186_total_charge_of_the_battery
+  name: "Deye Battery Charge Today"
+  unique_id: deye_battery_charge_today
+  cycle: daily
+
+deye_battery_discharge_today:
+  source: sensor.solarcust0186_total_discharge_of_the_battery
+  name: "Deye Battery Discharge Today"
+  unique_id: deye_battery_discharge_today
+  cycle: daily
+
+deye_grid_buy_cost_daily:
+  source: sensor.deye_grid_buy_cost_total
+  name: "Deye Grid Buy Cost Daily"
+  unique_id: deye_grid_buy_cost_daily
+  cycle: daily
+
+deye_grid_buy_cost_weekly:
+  source: sensor.deye_grid_buy_cost_total
+  name: "Deye Grid Buy Cost Weekly"
+  unique_id: deye_grid_buy_cost_weekly
+  cycle: weekly
+
+deye_grid_buy_cost_monthly:
+  source: sensor.deye_grid_buy_cost_total
+  name: "Deye Grid Buy Cost Monthly"
+  unique_id: deye_grid_buy_cost_monthly
+  cycle: monthly
+
+deye_grid_sell_value_daily:
+  source: sensor.deye_grid_sell_value_total
+  name: "Deye Grid Sell Value Daily"
+  unique_id: deye_grid_sell_value_daily
+  cycle: daily
+
+deye_grid_sell_value_weekly:
+  source: sensor.deye_grid_sell_value_total
+  name: "Deye Grid Sell Value Weekly"
+  unique_id: deye_grid_sell_value_weekly
+  cycle: weekly
+
+deye_grid_sell_value_monthly:
+  source: sensor.deye_grid_sell_value_total
+  name: "Deye Grid Sell Value Monthly"
+  unique_id: deye_grid_sell_value_monthly
+  cycle: monthly
+
+deye_pv_value_daily:
+  source: sensor.deye_pv_value_total
+  name: "Deye PV Value Daily"
+  unique_id: deye_pv_value_daily
+  cycle: daily
+
+deye_pv_value_weekly:
+  source: sensor.deye_pv_value_total
+  name: "Deye PV Value Weekly"
+  unique_id: deye_pv_value_weekly
+  cycle: weekly
+
+deye_pv_value_monthly:
+  source: sensor.deye_pv_value_total
+  name: "Deye PV Value Monthly"
+  unique_id: deye_pv_value_monthly
+  cycle: monthly
+
+deye_battery_support_value_daily:
+  source: sensor.deye_battery_support_value_total
+  name: "Deye Battery Support Value Daily"
+  unique_id: deye_battery_support_value_daily
+  cycle: daily
+
+deye_battery_support_value_weekly:
+  source: sensor.deye_battery_support_value_total
+  name: "Deye Battery Support Value Weekly"
+  unique_id: deye_battery_support_value_weekly
+  cycle: weekly
+
+deye_battery_support_value_monthly:
+  source: sensor.deye_battery_support_value_total
+  name: "Deye Battery Support Value Monthly"
+  unique_id: deye_battery_support_value_monthly
+  cycle: monthly

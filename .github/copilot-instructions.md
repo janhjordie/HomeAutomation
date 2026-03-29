@@ -82,7 +82,7 @@ power_limit = 600 + (soc - 25) * 80  # Between 25-50% SOC
 
 ---
 
-## Helper Entities (in `/deye-infra/deye-helpers.md`)
+## Helper Entities (in `/HomeAssistant/config/deye-helpers.md`)
 
 **Priority Control Flags:**
 - `input_boolean.deye_rescue_active` — Set ON during Deye-01 rescue (blocks Deye-02 completely)
@@ -296,7 +296,7 @@ Used in Deye-02 to respect higher-priority rescues; if rescue_active=on, SOC lim
 - **Focus**: Evening period 17:00-22:00 (critical battery stress window)
 - **Output**: Auto-generates analysis report (`HomeAssistant/deye_weekly_log-X-report.md`)
 - **Key metrics**: Voltage safety, SOC patterns, discharge limiting, heat pump impact
-- **Guide**: See [DEYE-ANALYSIS-GUIDE.md](DEYE-ANALYSIS-GUIDE.md) for complete methodology
+- **Guide**: See [DEYE-ANALYSIS-GUIDE.md](../DEYE-ANALYSIS-GUIDE.md) for complete methodology
 
 ### Heat Pump Curve Analysis Trigger
 **Use this exact phrase to trigger heat pump temperature curve analysis:**
@@ -307,13 +307,13 @@ Used in Deye-02 to respect higher-priority rescues; if rescue_active=on, SOC lim
 - **Focus**: Outdoor temperature vs flow temperature correlation for weather-compensated control
 - **Output**: Updates existing `HomeAssistant/ecodan/ecodan_curve.md` with new key temperature points
 - **Key metrics**: Temperature range coverage, flow temp optimization, efficiency patterns
-- **Strategy**: See [HomeAssistant/ecodan/ecodan_strategy.md](HomeAssistant/ecodan/ecodan_strategy.md) for weather-compensated control implementation
+- **Strategy**: See [HomeAssistant/ecodan/ecodan_strategy.md](../HomeAssistant/ecodan/ecodan_strategy.md) for weather-compensated control implementation
 
 ---
 
 ## References
-- [DEYE-ANALYSIS-GUIDE.md](DEYE-ANALYSIS-GUIDE.md) — Complete CSV analysis methodology & framework
-- [SYSTEM-DIAGRAM.md](HomeAssistant/SYSTEM-DIAGRAM.md) — Visual automation priority & voltage curves
-- [SYSTEM-GOALS.md](HomeAssistant/SYSTEM-GOALS.md) — Operational objectives & future enhancements
-- [MIGRATION-GUIDE.md](MIGRATION-GUIDE.md) — v2.0 consolidation details
-- [deye-config.yaml](HomeAssistant/deye-infra/deye-config.yaml) — Centralized constants (reference only)
+- [DEYE-ANALYSIS-GUIDE.md](../DEYE-ANALYSIS-GUIDE.md) — Complete CSV analysis methodology & framework
+- [SYSTEM-DIAGRAM.md](../HomeAssistant/SYSTEM-DIAGRAM.md) — Visual automation priority & voltage curves
+- [SYSTEM-GOALS.md](../HomeAssistant/SYSTEM-GOALS.md) — Operational objectives & future enhancements
+- [MIGRATION_GUIDE.md](../MIGRATION_GUIDE.md) — v2.0 consolidation details
+- [deye-config.yaml](../HomeAssistant/config/includes/deye-config.yaml) — Centralized constants (reference only)

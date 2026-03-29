@@ -5,7 +5,7 @@ default_config:
 frontend:
   themes: !include_dir_merge_named themes
 
-# Core includes
+# Core includes for the HomeAssistant/config mirror.
 automation: !include automations.yaml
 script: !include scripts.yaml
 scene: !include scenes.yaml
@@ -41,6 +41,10 @@ shell_command:
   deye_log_line: >-
     bash -c "printf '%s\n' '{{ line }}' >> /config/deye_weekly_log.csv"
 
+  # Deye: append a daily economics summary row with header bootstrap.
+  deye_daily_summary_append: >-
+    bash -c "file=/config/deye_daily_summary.csv; if [ ! -f \"$file\" ]; then printf '%s\n' 'date,pv_value_kr,grid_sell_value_kr,grid_buy_cost_kr,net_grid_value_kr,battery_support_value_kr_est,pv_kwh,grid_sold_kwh,grid_bought_kwh,consumption_kwh,battery_charge_kwh,battery_discharge_kwh,pv_local_use_kwh,self_sufficiency_pct,avg_buy_price_kr_kwh,avg_sell_price_kr_kwh,avg_pv_value_kr_kwh' > \"$file\"; fi; printf '%s\n' '{{ line }}' >> \"$file\""
+
   # Deye: yearly rotate (archive + truncate current)
   deye_log_rotate: >-
     bash -c "mkdir -p /config/deye_logs && cp /config/deye_weekly_log.csv /config/deye_logs/deye_log_{{ year_start }}-{{ year_end }}.csv && : > /config/deye_weekly_log.csv"
@@ -53,9 +57,9 @@ shell_command:
   ecodan_curve_log_line: >-
     bash -c "printf '%s\n' '{{ line }}' >> /config/ecodan_curve_samples.csv"
 
-utility_meter: !include deye-soba-dashboard-sensors.yaml
+utility_meter: !include includes/deye-soba-dashboard-sensors.yaml
 template:
-  - !include deye-soba-dashboard-sensors-template.yaml
+  - !include includes/deye-soba-dashboard-sensors-template.yaml
 
-rest: !include deye-spot-price-rest.yaml
-input_number: !include deye-spot-price-helpers.yaml
+rest: !include includes/deye-spot-price-rest.yaml
+input_number: !include includes/deye-spot-price-helpers.yaml

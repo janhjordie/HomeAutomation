@@ -39,8 +39,8 @@
 **Via YAML (Alternative):**
 Add to `configuration.yaml`:
 ```yaml
-input_datetime: !include deye-infra/deye-ev-helpers.yaml
-counter: !include deye-infra/deye-ev-helpers.yaml
+input_datetime: !include includes/deye-ev-helpers.yaml
+counter: !include includes/deye-ev-helpers.yaml
 ```
 
 ### 2. Homey Webhook (Unchanged)

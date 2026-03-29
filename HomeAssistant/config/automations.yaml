@@ -1779,10 +1779,11 @@
       | round(0) }}"
 
 - id: deye_monitor_05_spot_price_cost_tracking
-  alias: "Deye-Monitor-05 v1.0.1: Spot Price Cost Tracking"
+  alias: "Deye-Monitor-05 v1.0.2: Spot Price Cost Tracking"
   description: >
     Uses cached Energidata spot prices and live grid import/export power to track
-    today's and yesterday's buy cost, sell value, and PV production value in kroner.
+    today's and yesterday's buy cost, sell value, PV production value, estimated
+    battery discharge support value, and writes a retained daily summary CSV.
   triggers:
     - trigger: time_pattern
       minutes: /1
@@ -1797,21 +1798,57 @@
             - condition: trigger
               id: rollover
           sequence:
+            - variables:
+                summary_date: "{{ (now() - timedelta(days=1)).strftime('%Y-%m-%d') }}"
+                buy_today_kr: "{{ states('input_number.deye_grid_buy_cost_today_kr') | float(0) | round(2) }}"
+                sell_today_kr: "{{ states('input_number.deye_grid_sell_value_today_kr') | float(0) | round(2) }}"
+                pv_today_kr: "{{ states('input_number.deye_pv_value_today_kr') | float(0) | round(2) }}"
+                battery_today_kr: "{{ states('input_number.deye_battery_discharge_value_today_kr') | float(0) | round(2) }}"
+                consumption_kwh: "{{ state_attr('sensor.deye_consumption_today', 'last_period') | float(0) | round(3) }}"
+                bought_kwh: "{{ state_attr('sensor.deye_grid_bought_today', 'last_period') | float(0) | round(3) }}"
+                sold_kwh: "{{ state_attr('sensor.deye_grid_sold_today', 'last_period') | float(0) | round(3) }}"
+                pv_kwh: "{{ state_attr('sensor.deye_pv_today', 'last_period') | float(0) | round(3) }}"
+                batt_charge_kwh: "{{ state_attr('sensor.deye_battery_charge_today', 'last_period') | float(0) | round(3) }}"
+                batt_discharge_kwh: "{{ state_attr('sensor.deye_battery_discharge_today', 'last_period') | float(0) | round(3) }}"
+                pv_local_use_kwh: "{{ [((state_attr('sensor.deye_pv_today', 'last_period') | float(0)) - (state_attr('sensor.deye_grid_sold_today', 'last_period') | float(0))), 0] | max | round(3) }}"
+                self_sufficiency_pct: >-
+                  {% set consumption = state_attr('sensor.deye_consumption_today', 'last_period') | float(0) %}
+                  {% set bought = state_attr('sensor.deye_grid_bought_today', 'last_period') | float(0) %}
+                  {{ (((consumption - bought) / consumption) * 100) | round(1) if consumption > 0 else 0 }}
+                avg_buy_price_kr: >-
+                  {% set bought = state_attr('sensor.deye_grid_bought_today', 'last_period') | float(0) %}
+                  {{ ((states('input_number.deye_grid_buy_cost_today_kr') | float(0)) / bought) | round(3) if bought > 0 else 0 }}
+                avg_sell_price_kr: >-
+                  {% set sold = state_attr('sensor.deye_grid_sold_today', 'last_period') | float(0) %}
+                  {{ ((states('input_number.deye_grid_sell_value_today_kr') | float(0)) / sold) | round(3) if sold > 0 else 0 }}
+                avg_pv_value_kr: >-
+                  {% set pv = state_attr('sensor.deye_pv_today', 'last_period') | float(0) %}
+                  {{ ((states('input_number.deye_pv_value_today_kr') | float(0)) / pv) | round(3) if pv > 0 else 0 }}
+                summary_line: >-
+                  {{ summary_date }},{{ pv_today_kr }},{{ sell_today_kr }},{{ buy_today_kr }},{{ (sell_today_kr | float(0) - buy_today_kr | float(0)) | round(2) }},{{ battery_today_kr }},{{ pv_kwh }},{{ sold_kwh }},{{ bought_kwh }},{{ consumption_kwh }},{{ batt_charge_kwh }},{{ batt_discharge_kwh }},{{ pv_local_use_kwh }},{{ self_sufficiency_pct }},{{ avg_buy_price_kr }},{{ avg_sell_price_kr }},{{ avg_pv_value_kr }}
+            - action: shell_command.deye_daily_summary_append
+              data:
+                line: "{{ summary_line }}"
             - action: input_number.set_value
               target:
                 entity_id: input_number.deye_grid_buy_cost_yesterday_kr
               data:
-                value: "{{ states('input_number.deye_grid_buy_cost_today_kr') | float(0) | round(2) }}"
+                value: "{{ buy_today_kr }}"
             - action: input_number.set_value
               target:
                 entity_id: input_number.deye_grid_sell_value_yesterday_kr
               data:
-                value: "{{ states('input_number.deye_grid_sell_value_today_kr') | float(0) | round(2) }}"
+                value: "{{ sell_today_kr }}"
             - action: input_number.set_value
               target:
                 entity_id: input_number.deye_pv_value_yesterday_kr
               data:
-                value: "{{ states('input_number.deye_pv_value_today_kr') | float(0) | round(2) }}"
+                value: "{{ pv_today_kr }}"
+            - action: input_number.set_value
+              target:
+                entity_id: input_number.deye_battery_discharge_value_yesterday_kr
+              data:
+                value: "{{ battery_today_kr }}"
             - action: input_number.set_value
               target:
                 entity_id: input_number.deye_grid_buy_cost_today_kr
@@ -1827,6 +1864,11 @@
                 entity_id: input_number.deye_pv_value_today_kr
               data:
                 value: 0
+            - action: input_number.set_value
+              target:
+                entity_id: input_number.deye_battery_discharge_value_today_kr
+              data:
+                value: 0
 
         - conditions:
             - condition: trigger
@@ -1838,16 +1880,24 @@
             - variables:
                 grid_w: "{{ states('sensor.solarcust0186_total_grid_power') | float(0) }}"
                 pv_w: "{{ states('sensor.solarcust0186_total_solar_power') | float(0) }}"
+                batt_w: "{{ states('sensor.solarcust0186_battery_output_power') | float(0) }}"
                 grid_import_w: "{{ grid_w if grid_w > 0 else 0 }}"
                 grid_export_w: "{{ (grid_w * -1) if grid_w < 0 else 0 }}"
+                batt_discharge_w: "{{ batt_w if batt_w > 50 else 0 }}"
                 buy_price_kr: "{{ states('sensor.deye_spot_price_buy_now') | float(0) }}"
                 sell_price_kr: "{{ states('sensor.deye_spot_price_sell_now') | float(0) }}"
                 buy_increment_kr: "{{ ((grid_import_w / 1000) / 60 * buy_price_kr) | round(4) }}"
                 sell_increment_kr: "{{ ((grid_export_w / 1000) / 60 * sell_price_kr) | round(4) }}"
                 pv_increment_kr: "{{ ((pv_w / 1000) / 60 * sell_price_kr) | round(4) }}"
+                battery_increment_kr: "{{ ((batt_discharge_w / 1000) / 60 * buy_price_kr) | round(4) }}"
                 buy_today_kr: "{{ states('input_number.deye_grid_buy_cost_today_kr') | float(0) }}"
                 sell_today_kr: "{{ states('input_number.deye_grid_sell_value_today_kr') | float(0) }}"
                 pv_today_kr: "{{ states('input_number.deye_pv_value_today_kr') | float(0) }}"
+                battery_today_kr: "{{ states('input_number.deye_battery_discharge_value_today_kr') | float(0) }}"
+                buy_total_kr: "{{ states('input_number.deye_grid_buy_cost_total_kr') | float(0) }}"
+                sell_total_kr: "{{ states('input_number.deye_grid_sell_value_total_kr') | float(0) }}"
+                pv_total_kr: "{{ states('input_number.deye_pv_value_total_kr') | float(0) }}"
+                battery_total_kr: "{{ states('input_number.deye_battery_discharge_value_total_kr') | float(0) }}"
             - action: input_number.set_value
               target:
                 entity_id: input_number.deye_grid_buy_cost_today_kr
@@ -1863,5 +1913,30 @@
                 entity_id: input_number.deye_pv_value_today_kr
               data:
                 value: "{{ (pv_today_kr + pv_increment_kr) | round(2) }}"
+            - action: input_number.set_value
+              target:
+                entity_id: input_number.deye_battery_discharge_value_today_kr
+              data:
+                value: "{{ (battery_today_kr + battery_increment_kr) | round(2) }}"
+            - action: input_number.set_value
+              target:
+                entity_id: input_number.deye_grid_buy_cost_total_kr
+              data:
+                value: "{{ (buy_total_kr + buy_increment_kr) | round(2) }}"
+            - action: input_number.set_value
+              target:
+                entity_id: input_number.deye_grid_sell_value_total_kr
+              data:
+                value: "{{ (sell_total_kr + sell_increment_kr) | round(2) }}"
+            - action: input_number.set_value
+              target:
+                entity_id: input_number.deye_pv_value_total_kr
+              data:
+                value: "{{ (pv_total_kr + pv_increment_kr) | round(2) }}"
+            - action: input_number.set_value
+              target:
+                entity_id: input_number.deye_battery_discharge_value_total_kr
+              data:
+                value: "{{ (battery_total_kr + battery_increment_kr) | round(2) }}"
   mode: queued
   max: 5
