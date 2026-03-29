@@ -1,4 +1,4 @@
-alias: "Deye-Monitor-05 v1.0.2: Spot Price Cost Tracking"
+alias: "Deye-Monitor-05 v1.0.3: Spot Price Cost Tracking"
 description: >
   Uses cached Energidata spot prices and live grid import/export power to track
   today's and yesterday's buy cost, sell value, PV production value, estimated
@@ -124,42 +124,42 @@ actions:
             target:
               entity_id: input_number.deye_grid_buy_cost_today_kr
             data:
-              value: "{{ (buy_today_kr + buy_increment_kr) | round(2) }}"
+              value: "{{ (buy_today_kr + buy_increment_kr) | round(4) }}"
           - action: input_number.set_value
             target:
               entity_id: input_number.deye_grid_sell_value_today_kr
             data:
-              value: "{{ (sell_today_kr + sell_increment_kr) | round(2) }}"
+              value: "{{ (sell_today_kr + sell_increment_kr) | round(4) }}"
           - action: input_number.set_value
             target:
               entity_id: input_number.deye_pv_value_today_kr
             data:
-              value: "{{ (pv_today_kr + pv_increment_kr) | round(2) }}"
+              value: "{{ (pv_today_kr + pv_increment_kr) | round(4) }}"
           - action: input_number.set_value
             target:
               entity_id: input_number.deye_battery_discharge_value_today_kr
             data:
-              value: "{{ (battery_today_kr + battery_increment_kr) | round(2) }}"
+              value: "{{ (battery_today_kr + battery_increment_kr) | round(4) }}"
           - action: input_number.set_value
             target:
               entity_id: input_number.deye_grid_buy_cost_total_kr
             data:
-              value: "{{ (buy_total_kr + buy_increment_kr) | round(2) }}"
+              value: "{{ (buy_total_kr + buy_increment_kr) | round(4) }}"
           - action: input_number.set_value
             target:
               entity_id: input_number.deye_grid_sell_value_total_kr
             data:
-              value: "{{ (sell_total_kr + sell_increment_kr) | round(2) }}"
+              value: "{{ (sell_total_kr + sell_increment_kr) | round(4) }}"
           - action: input_number.set_value
             target:
               entity_id: input_number.deye_pv_value_total_kr
             data:
-              value: "{{ (pv_total_kr + pv_increment_kr) | round(2) }}"
+              value: "{{ (pv_total_kr + pv_increment_kr) | round(4) }}"
           - action: input_number.set_value
             target:
               entity_id: input_number.deye_battery_discharge_value_total_kr
             data:
-              value: "{{ (battery_total_kr + battery_increment_kr) | round(2) }}"
+              value: "{{ (battery_total_kr + battery_increment_kr) | round(4) }}"
 
 mode: queued
 max: 5
