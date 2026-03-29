@@ -1,0 +1,61 @@
+# Loads default set of integrations. Do not remove.
+default_config:
+
+# Load frontend themes from the themes folder
+frontend:
+  themes: !include_dir_merge_named themes
+
+# Core includes
+automation: !include automations.yaml
+script: !include scripts.yaml
+scene: !include scenes.yaml
+
+# Statistics sensors
+sensor:
+  - platform: statistics
+    name: deye_voltage_min_24h
+    entity_id: sensor.solarcust0186_battery_voltage
+    state_characteristic: value_min
+    max_age:
+      hours: 24
+
+  - platform: statistics
+    name: "Ecodan Outdoor Avg 60m"
+    entity_id: input_number.ecodan_outdoor
+    state_characteristic: mean
+    max_age:
+      hours: 1
+    sampling_size: 720
+
+  - platform: statistics
+    name: "Ecodan Flow Avg 10m"
+    entity_id: input_number.ecodan_flow_actual
+    state_characteristic: mean
+    max_age:
+      minutes: 10
+    sampling_size: 240
+
+# Shell commands (CSV logging + rotation)
+shell_command:
+  # Deye: append a single CSV line
+  deye_log_line: >-
+    bash -c "printf '%s\n' '{{ line }}' >> /config/deye_weekly_log.csv"
+
+  # Deye: yearly rotate (archive + truncate current)
+  deye_log_rotate: >-
+    bash -c "mkdir -p /config/deye_logs && cp /config/deye_weekly_log.csv /config/deye_logs/deye_log_{{ year_start }}-{{ year_end }}.csv && : > /config/deye_weekly_log.csv"
+
+  # Deye: rotate test (archive copy only, no truncate)
+  deye_log_rotate_test: >-
+    bash -c "mkdir -p /config/deye_logs && cp /config/deye_weekly_log.csv /config/deye_logs/deye_log_TEST_{{ now().strftime('%Y-%m-%d') }}.csv"
+
+  # Ecodan: append a single CSV line
+  ecodan_curve_log_line: >-
+    bash -c "printf '%s\n' '{{ line }}' >> /config/ecodan_curve_samples.csv"
+
+utility_meter: !include deye-soba-dashboard-sensors.yaml
+template:
+  - !include deye-soba-dashboard-sensors-template.yaml
+
+rest: !include deye-spot-price-rest.yaml
+input_number: !include deye-spot-price-helpers.yaml

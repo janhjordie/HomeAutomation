@@ -1,0 +1,13 @@
+- resource_template: >-
+    {% set dk_now = now() %}
+    {% set start = (dk_now - timedelta(days=1)).strftime('%Y-%m-%d') %}
+    {% set end = (dk_now + timedelta(days=2)).strftime('%Y-%m-%d') %}
+    https://api.energidataservice.dk/dataset/DayAheadPrices?start={{ start }}T00:00&end={{ end }}T00:00&filter=%7B%22PriceArea%22%3A%22DK2%22%7D&sort=TimeDK%20ASC&limit=500
+  scan_interval: 10800
+  timeout: 60
+  sensor:
+    - name: "Deye Spot Price Cache"
+      unique_id: deye_spot_price_cache
+      value_template: "{{ now().isoformat() }}"
+      json_attributes:
+        - records

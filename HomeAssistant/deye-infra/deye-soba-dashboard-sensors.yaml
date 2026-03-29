@@ -1,0 +1,41 @@
+# SoBa dashboard sensors for live Today / Yesterday energy views.
+# Add to Home Assistant configuration.yaml:
+#
+# utility_meter: !include HomeAssistant/deye-infra/deye-soba-dashboard-sensors.yaml
+# template: !include HomeAssistant/deye-infra/deye-soba-dashboard-sensors-template.yaml
+
+deye_grid_bought_today:
+  source: sensor.solarcust0186_total_energy_bought
+  name: "Deye Grid Bought Today"
+  unique_id: deye_grid_bought_today
+  cycle: daily
+
+deye_grid_sold_today:
+  source: sensor.solarcust0186_total_energy_sold
+  name: "Deye Grid Sold Today"
+  unique_id: deye_grid_sold_today
+  cycle: daily
+
+deye_consumption_today:
+  source: sensor.solarcust0186_total_consumption
+  name: "Deye Consumption Today"
+  unique_id: deye_consumption_today
+  cycle: daily
+
+deye_pv_today:
+  source: sensor.solarcust0186_total_pv_production
+  name: "Deye PV Today"
+  unique_id: deye_pv_today
+  cycle: daily
+
+deye_battery_charge_today:
+  source: sensor.solarcust0186_total_charge_of_the_battery
+  name: "Deye Battery Charge Today"
+  unique_id: deye_battery_charge_today
+  cycle: daily
+
+deye_battery_discharge_today:
+  source: sensor.solarcust0186_total_discharge_of_the_battery
+  name: "Deye Battery Discharge Today"
+  unique_id: deye_battery_discharge_today
+  cycle: daily

@@ -1,0 +1,1867 @@
+- id: "1769342000609"
+  alias: "Ecodan-Webhook-Handler: MELCloud Data Pipeline"
+  description:
+    "[v2.0.0] Consolidated Ecodan automation handling MELCloud Homey webhooks.
+    Receives heat pump data, stores values in Home Assistant entities, and logs good
+    curve samples for optimization."
+  triggers:
+    - id: melcloud_webhook
+      trigger: webhook
+      webhook_id: melcloud_homey
+      allowed_methods:
+        - POST
+  conditions: []
+  actions:
+    - action: input_text.set_value
+      target:
+        entity_id: input_text.ecodan_last_payload_ts
+      data:
+        value: "{{ trigger.json['ts'] | default(now().isoformat()) }}"
+    - action: input_text.set_value
+      target:
+        entity_id: input_text.ecodan_status
+      data:
+        value: "{{ trigger.json['status'] | default('unknown') }}"
+    - action: input_text.set_value
+      target:
+        entity_id: input_text.ecodan_opstate
+      data:
+        value: "{{ trigger.json['opState'] | default('unknown') }}"
+    - action: input_number.set_value
+      target:
+        entity_id: input_number.ecodan_outdoor
+      data:
+        value: "{{ trigger.json.outdoor | float(0) }}"
+    - action: input_number.set_value
+      target:
+        entity_id: input_number.ecodan_flow_actual
+      data:
+        value: "{{ trigger.json.measurements.flowNow | float(0) }}"
+    - action: input_number.set_value
+      target:
+        entity_id: input_number.ecodan_power
+      data:
+        value: "{{ trigger.json.measurements.powerNow | float(0) }}"
+    - action: input_number.set_value
+      target:
+        entity_id: input_number.ecodan_frequency
+      data:
+        value: "{{ trigger.json.measurements.freqNow | float(0) }}"
+    - choose:
+        - conditions:
+            - condition: template
+              value_template:
+                "{{ (trigger.json['opState'] | default('')) == 'heating'
+                }}"
+            - condition: template
+              value_template:
+                "{% set st = trigger.json['status'] | default('') %} {{
+                not st.startswith('skipped_') }}
+
+                "
+            - condition: template
+              value_template:
+                "{{ states('sensor.ecodan_outdoor_avg_60m') not in ['unknown','unavailable','none','']
+                and\n   states('sensor.ecodan_flow_avg_10m') not in ['unknown','unavailable','none','']
+                }}\n"
+          sequence:
+            - action: shell_command.ecodan_curve_log_line
+              data:
+                line:
+                  "{{ now().isoformat() }}, outdoor_avg_60m={{ states('sensor.ecodan_outdoor_avg_60m')
+                  }}, flow_avg_10m={{ states('sensor.ecodan_flow_avg_10m') }}, flowNow={{
+                  trigger.json.measurements.flowNow | default('') }}, powerNow={{ trigger.json.measurements.powerNow
+                  | default('') }}, freqNow={{ trigger.json.measurements.freqNow | default('')
+                  }}, opState={{ trigger.json.opState | default('') }}, status={{ trigger.json.status
+                  | default('') }}
+
+                  "
+  mode: queued
+- id: "1769354178659"
+  alias: "Ecodan v1.0.1: Webhook Handler (MELCloud Data Pipeline)"
+  description:
+    Consolidated Ecodan automation handling MELCloud Homey webhooks. Receives
+    heat pump data, stores values in Home Assistant entities, and logs good curve
+    samples for optimization.
+  triggers:
+    - id: melcloud_webhook
+      trigger: webhook
+      webhook_id: melcloud_homey
+      allowed_methods:
+        - POST
+
+  conditions: []
+  actions:
+    - action: input_text.set_value
+      target:
+        entity_id: input_text.ecodan_last_payload_ts
+      data:
+        value: "{{ trigger.json['ts'] | default(now().isoformat()) }}"
+    - action: input_text.set_value
+      target:
+        entity_id: input_text.ecodan_status
+      data:
+        value: "{{ trigger.json['status'] | default('unknown') }}"
+    - action: input_text.set_value
+      target:
+        entity_id: input_text.ecodan_opstate
+      data:
+        value: "{{ trigger.json['opState'] | default('unknown') }}"
+    - action: input_number.set_value
+      target:
+        entity_id: input_number.ecodan_outdoor
+      data:
+        value: "{{ trigger.json.outdoor | float(0) }}"
+    - action: input_number.set_value
+      target:
+        entity_id: input_number.ecodan_flow_actual
+      data:
+        value: "{{ trigger.json.measurements.flowNow | float(0) }}"
+    - action: input_number.set_value
+      target:
+        entity_id: input_number.ecodan_power
+      data:
+        value: "{{ trigger.json.measurements.powerNow | float(0) }}"
+    - action: input_number.set_value
+      target:
+        entity_id: input_number.ecodan_frequency
+      data:
+        value: "{{ trigger.json.measurements.freqNow | float(0) }}"
+    - choose:
+        - conditions:
+            - condition: template
+              value_template:
+                "{% set st = trigger.json['status'] | default('') %} {{
+                not st.startswith('skipped_') }}
+
+                "
+            - condition: template
+              value_template:
+                "{{ states('sensor.ecodan_outdoor_avg_60m') not in ['unknown','unavailable','none','']
+                and\n   states('sensor.ecodan_flow_avg_10m') not in ['unknown','unavailable','none','']
+                }}\n"
+          sequence:
+            - action: shell_command.ecodan_curve_log_line
+              data:
+                line:
+                  "{{ now().isoformat() }}, outdoor_avg_60m={{ states('sensor.ecodan_outdoor_avg_60m')
+                  }}, flow_avg_10m={{ states('sensor.ecodan_flow_avg_10m') }}, flowNow={{
+                  trigger.json.measurements.flowNow | default('') }}, powerNow={{ trigger.json.measurements.powerNow
+                  | default('') }}, freqNow={{ trigger.json.measurements.freqNow | default('')
+                  }}, opState={{ trigger.json.opState | default('') }}, status={{ trigger.json.status
+                  | default('') }}
+
+                  "
+  mode: queued
+- id: "1769602282853"
+  alias: "Deye-Analytics-01 v1.0.0: Learn Voltage Threshold"
+  description:
+    Daily learning automation that calculates and updates the soft voltage
+    trigger threshold at 06:30 based on recent data patterns.
+  triggers:
+    - at: 06:30:00
+      trigger: time
+  actions:
+    - target:
+        entity_id: input_number.deye_trig_volt_soft_learned
+      data:
+        value: "{{ next | round(2) }}"
+      action: input_number.set_value
+    - data:
+        title: Deye learned threshold
+        message:
+          vmin(24h)={{ vmin }} V → target={{ target_clamped }} V → new={{ next
+          | round(2) }} V
+      action: persistent_notification.create
+  mode: single
+  variables:
+    vmin: "{{ states('sensor.deye_voltage_min_24h') | float(48.3) }}"
+    current:
+      "{{ states('input_number.deye_trig_volt_soft_learned') | float(48.3)
+      }}"
+    target: "{{ vmin + 0.35 }}"
+    target_clamped: "{{ [49.2, [47.6, target] | max] | min }}"
+    next: "{{ (current * 0.7 + target_clamped * 0.3) }}"
+- id: "1769602353570"
+  alias: "Deye-Monitor-02 v1.0.0: CSV Rotation"
+  description: Rotates CSV log files on July 1st each year to organize data by season.
+  triggers:
+    - at: 03:10:00
+      trigger: time
+  conditions:
+    - condition: template
+      value_template: "{{ now().month == 7 and now().day == 1 }}"
+  actions:
+    - data:
+        year_start: "{{ year_start }}"
+        year_end: "{{ year_end }}"
+      action: shell_command.deye_log_rotate
+    - data:
+        notification_id: deye_csv_rotate
+        title: Deye CSV rotated
+        message:
+          "Årslog arkiveret: /config/deye_logs/deye_log_{{ year_start }}-{{ year_end
+          }}.csv Aktiv fil nulstillet: /config/deye_weekly_log.csv"
+      action: persistent_notification.create
+  mode: single
+  variables:
+    year_start: "{{ (now().year - 1) }}"
+    year_end: "{{ now().year }}"
+- id: "1769673499303"
+  alias: "Deye-Monitor-01 v1.0.5: Enhanced CSV Logging"
+  description:
+    Logs battery, inverter, automation data, EV charging, and voltage rate
+    tracking to CSV every minute. Essential for evaluating voltage protection effectiveness.
+  triggers:
+    - minutes: /1
+      trigger: time_pattern
+  actions:
+    - data:
+        line: "{{ line }}"
+      action: shell_command.deye_log_line
+  mode: queued
+  max: 5
+  variables:
+    batt_w: "{{ states('sensor.solarcust0186_battery_output_power') | float(0) }}"
+    batt_mode:
+      "{% if batt_w > 50 %}\n  discharge\n{% elif batt_w < -50 %}\n  charge\n{%
+      else %}\n  idle\n{% endif %}"
+    batt_discharge_w: "{{ batt_w if batt_w > 0 else 0 }}"
+    batt_charge_w: "{{ (batt_w * -1) if batt_w < 0 else 0 }}"
+    ev_charging_active: "{{ states('input_boolean.deye_ev_charging_active') }}"
+    ev_charge_end_time: "{{ states('input_datetime.deye_ev_charge_end_time') }}"
+    ev_webhook_count: "{{ states('counter.deye_ev_webhook_count') | int(0) }}"
+    soc: "{{ states('sensor.solarcust0186_battery_charge_level') | float(50) }}"
+    volt: "{{ states('sensor.solarcust0186_battery_voltage') | float(0) }}"
+    max_discharge:
+      "{{ states('number.solarcust0186_maximum_battery_discharge_current')
+      | float(0) }}"
+    max_charge:
+      "{{ states('number.solarcust0186_maximum_battery_charge_current')
+      | float(0) }}"
+    max_grid_charge:
+      "{{ states('number.solarcust0186_maximum_battery_grid_charge_current')
+      | float(0) }}"
+    soc_min: 10
+    soc_max: 40
+    power_min_soc: 800
+    power_max_soc: 3000
+    boost: 1.05
+    soc_power_limit_w:
+      "{% if soc >= soc_max %}\n  {{ (60 * volt) | round(0) }}\n{%
+      elif soc <= soc_min %}\n  {{ (power_min_soc * boost) | round(0) }}\n{% else
+      %}\n  {% set normalized = (soc - soc_min) / (soc_max - soc_min) %}\n  {% set
+      exponential = normalized * normalized %}\n  {{ ((power_min_soc + (power_max_soc
+      - power_min_soc) * exponential) * boost) | round(0) }}\n{% endif %}"
+    soc_limit_a:
+      "{{ ((soc_power_limit_w | float) / volt if volt > 1 else 48) | round(0)
+      }}"
+    prev_volt: "{{ states('input_number.deye_previous_voltage') | float(volt) }}"
+    volt_delta: "{{ volt - prev_volt }}"
+    volt_rate_per_min: "{{ (volt_delta / 1) * 1 if volt_delta != 0 else 0 }}"
+    volt_penalty_threshold:
+      "{% if volt < 48.0 %}\n  15\n{% elif volt < 48.5 %}\n
+      \ 10\n{% elif volt < 49.0 %}\n  5\n{% else %}\n  0\n{% endif %}"
+    volt_penalty_rate:
+      "{% set rate_per_min = (volt_delta / 1) * 1 %} {% if rate_per_min
+      < -0.4 %}\n  10\n{% elif rate_per_min < -0.2 %}\n  5\n{% else %}\n  0\n{% endif
+      %}"
+    volt_penalty_a:
+      "{{ [volt_penalty_threshold | int, volt_penalty_rate | int] |
+      max }}"
+    voltage_protected_limit_a: "{{ [soc_limit_a - volt_penalty_a, 15] | max }}"
+    month: "{{ now().month }}"
+    is_winter: "{{ month in [10,11,12,1,2,3] }}"
+    seasonal_discharge_a: "{{ 60 if is_winter else 90 }}"
+    volt_status:
+      "{% if volt < 47.2 %}\n  CRITICAL_EMERGENCY\n{% elif volt < 47.8
+      %}\n  CRITICAL_LOW\n{% elif volt < 48.5 %}\n  WARNING\n{% elif volt < 50.0 %}\n
+      \ CAUTION\n{% else %}\n  NORMAL\n{% endif %}"
+    is_critical_soc: "{{ soc < 20 }}"
+    max_charge_guarded: "{{ 5 if is_critical_soc else 60 }}"
+    zone: "{{ states('input_text.deye_discharge_zone') }}"
+    line:
+      "{{ now().isoformat() }},  soc={{ soc | round(1) }},  volt={{ volt | round(2)
+      }},  volt_delta={{ volt_delta | round(3) }}, volt_rate_per_min={{ volt_rate_per_min
+      | round(3) }}, volt_status={{ volt_status }}, batt_w={{ batt_w }},  batt_mode={{
+      batt_mode }},  batt_discharge_w={{ batt_discharge_w }},  batt_charge_w={{ batt_charge_w
+      }},  load_w={{ states('sensor.solarcust0186_load_totalpower') }}, zone={{
+      zone }},  grid_charge={{ states('switch.solarcust0186_grid_charge') }}, ev_charging_active={{
+      ev_charging_active }}, ev_charge_end={{ ev_charge_end_time }}, ev_webhook_count={{
+      ev_webhook_count }}, max_discharge_a={{ max_discharge | round(0) }}, max_charge_a={{
+      max_charge | round(0) }}, max_grid_charge_a={{ max_grid_charge | round(0) }},
+      soc_limit_a={{ soc_limit_a }}, volt_penalty_a={{ volt_penalty_a }}, voltage_protected_limit_a={{
+      voltage_protected_limit_a }}, soc_power_w={{ soc_power_limit_w | round(0) }},
+      is_critical_soc={{ is_critical_soc }}"
+- id: "1769695092959"
+  alias: "Deye-02 v1.0.0: Counter Reset (6h Window)"
+  description:
+    Resets the rescue counter to maintain a 6-hour rolling window for adaptive
+    learning analytics.
+  triggers:
+    - hours: /6
+      trigger: time_pattern
+  conditions: []
+  actions:
+    - alias: Reset rescue counter to zero
+      action: input_number.set_value
+      target:
+        entity_id: input_number.deye_rescue_count_6h
+      data:
+        value: 0
+    - alias: Log reset to debug notification
+      action: persistent_notification.create
+      data:
+        notification_id: deye_rescue_counter_reset
+        title: "Deye-04: Rescue Counter Reset"
+        message:
+          "✅ 6-hour window reset completed at {{ now().strftime('%H:%M') }}
+          Previous count: {{ states('input_number.deye_rescue_count_6h') }} Next reset:
+          {{ (now() + timedelta(hours=6)).strftime('%H:%M') }}"
+  mode: single
+- id: "1771830728338"
+  alias: "Deye-01-Charge-Trigger v1.0.1: Emergency Battery Charging (2A for 2h)"
+  description:
+    "Triggered by voltage floor detection from discharge curve automation.
+    Sets TOU limits to 40%, enables 2A grid charging for 2 hours. After completion,
+    restores TOU to 90% and stops all interference. SolarBalance takes over after
+    this automation completes.
+
+    "
+  triggers:
+    - trigger: state
+      entity_id: input_boolean.deye_emergency_charge_needed
+      to: "on"
+  conditions:
+    - condition: numeric_state
+      entity_id: sensor.solarcust0186_battery_voltage
+      below: 48.5
+  actions:
+    - variables:
+        batt_v: "{{ states('sensor.solarcust0186_battery_voltage') | float(48) }}"
+        soc: "{{ states('sensor.solarcust0186_battery_charge_level') | float(50) }}"
+        start_time: "{{ now().isoformat() }}"
+        end_time: "{{ (now() + timedelta(hours=2)).isoformat() }}"
+    - action: input_datetime.set_datetime
+      target:
+        entity_id: input_datetime.deye_charge_start_time
+      data:
+        datetime: "{{ start_time }}"
+    - action: input_datetime.set_datetime
+      target:
+        entity_id: input_datetime.deye_charge_end_time
+      data:
+        datetime: "{{ end_time }}"
+    - action: switch.turn_on
+      target:
+        entity_id: switch.solarcust0186_grid_charge
+    - action: number.set_value
+      target:
+        entity_id: number.solarcust0186_maximum_battery_grid_charge_current
+      data:
+        value: 2
+    - action: number.set_value
+      target:
+        entity_id: number.solarcust0186_maximum_battery_charge_current
+      data:
+        value: 2
+    - action: number.set_value
+      target:
+        entity_id: number.solarcust0186_time_point_5_batt_charge_limit
+      data:
+        value: 40
+    - action: number.set_value
+      target:
+        entity_id: number.solarcust0186_time_point_6_batt_charge_limit
+      data:
+        value: 40
+    - action: persistent_notification.create
+      data:
+        notification_id: deye_emergency_charge_started
+        title: "\U0001F50B EMERGENCY CHARGE STARTED (2A for 2h)"
+        message:
+          "Critical voltage {{ batt_v | round(2) }}V detected. 2A grid charging
+          enabled until {{ (now() + timedelta(hours=2)).strftime('%H:%M:%S') }} TOU
+          limits set to 40% to override SolarBalance. SOC: {{ soc | round(1) }}% Started:
+          {{ now().strftime('%H:%M:%S') }}
+
+          "
+    - delay: 02:00:00
+    - action: switch.turn_off
+      target:
+        entity_id: switch.solarcust0186_grid_charge
+    - action: number.set_value
+      target:
+        entity_id: number.solarcust0186_time_point_5_batt_charge_limit
+      data:
+        value: 90
+    - action: number.set_value
+      target:
+        entity_id: number.solarcust0186_time_point_6_batt_charge_limit
+      data:
+        value: 90
+    - variables:
+        final_voltage:
+          "{{ states('sensor.solarcust0186_battery_voltage') | float(48)
+          }}"
+        final_soc:
+          "{{ states('sensor.solarcust0186_battery_charge_level') | float(50)
+          }}"
+    - action: persistent_notification.create
+      data:
+        notification_id: deye_emergency_charge_completed
+        title: ✅ EMERGENCY CHARGE COMPLETED - SOLARBALANCE RESUMED
+        message:
+          "2 hours of 2A charging completed. Grid charge turned OFF. TOU limits
+          restored to 90%. SolarBalance will now manage charging/discharge normally.
+          Final Voltage: {{ final_voltage | round(2) }}V (was {{ batt_v | round(2) }}V)
+          Final SOC: {{ final_soc | round(1) }}% (was {{ soc | round(1) }}%) Completed:
+          {{ now().strftime('%H:%M:%S') }}
+
+          "
+  mode: single
+- id: "1771962690593"
+  alias: "Deye-Guard-03 v1.0.0: SolarBalance TOU Charge Limit Protection"
+  description:
+    "Prevents SolarBalance from modifying Time Point 5 battery charge limit
+    during critical evening hours (17:00-21:00). Enforces 15% charge limit to ensure
+    battery capacity is available for peak discharge period.
+
+    **Why:** SolarBalance may try to increase charge limit based on grid prices, but
+    this conflicts with our battery protection strategy during high-load hours.
+
+    **When:** 17:00-21:00 (peak electricity prices + cooking + heat pump)
+
+    **Action:** Immediately restore 15% charge limit if changed by external system.
+
+    "
+  triggers:
+    - entity_id: number.solarcust0186_time_point_5_batt_charge_limit
+      id: charge_limit_changed
+      trigger: state
+  conditions:
+    - condition: time
+      after: "17:00:00"
+      before: "21:00:00"
+  actions:
+    - choose:
+        - conditions:
+            - condition: template
+              value_template: "{{ current_limit != target_limit }}"
+          sequence:
+            - data:
+                name: Deye SolarBalance Guard
+                message:
+                  "\U0001F6E1️ BLOCKING: SolarBalance changed TOU5 charge limit from
+                  {{ changed_from }}% to {{ changed_to }}% during critical hours. Restoring
+                  to {{ target_limit }}%.\n"
+                entity_id: number.solarcust0186_time_point_5_batt_charge_limit
+              action: logbook.log
+            - delay:
+                milliseconds: 500
+            - target:
+                entity_id: number.solarcust0186_time_point_5_batt_charge_limit
+              data:
+                value: "{{ target_limit }}"
+              action: number.set_value
+            - data:
+                title: ⚡ SolarBalance Override Blocked
+                message:
+                  "Time Point 5 charge limit was changed from {{ changed_from }}%
+                  to {{ changed_to }}% during peak hours ({{ now().strftime('%H:%M') }}).
+
+                  **Restored to {{ target_limit }}%** to maintain battery protection strategy.
+
+                  This prevents SolarBalance from reducing available discharge capacity
+                  during 17:00-21:00 critical period.
+
+                  "
+              action: notify.persistent_notification
+        - conditions:
+            - condition: template
+              value_template: "{{ current_limit == target_limit }}"
+          sequence:
+            - data:
+                name: Deye SolarBalance Guard
+                message:
+                  "✅ TOU5 charge limit change detected ({{ changed_from }}% → {{
+                  changed_to }}%), but already at target {{ target_limit }}%. No action
+                  needed.
+
+                  "
+                entity_id: number.solarcust0186_time_point_5_batt_charge_limit
+              action: logbook.log
+      default:
+        - data:
+            name: Deye SolarBalance Guard
+            message:
+              "⚠️ Unexpected state in SolarBalance guard. Current: {{ current_limit
+              }}%, Target: {{ target_limit }}%, From: {{ changed_from }}%, To: {{ changed_to
+              }}%
+
+              "
+          action: logbook.log
+  mode: queued
+  max: 5
+  variables:
+    current_limit:
+      "{{ states('number.solarcust0186_time_point_5_batt_charge_limit')
+      | int(0) }}"
+    target_limit: 15
+    changed_from: "{{ trigger.from_state.state | int(0) }}"
+    changed_to: "{{ trigger.to_state.state | int(0) }}"
+- id: deye_01_discharge_curve
+  alias: "Deye-01 v1.0.68: Discharge Limiter with TOU-Gated Emergency Charge"
+  description:
+    "Controls discharge using load-aware linear seasonal SOC curves and
+    owns the emergency charge state machine. When the active TOU charge limit is 15%
+    and battery voltage drops below 50.5V, discharge is forced to 0A and 5A emergency
+    charging is enabled. Emergency charging continues until the active TOU limit rises
+    above 15%.
+
+    "
+  triggers:
+    - id: discharge_changed
+      trigger: state
+      entity_id: number.solarcust0186_maximum_battery_discharge_current
+    - id: soc_changed
+      trigger: state
+      entity_id: sensor.solarcust0186_battery_charge_level
+    - id: voltage_changed
+      trigger: state
+      entity_id: sensor.solarcust0186_battery_voltage
+    - id: grid_charge_changed
+      trigger: state
+      entity_id: switch.solarcust0186_grid_charge
+    - id: latch_changed
+      trigger: state
+      entity_id: input_boolean.deye_emergency_charge_needed
+    - id: tou_changed_1
+      trigger: state
+      entity_id: number.solarcust0186_time_point_1_batt_charge_limit
+    - id: tou_changed_2
+      trigger: state
+      entity_id: number.solarcust0186_time_point_2_batt_charge_limit
+    - id: tou_changed_3
+      trigger: state
+      entity_id: number.solarcust0186_time_point_3_batt_charge_limit
+    - id: tou_changed_4
+      trigger: state
+      entity_id: number.solarcust0186_time_point_4_batt_charge_limit
+    - id: tou_changed_5
+      trigger: state
+      entity_id: number.solarcust0186_time_point_5_batt_charge_limit
+    - id: tou_changed_6
+      trigger: state
+      entity_id: number.solarcust0186_time_point_6_batt_charge_limit
+    - id: ha_start
+      trigger: homeassistant
+      event: start
+    - id: periodic
+      trigger: time_pattern
+      seconds: /30
+  conditions: []
+  actions:
+    - variables:
+        soc: "{{ states('sensor.solarcust0186_battery_charge_level') | float(50) }}"
+        batt_v: "{{ states('sensor.solarcust0186_battery_voltage') | float(48) }}"
+        current_cap_a:
+          "{{ states('number.solarcust0186_maximum_battery_discharge_current')
+          | float(0) }}"
+        is_winter: "{{ now().month in [10, 11, 12, 1, 2, 3] }}"
+        load_avg:
+          "{{ states('sensor.house_load_avg_15m') | float(states('sensor.solarcust0186_load_totalpower')
+          | float(0)) }}"
+        outdoor_temp: "{{ states('sensor.ecodan_outdoor_avg_60m') | float(0) }}"
+        SUMMER_LOAD_THRESHOLD: 2200
+        is_summer_load: "{{ load_avg < SUMMER_LOAD_THRESHOLD }}"
+        is_high_load_stress: "{{ load_avg > 2500 or outdoor_temp < 2 }}"
+        DISCHARGE_STRATEGY_A:
+          "{% if is_winter %}\n  {% if is_high_load_stress %} 60
+          {% else %} 65 {% endif %}\n{% else %}\n  {% if is_high_load_stress %} 90 {%
+          else %} 90 {% endif %}\n{% endif %}"
+        DISCHARGE_MAX_A: "{{ DISCHARGE_STRATEGY_A }}"
+        W_SOC_MAX: 40
+        W_SOC_MIN: 15
+        W_AMP_MAX: 60
+        W_AMP_MIN: 8
+        S_SOC_MAX: 35
+        S_SOC_MIN: 15
+        S_AMP_MAX: 45
+        S_AMP_MIN: 5
+        ACTIVE_SOC_MAX: "{{ S_SOC_MAX if is_summer_load else W_SOC_MAX }}"
+        ACTIVE_SOC_MIN: "{{ S_SOC_MIN if is_summer_load else W_SOC_MIN }}"
+        ACTIVE_AMP_MAX: "{{ S_AMP_MAX if is_summer_load else W_AMP_MAX }}"
+        ACTIVE_AMP_MIN: "{{ S_AMP_MIN if is_summer_load else W_AMP_MIN }}"
+        POWER_MIN: 600
+        VOLTAGE_FLOOR_V: 50.5
+        TOU_TRIGGER_LIMIT: 15
+        EMERGENCY_CHARGE_A: 5
+        NORMAL_TOU_LIMIT: 90
+        emergency_charge_latched:
+          "{{ is_state('input_boolean.deye_emergency_charge_needed',
+          'on') }}"
+        grid_charge_on: "{{ is_state('switch.solarcust0186_grid_charge', 'on') }}"
+        solarbalance_enabled:
+          "{{ is_state('switch.solarcust0186_solarbalance_enabled',
+          'on') }}"
+        charge_current_a:
+          "{{ states('number.solarcust0186_maximum_battery_charge_current')
+          | int(0) }}"
+        grid_charge_current_a:
+          "{{ states('number.solarcust0186_maximum_battery_grid_charge_current')
+          | int(0) }}"
+        batt_charge_limit:
+          "{{ states('number.solarcust0186_batt_charge_limit') |
+          int(0) }}"
+        soba_low_batt_soc_limit:
+          "{{ states('number.solarcust0186_soba_low_batt_soc_limit')
+          | int(0) }}"
+        current_hour: "{{ now().hour }}"
+        active_tou_entity:
+          "{% if current_hour < 6 %}\n  number.solarcust0186_time_point_1_batt_charge_limit\n{%
+          elif current_hour < 10 %}\n  number.solarcust0186_time_point_2_batt_charge_limit\n{%
+          elif current_hour < 14 %}\n  number.solarcust0186_time_point_3_batt_charge_limit\n{%
+          elif current_hour < 17 %}\n  number.solarcust0186_time_point_4_batt_charge_limit\n{%
+          elif current_hour < 21 %}\n  number.solarcust0186_time_point_5_batt_charge_limit\n{%
+          else %}\n  number.solarcust0186_time_point_6_batt_charge_limit\n{% endif %}"
+        active_tou_limit: "{{ states(active_tou_entity) | int(0) }}"
+        regulation_enabled: "{{ active_tou_limit == TOU_TRIGGER_LIMIT }}"
+        release_ready: "{{ active_tou_limit > TOU_TRIGGER_LIMIT }}"
+        voltage_critical: "{{ batt_v < VOLTAGE_FLOOR_V }}"
+        start_emergency_charge:
+          "{{ regulation_enabled and voltage_critical and not
+          emergency_charge_latched }}"
+        stop_emergency_charge: "{{ emergency_charge_latched and release_ready }}"
+        soc_limit_a:
+          "{% set v_min_calc = (POWER_MIN / batt_v) | round(0) %}\n{% set
+          v_min_absolute = [v_min_calc, ACTIVE_AMP_MIN] | min %}\n\n{% if soc >= ACTIVE_SOC_MAX
+          %}\n  {{ ACTIVE_AMP_MAX }}\n{% elif soc <= ACTIVE_SOC_MIN %}\n  {{ v_min_absolute
+          }}\n{% else %}\n  {% set ratio = (soc - ACTIVE_SOC_MIN) / (ACTIVE_SOC_MAX
+          - ACTIVE_SOC_MIN) %}\n  {{ (ACTIVE_AMP_MIN + (ACTIVE_AMP_MAX - ACTIVE_AMP_MIN)
+          * ratio) | round(0) }}\n{% endif %}"
+        target_discharge_a:
+          "{% if emergency_charge_latched %}\n  0\n{% else %}\n  {{
+          [soc_limit_a | int, DISCHARGE_MAX_A | int] | min }}\n{% endif %}"
+        needs_enforce:
+          "{{ (current_cap_a | round(0) | int) != (target_discharge_a |
+          round(0) | int) }}"
+    - if:
+        - condition: template
+          value_template: "{{ start_emergency_charge }}"
+      then:
+        - action: input_boolean.turn_on
+          target:
+            entity_id: input_boolean.deye_emergency_charge_needed
+        - action: input_datetime.set_datetime
+          target:
+            entity_id: input_datetime.deye_charge_start_time
+          data:
+            datetime: "{{ now().isoformat() }}"
+        - action: persistent_notification.create
+          data:
+            notification_id: deye_charge_trigger_activated
+            title: "\U0001F50B CRITICAL BATTERY - DISCHARGE LOCKED"
+            message:
+              "Active TOU {{ active_tou_entity.split('.')[-1] }} is {{ active_tou_limit
+              }}% and voltage {{ batt_v | round(2) }}V < {{ VOLTAGE_FLOOR_V }}V detected.
+              Emergency 5A charge enabled until the active TOU limit rises above {{ TOU_TRIGGER_LIMIT
+              }}%. Time: {{ now().strftime('%H:%M:%S') }}
+
+              "
+        - variables:
+            emergency_charge_latched: true
+    - if:
+        - condition: template
+          value_template: "{{ emergency_charge_latched }}"
+      then:
+        - if:
+            - condition: template
+              value_template: "{{ not grid_charge_on }}"
+          then:
+            - action: switch.turn_on
+              target:
+                entity_id: switch.solarcust0186_grid_charge
+        - if:
+            - condition: template
+              value_template: "{{ grid_charge_current_a != EMERGENCY_CHARGE_A }}"
+          then:
+            - action: number.set_value
+              target:
+                entity_id: number.solarcust0186_maximum_battery_grid_charge_current
+              data:
+                value: "{{ EMERGENCY_CHARGE_A }}"
+        - if:
+            - condition: template
+              value_template: "{{ charge_current_a != EMERGENCY_CHARGE_A }}"
+          then:
+            - action: number.set_value
+              target:
+                entity_id: number.solarcust0186_maximum_battery_charge_current
+              data:
+                value: "{{ EMERGENCY_CHARGE_A }}"
+        - if:
+            - condition: template
+              value_template: "{{ batt_charge_limit != NORMAL_TOU_LIMIT }}"
+          then:
+            - action: number.set_value
+              target:
+                entity_id: number.solarcust0186_batt_charge_limit
+              data:
+                value: "{{ NORMAL_TOU_LIMIT }}"
+        - if:
+            - condition: template
+              value_template: "{{ soba_low_batt_soc_limit != NORMAL_TOU_LIMIT }}"
+          then:
+            - action: number.set_value
+              target:
+                entity_id: number.solarcust0186_soba_low_batt_soc_limit
+              data:
+                value: "{{ NORMAL_TOU_LIMIT }}"
+        - if:
+            - condition: template
+              value_template: "{{ solarbalance_enabled }}"
+          then:
+            - action: switch.turn_off
+              target:
+                entity_id: switch.solarcust0186_solarbalance_enabled
+              continue_on_error: true
+        - if:
+            - condition: template
+              value_template:
+                "{{ trigger.id == 'latch_changed' and trigger.to_state is
+                not none and trigger.to_state.state == 'on' }}"
+          then:
+            - action: persistent_notification.create
+              data:
+                notification_id: deye_emergency_charge_started
+                title: "\U0001F50B EMERGENCY CHARGE STARTED (5A ACTIVE TOU)"
+                message:
+                  "Critical voltage latch is active while the current TOU limit is
+                  {{ active_tou_limit }}%. SolarBalance disabled and grid charging forced
+                  ON at {{ EMERGENCY_CHARGE_A }}A. SOC: {{ soc | round(1) }}% | Voltage:
+                  {{ batt_v | round(2) }}V Started: {{ now().strftime('%H:%M:%S') }}
+
+                  "
+    - if:
+        - condition: template
+          value_template: "{{ stop_emergency_charge }}"
+      then:
+        - action: input_boolean.turn_off
+          target:
+            entity_id: input_boolean.deye_emergency_charge_needed
+        - if:
+            - condition: template
+              value_template: "{{ grid_charge_on }}"
+          then:
+            - action: switch.turn_off
+              target:
+                entity_id: switch.solarcust0186_grid_charge
+        - if:
+            - condition: template
+              value_template: "{{ batt_charge_limit != NORMAL_TOU_LIMIT }}"
+          then:
+            - action: number.set_value
+              target:
+                entity_id: number.solarcust0186_batt_charge_limit
+              data:
+                value: "{{ NORMAL_TOU_LIMIT }}"
+        - if:
+            - condition: template
+              value_template: "{{ soba_low_batt_soc_limit != NORMAL_TOU_LIMIT }}"
+          then:
+            - action: number.set_value
+              target:
+                entity_id: number.solarcust0186_soba_low_batt_soc_limit
+              data:
+                value: "{{ NORMAL_TOU_LIMIT }}"
+        - if:
+            - condition: template
+              value_template: "{{ not solarbalance_enabled }}"
+          then:
+            - action: switch.turn_on
+              target:
+                entity_id: switch.solarcust0186_solarbalance_enabled
+              continue_on_error: true
+        - action: input_datetime.set_datetime
+          target:
+            entity_id: input_datetime.deye_charge_end_time
+          data:
+            datetime: "{{ now().isoformat() }}"
+        - action: persistent_notification.create
+          data:
+            notification_id: deye_charge_trigger_released
+            title: ✅ BATTERY RECOVERY COMPLETE
+            message:
+              "Active TOU {{ active_tou_entity.split('.')[-1] }} is now {{ active_tou_limit
+              }}%. Emergency charge latch released because the active TOU limit is above
+              {{ TOU_TRIGGER_LIMIT }}%. Voltage: {{ batt_v | round(2) }}V Time: {{ now().strftime('%H:%M:%S')
+              }}
+
+              "
+        - action: persistent_notification.create
+          data:
+            notification_id: deye_emergency_charge_completed
+            title: ✅ EMERGENCY CHARGE COMPLETED - LATCH RELEASED
+            message:
+              "Emergency charge latch released. Grid charge turned OFF, global
+              charge guards restored to {{ NORMAL_TOU_LIMIT }}%, and SolarBalance re-enabled.
+              Final Voltage: {{ batt_v | round(2) }}V | Final SOC: {{ soc | round(1) }}%
+              Completed: {{ now().strftime('%H:%M:%S') }}
+
+              "
+    - if:
+        - condition: template
+          value_template: "{{ needs_enforce }}"
+      then:
+        - action: number.set_value
+          target:
+            entity_id: number.solarcust0186_maximum_battery_discharge_current
+          data:
+            value: "{{ target_discharge_a }}"
+  mode: queued
+  max: 10
+- &id001
+  id: deye_01_simple_discharge_limiter
+  alias: "Deye-01 v1.0.84: Pure Discharge Limiter with Dynamic TOU"
+  description:
+    "Controls discharge with dynamic TOU slot detection. The active TOU
+    charge-limit entity is selected from the current inverter time-point starts. The
+    SOC curve is only enforced when the active dynamic TOU limit is 15% and current
+    SOC is at or below SOC_CURVE_MAX. When TOU is above the curve limit and SOC is
+    above SOC_CURVE_MAX, the automation leaves the current discharge unchanged. A
+    mobile notification is sent when SOC crosses down to SOC_CURVE_MAX. A hard voltage
+    floor at 50.0V forces discharge to 0A.
+
+    "
+  triggers:
+    - id: discharge_changed
+      trigger: state
+      entity_id: number.solarcust0186_maximum_battery_discharge_current
+    - id: soc_changed
+      trigger: state
+      entity_id: sensor.solarcust0186_battery_charge_level
+    - id: voltage_changed
+      trigger: state
+      entity_id: sensor.solarcust0186_battery_voltage
+    - id: tou_changed_1
+      trigger: state
+      entity_id: number.solarcust0186_time_point_1_batt_charge_limit
+    - id: tou_changed_2
+      trigger: state
+      entity_id: number.solarcust0186_time_point_2_batt_charge_limit
+    - id: tou_changed_3
+      trigger: state
+      entity_id: number.solarcust0186_time_point_3_batt_charge_limit
+    - id: tou_changed_4
+      trigger: state
+      entity_id: number.solarcust0186_time_point_4_batt_charge_limit
+    - id: tou_changed_5
+      trigger: state
+      entity_id: number.solarcust0186_time_point_5_batt_charge_limit
+    - id: tou_changed_6
+      trigger: state
+      entity_id: number.solarcust0186_time_point_6_batt_charge_limit
+    - id: tou_start_changed_1
+      trigger: state
+      entity_id: number.solarcust0186_time_point_1_start
+    - id: tou_start_changed_2
+      trigger: state
+      entity_id: number.solarcust0186_time_point_2_start
+    - id: tou_start_changed_3
+      trigger: state
+      entity_id: number.solarcust0186_time_point_3_start
+    - id: tou_start_changed_4
+      trigger: state
+      entity_id: number.solarcust0186_time_point_4_start
+    - id: tou_start_changed_5
+      trigger: state
+      entity_id: number.solarcust0186_time_point_5_start
+    - id: tou_start_changed_6
+      trigger: state
+      entity_id: number.solarcust0186_time_point_6_start
+    - id: ha_start
+      trigger: homeassistant
+      event: start
+    - id: periodic
+      trigger: time_pattern
+      seconds: /30
+  conditions: []
+  actions:
+    - variables:
+        HIGH_STRESS_LOAD_W: 2500
+        HIGH_STRESS_OUTDOOR_TEMP_C: 2
+        WINTER_DISCHARGE_HIGH_STRESS_A: 60
+        WINTER_DISCHARGE_NORMAL_A: 65
+        SUMMER_DISCHARGE_A: 90
+        SOC_CURVE_MAX: 40
+        SOC_CURVE_MIN: 15
+        CURVE_TOU_LIMIT: 15
+        SOC_CURVE_POWER_MAX: 2500
+        SOC_CURVE_POWER_MIN: 600
+        VOLTAGE_FLOOR_V: 51
+        MIN_BATTERY_V_FOR_DIVISION: 1
+        soc: "{{ states('sensor.solarcust0186_battery_charge_level') | float }}"
+        batt_v: "{{ states('sensor.solarcust0186_battery_voltage') | float }}"
+        current_cap_a:
+          "{{ states('number.solarcust0186_maximum_battery_discharge_current')
+          | float }}"
+        load_avg: "{{ states('sensor.house_load_avg_15m') | float }}"
+        outdoor_temp: "{{ states('sensor.ecodan_outdoor_avg_60m') | float }}"
+        DISCHARGE_STRATEGY_LIMIT_SOURCE_A:
+          "{% set winter = now().month in [10, 11,
+          12, 1, 2, 3] %}\n{% set high_stress = (load_avg | float) > HIGH_STRESS_LOAD_W
+          or (outdoor_temp | float) < HIGH_STRESS_OUTDOOR_TEMP_C %}\n{% if winter %}\n
+          \ {% if high_stress %} {{ WINTER_DISCHARGE_HIGH_STRESS_A }} {% else %} {{
+          WINTER_DISCHARGE_NORMAL_A }} {% endif %}\n{% else %}\n  {{ SUMMER_DISCHARGE_A
+          }}\n{% endif %}"
+        DISCHARGE_STRATEGY_LIMIT_A: "{{ DISCHARGE_STRATEGY_LIMIT_SOURCE_A }}"
+        current_time_hhmm: "{{ now().hour * 100 + now().minute }}"
+        active_tou_entity:
+          "{% set schedule = [\n  {'start': states('number.solarcust0186_time_point_1_start')
+          | int, 'limit_entity': 'number.solarcust0186_time_point_1_batt_charge_limit'},\n
+          \ {'start': states('number.solarcust0186_time_point_2_start') | int, 'limit_entity':
+          'number.solarcust0186_time_point_2_batt_charge_limit'},\n  {'start': states('number.solarcust0186_time_point_3_start')
+          | int, 'limit_entity': 'number.solarcust0186_time_point_3_batt_charge_limit'},\n
+          \ {'start': states('number.solarcust0186_time_point_4_start') | int, 'limit_entity':
+          'number.solarcust0186_time_point_4_batt_charge_limit'},\n  {'start': states('number.solarcust0186_time_point_5_start')
+          | int, 'limit_entity': 'number.solarcust0186_time_point_5_batt_charge_limit'},\n
+          \ {'start': states('number.solarcust0186_time_point_6_start') | int, 'limit_entity':
+          'number.solarcust0186_time_point_6_batt_charge_limit'}\n] %} {% set now_hhmm
+          = current_time_hhmm | int %} {% set active = namespace(limit_entity=schedule[0].limit_entity)
+          %} {% for slot in schedule %}\n  {% set next_slot = schedule[(loop.index0
+          + 1) % (schedule | count)] %}\n  {% set start = slot.start | int %}\n  {%
+          set next_start = next_slot.start | int %}\n  {% set in_slot = (now_hhmm >=
+          start and now_hhmm < next_start) if start < next_start else (now_hhmm >= start
+          or now_hhmm < next_start) %}\n  {% if in_slot %}\n    {% set active.limit_entity
+          = slot.limit_entity %}\n  {% endif %}\n{% endfor %} {{ active.limit_entity
+          }}"
+        active_tou_limit: "{{ states(active_tou_entity) | float }}"
+        dynamic_tou_is_curve_slot:
+          "{{ (active_tou_limit | float | round(0) | int) ==
+          CURVE_TOU_LIMIT }}"
+        no_action_zone:
+          "{{ (active_tou_limit | float) > CURVE_TOU_LIMIT and (soc |
+          float) > SOC_CURVE_MAX }}"
+        discharge_curve_active:
+          "{{ (soc | float) <= SOC_CURVE_MAX and dynamic_tou_is_curve_slot
+          }}"
+        soc_curve_max_reached:
+          "{{ trigger.id == 'soc_changed'\n   and trigger.from_state
+          is not none\n   and trigger.to_state is not none\n   and (trigger.from_state.state
+          | float(999)) > SOC_CURVE_MAX\n   and (trigger.to_state.state | float(999))
+          <= SOC_CURVE_MAX }}"
+        voltage_floor_hit: "{{ (batt_v | float) <= VOLTAGE_FLOOR_V }}"
+        soc_limit_a:
+          "{% set soc_min = SOC_CURVE_MIN %}\n{% set soc_max = SOC_CURVE_MAX
+          %}\n{% set power_min = SOC_CURVE_POWER_MIN %}\n{% set power_max = SOC_CURVE_POWER_MAX
+          %}\n{% set soc_value = soc | float %}\n{% set batt_v_safe = [batt_v | float,
+          MIN_BATTERY_V_FOR_DIVISION] | max %}\n\n{% if soc_value >= soc_max %}\n  {{
+          (power_max / batt_v_safe) | round(0) }}\n{% elif soc_value <= soc_min %}\n
+          \ {{ (power_min / batt_v_safe) | round(0) }}\n{% else %}\n  {% set ratio =
+          (soc_value - soc_min) / (soc_max - soc_min) %}\n  {% set power_limit = power_min
+          + ((power_max - power_min) * ratio) %}\n  {{ (power_limit / batt_v_safe) |
+          round(0) }}\n{% endif %}"
+        target_discharge_a:
+          "{% if voltage_floor_hit %}\n  0\n{% elif no_action_zone
+          %}\n  {{ current_cap_a | int }}\n{% elif discharge_curve_active %}\n  {{ [soc_limit_a
+          | int, DISCHARGE_STRATEGY_LIMIT_A | int] | min }}\n{% else %}\n  {{ DISCHARGE_STRATEGY_LIMIT_A
+          | int }}\n{% endif %}"
+        needs_enforce:
+          "{{ (current_cap_a | float | round(0) | int) != (target_discharge_a
+          | float | round(0) | int) }}"
+    - if:
+        - condition: template
+          value_template: "{{ soc_curve_max_reached }}"
+      then:
+        - action: notify.mobile_app_jans_iphone
+          data:
+            title: Deye - SOC curve threshold reached
+            message:
+              "SOC reached {{ soc | round(1) }}% at curve max {{ SOC_CURVE_MAX
+              }}%. TOU limit: {{ active_tou_limit | round(0) }}%. Discharge target: {{
+              target_discharge_a | int }}A."
+    - if:
+        - condition: template
+          value_template: "{{ needs_enforce }}"
+      then:
+        - action: number.set_value
+          target:
+            entity_id: number.solarcust0186_maximum_battery_discharge_current
+          data:
+            value: "{{ target_discharge_a }}"
+  mode: queued
+  max: 10
+- *id001
+- id: deye_01_discharge_curve
+  alias: "Deye-01 v1.0.69: Discharge Limiter with TOU-Gated Emergency Charge"
+  description:
+    "Controls discharge using load-aware linear seasonal SOC curves and
+    owns the emergency charge state machine. When the active TOU charge limit is 15%
+    and battery voltage drops below 50.5V, discharge is forced to 0A and 5A emergency
+    charging is enabled. Emergency charging continues until the active TOU limit rises
+    above 15%.
+
+    "
+  triggers:
+    - id: discharge_changed
+      trigger: state
+      entity_id: number.solarcust0186_maximum_battery_discharge_current
+    - id: soc_changed
+      trigger: state
+      entity_id: sensor.solarcust0186_battery_charge_level
+    - id: voltage_changed
+      trigger: state
+      entity_id: sensor.solarcust0186_battery_voltage
+    - id: grid_charge_changed
+      trigger: state
+      entity_id: switch.solarcust0186_grid_charge
+    - id: latch_changed
+      trigger: state
+      entity_id: input_boolean.deye_emergency_charge_needed
+    - id: tou_changed_1
+      trigger: state
+      entity_id: number.solarcust0186_time_point_1_batt_charge_limit
+    - id: tou_changed_2
+      trigger: state
+      entity_id: number.solarcust0186_time_point_2_batt_charge_limit
+    - id: tou_changed_3
+      trigger: state
+      entity_id: number.solarcust0186_time_point_3_batt_charge_limit
+    - id: tou_changed_4
+      trigger: state
+      entity_id: number.solarcust0186_time_point_4_batt_charge_limit
+    - id: tou_changed_5
+      trigger: state
+      entity_id: number.solarcust0186_time_point_5_batt_charge_limit
+    - id: tou_changed_6
+      trigger: state
+      entity_id: number.solarcust0186_time_point_6_batt_charge_limit
+    - id: tou_start_changed_1
+      trigger: state
+      entity_id: number.solarcust0186_time_point_1_start
+    - id: tou_start_changed_2
+      trigger: state
+      entity_id: number.solarcust0186_time_point_2_start
+    - id: tou_start_changed_3
+      trigger: state
+      entity_id: number.solarcust0186_time_point_3_start
+    - id: tou_start_changed_4
+      trigger: state
+      entity_id: number.solarcust0186_time_point_4_start
+    - id: tou_start_changed_5
+      trigger: state
+      entity_id: number.solarcust0186_time_point_5_start
+    - id: tou_start_changed_6
+      trigger: state
+      entity_id: number.solarcust0186_time_point_6_start
+    - id: ha_start
+      trigger: homeassistant
+      event: start
+    - id: periodic
+      trigger: time_pattern
+      seconds: /30
+  conditions: []
+  actions:
+    - variables:
+        soc: "{{ states('sensor.solarcust0186_battery_charge_level') | float(50) }}"
+        batt_v: "{{ states('sensor.solarcust0186_battery_voltage') | float(48) }}"
+        current_cap_a:
+          "{{ states('number.solarcust0186_maximum_battery_discharge_current')
+          | float(0) }}"
+        is_winter: "{{ now().month in [10, 11, 12, 1, 2, 3] }}"
+        load_avg:
+          "{{ states('sensor.house_load_avg_15m') | float(states('sensor.solarcust0186_load_totalpower')
+          | float(0)) }}"
+        outdoor_temp: "{{ states('sensor.ecodan_outdoor_avg_60m') | float(0) }}"
+        SUMMER_LOAD_THRESHOLD: 2200
+        is_summer_load: "{{ load_avg < SUMMER_LOAD_THRESHOLD }}"
+        is_high_load_stress: "{{ load_avg > 2500 or outdoor_temp < 2 }}"
+        DISCHARGE_STRATEGY_A:
+          "{% if is_winter %}\n  {% if is_high_load_stress %} 60
+          {% else %} 65 {% endif %}\n{% else %}\n  {% if is_high_load_stress %} 90 {%
+          else %} 90 {% endif %}\n{% endif %}"
+        DISCHARGE_MAX_A: "{{ DISCHARGE_STRATEGY_A }}"
+        W_SOC_MAX: 40
+        W_SOC_MIN: 15
+        W_AMP_MAX: 60
+        W_AMP_MIN: 8
+        S_SOC_MAX: 35
+        S_SOC_MIN: 15
+        S_AMP_MAX: 45
+        S_AMP_MIN: 5
+        ACTIVE_SOC_MAX: "{{ S_SOC_MAX if is_summer_load else W_SOC_MAX }}"
+        ACTIVE_SOC_MIN: "{{ S_SOC_MIN if is_summer_load else W_SOC_MIN }}"
+        ACTIVE_AMP_MAX: "{{ S_AMP_MAX if is_summer_load else W_AMP_MAX }}"
+        ACTIVE_AMP_MIN: "{{ S_AMP_MIN if is_summer_load else W_AMP_MIN }}"
+        POWER_MIN: 600
+        VOLTAGE_FLOOR_V: 50.5
+        TOU_TRIGGER_LIMIT: 15
+        EMERGENCY_CHARGE_A: 5
+        NORMAL_TOU_LIMIT: 90
+        emergency_charge_latched:
+          "{{ is_state('input_boolean.deye_emergency_charge_needed',
+          'on') }}"
+        grid_charge_on: "{{ is_state('switch.solarcust0186_grid_charge', 'on') }}"
+        solarbalance_enabled:
+          "{{ is_state('switch.solarcust0186_solarbalance_enabled',
+          'on') }}"
+        charge_current_a:
+          "{{ states('number.solarcust0186_maximum_battery_charge_current')
+          | int(0) }}"
+        grid_charge_current_a:
+          "{{ states('number.solarcust0186_maximum_battery_grid_charge_current')
+          | int(0) }}"
+        batt_charge_limit:
+          "{{ states('number.solarcust0186_batt_charge_limit') |
+          int(0) }}"
+        soba_low_batt_soc_limit:
+          "{{ states('number.solarcust0186_soba_low_batt_soc_limit')
+          | int(0) }}"
+        current_time_hhmm: "{{ now().hour * 100 + now().minute }}"
+        active_tou_entity:
+          "{% set schedule = [\n  {'start': states('number.solarcust0186_time_point_1_start')
+          | int(0), 'limit_entity': 'number.solarcust0186_time_point_1_batt_charge_limit'},\n
+          \ {'start': states('number.solarcust0186_time_point_2_start') | int(0), 'limit_entity':
+          'number.solarcust0186_time_point_2_batt_charge_limit'},\n  {'start': states('number.solarcust0186_time_point_3_start')
+          | int(0), 'limit_entity': 'number.solarcust0186_time_point_3_batt_charge_limit'},\n
+          \ {'start': states('number.solarcust0186_time_point_4_start') | int(0), 'limit_entity':
+          'number.solarcust0186_time_point_4_batt_charge_limit'},\n  {'start': states('number.solarcust0186_time_point_5_start')
+          | int(0), 'limit_entity': 'number.solarcust0186_time_point_5_batt_charge_limit'},\n
+          \ {'start': states('number.solarcust0186_time_point_6_start') | int(0), 'limit_entity':
+          'number.solarcust0186_time_point_6_batt_charge_limit'}\n] %} {% set now_hhmm
+          = current_time_hhmm | int %} {% set active = namespace(limit_entity=schedule[0].limit_entity)
+          %} {% for slot in schedule %}\n  {% set next_slot = schedule[(loop.index0
+          + 1) % (schedule | count)] %}\n  {% set start = slot.start | int %}\n  {%
+          set next_start = next_slot.start | int %}\n  {% set in_slot = (now_hhmm >=
+          start and now_hhmm < next_start) if start < next_start else (now_hhmm >= start
+          or now_hhmm < next_start) %}\n  {% if in_slot %}\n    {% set active.limit_entity
+          = slot.limit_entity %}\n  {% endif %}\n{% endfor %} {{ active.limit_entity
+          }}"
+        active_tou_limit: "{{ states(active_tou_entity) | int(0) }}"
+        regulation_enabled: "{{ active_tou_limit == TOU_TRIGGER_LIMIT }}"
+        release_ready: "{{ active_tou_limit > TOU_TRIGGER_LIMIT }}"
+        voltage_critical: "{{ batt_v < VOLTAGE_FLOOR_V }}"
+        start_emergency_charge:
+          "{{ regulation_enabled and voltage_critical and not
+          emergency_charge_latched }}"
+        stop_emergency_charge: "{{ emergency_charge_latched and release_ready }}"
+        soc_limit_a:
+          "{% set v_min_calc = (POWER_MIN / batt_v) | round(0) %}\n{% set
+          v_min_absolute = [v_min_calc, ACTIVE_AMP_MIN] | min %}\n\n{% if soc >= ACTIVE_SOC_MAX
+          %}\n  {{ ACTIVE_AMP_MAX }}\n{% elif soc <= ACTIVE_SOC_MIN %}\n  {{ v_min_absolute
+          }}\n{% else %}\n  {% set ratio = (soc - ACTIVE_SOC_MIN) / (ACTIVE_SOC_MAX
+          - ACTIVE_SOC_MIN) %}\n  {{ (ACTIVE_AMP_MIN + (ACTIVE_AMP_MAX - ACTIVE_AMP_MIN)
+          * ratio) | round(0) }}\n{% endif %}"
+        target_discharge_a:
+          "{% if emergency_charge_latched %}\n  0\n{% else %}\n  {{
+          [soc_limit_a | int, DISCHARGE_MAX_A | int] | min }}\n{% endif %}"
+        needs_enforce:
+          "{{ (current_cap_a | round(0) | int) != (target_discharge_a |
+          round(0) | int) }}"
+    - if:
+        - condition: template
+          value_template: "{{ start_emergency_charge }}"
+      then:
+        - action: input_boolean.turn_on
+          target:
+            entity_id: input_boolean.deye_emergency_charge_needed
+        - action: input_datetime.set_datetime
+          target:
+            entity_id: input_datetime.deye_charge_start_time
+          data:
+            datetime: "{{ now().isoformat() }}"
+        - action: persistent_notification.create
+          data:
+            notification_id: deye_charge_trigger_activated
+            title: "\U0001F50B CRITICAL BATTERY - DISCHARGE LOCKED"
+            message:
+              "Active TOU {{ active_tou_entity.split('.')[-1] }} is {{ active_tou_limit
+              }}% and voltage {{ batt_v | round(2) }}V < {{ VOLTAGE_FLOOR_V }}V detected.
+              Emergency 5A charge enabled until the active TOU limit rises above {{ TOU_TRIGGER_LIMIT
+              }}%. Time: {{ now().strftime('%H:%M:%S') }}
+
+              "
+        - variables:
+            emergency_charge_latched: true
+    - if:
+        - condition: template
+          value_template: "{{ emergency_charge_latched }}"
+      then:
+        - if:
+            - condition: template
+              value_template: "{{ not grid_charge_on }}"
+          then:
+            - action: switch.turn_on
+              target:
+                entity_id: switch.solarcust0186_grid_charge
+        - if:
+            - condition: template
+              value_template: "{{ grid_charge_current_a != EMERGENCY_CHARGE_A }}"
+          then:
+            - action: number.set_value
+              target:
+                entity_id: number.solarcust0186_maximum_battery_grid_charge_current
+              data:
+                value: "{{ EMERGENCY_CHARGE_A }}"
+        - if:
+            - condition: template
+              value_template: "{{ charge_current_a != EMERGENCY_CHARGE_A }}"
+          then:
+            - action: number.set_value
+              target:
+                entity_id: number.solarcust0186_maximum_battery_charge_current
+              data:
+                value: "{{ EMERGENCY_CHARGE_A }}"
+        - if:
+            - condition: template
+              value_template: "{{ batt_charge_limit != NORMAL_TOU_LIMIT }}"
+          then:
+            - action: number.set_value
+              target:
+                entity_id: number.solarcust0186_batt_charge_limit
+              data:
+                value: "{{ NORMAL_TOU_LIMIT }}"
+        - if:
+            - condition: template
+              value_template: "{{ soba_low_batt_soc_limit != NORMAL_TOU_LIMIT }}"
+          then:
+            - action: number.set_value
+              target:
+                entity_id: number.solarcust0186_soba_low_batt_soc_limit
+              data:
+                value: "{{ NORMAL_TOU_LIMIT }}"
+        - if:
+            - condition: template
+              value_template: "{{ solarbalance_enabled }}"
+          then:
+            - action: switch.turn_off
+              target:
+                entity_id: switch.solarcust0186_solarbalance_enabled
+              continue_on_error: true
+        - if:
+            - condition: template
+              value_template:
+                "{{ trigger.id == 'latch_changed' and trigger.to_state is
+                not none and trigger.to_state.state == 'on' }}"
+          then:
+            - action: persistent_notification.create
+              data:
+                notification_id: deye_emergency_charge_started
+                title: "\U0001F50B EMERGENCY CHARGE STARTED (5A ACTIVE TOU)"
+                message:
+                  "Critical voltage latch is active while the current TOU limit is
+                  {{ active_tou_limit }}%. SolarBalance disabled and grid charging forced
+                  ON at {{ EMERGENCY_CHARGE_A }}A. SOC: {{ soc | round(1) }}% | Voltage:
+                  {{ batt_v | round(2) }}V Started: {{ now().strftime('%H:%M:%S') }}
+
+                  "
+    - if:
+        - condition: template
+          value_template: "{{ stop_emergency_charge }}"
+      then:
+        - action: input_boolean.turn_off
+          target:
+            entity_id: input_boolean.deye_emergency_charge_needed
+        - if:
+            - condition: template
+              value_template: "{{ grid_charge_on }}"
+          then:
+            - action: switch.turn_off
+              target:
+                entity_id: switch.solarcust0186_grid_charge
+        - if:
+            - condition: template
+              value_template: "{{ batt_charge_limit != NORMAL_TOU_LIMIT }}"
+          then:
+            - action: number.set_value
+              target:
+                entity_id: number.solarcust0186_batt_charge_limit
+              data:
+                value: "{{ NORMAL_TOU_LIMIT }}"
+        - if:
+            - condition: template
+              value_template: "{{ soba_low_batt_soc_limit != NORMAL_TOU_LIMIT }}"
+          then:
+            - action: number.set_value
+              target:
+                entity_id: number.solarcust0186_soba_low_batt_soc_limit
+              data:
+                value: "{{ NORMAL_TOU_LIMIT }}"
+        - if:
+            - condition: template
+              value_template: "{{ not solarbalance_enabled }}"
+          then:
+            - action: switch.turn_on
+              target:
+                entity_id: switch.solarcust0186_solarbalance_enabled
+              continue_on_error: true
+        - action: input_datetime.set_datetime
+          target:
+            entity_id: input_datetime.deye_charge_end_time
+          data:
+            datetime: "{{ now().isoformat() }}"
+        - action: persistent_notification.create
+          data:
+            notification_id: deye_charge_trigger_released
+            title: ✅ BATTERY RECOVERY COMPLETE
+            message:
+              "Active TOU {{ active_tou_entity.split('.')[-1] }} is now {{ active_tou_limit
+              }}%. Emergency charge latch released because the active TOU limit is above
+              {{ TOU_TRIGGER_LIMIT }}%. Voltage: {{ batt_v | round(2) }}V Time: {{ now().strftime('%H:%M:%S')
+              }}
+
+              "
+        - action: persistent_notification.create
+          data:
+            notification_id: deye_emergency_charge_completed
+            title: ✅ EMERGENCY CHARGE COMPLETED - LATCH RELEASED
+            message:
+              "Emergency charge latch released. Grid charge turned OFF, global
+              charge guards restored to {{ NORMAL_TOU_LIMIT }}%, and SolarBalance re-enabled.
+              Final Voltage: {{ batt_v | round(2) }}V | Final SOC: {{ soc | round(1) }}%
+              Completed: {{ now().strftime('%H:%M:%S') }}
+
+              "
+    - if:
+        - condition: template
+          value_template: "{{ needs_enforce }}"
+      then:
+        - action: number.set_value
+          target:
+            entity_id: number.solarcust0186_maximum_battery_discharge_current
+          data:
+            value: "{{ target_discharge_a }}"
+  mode: queued
+  max: 10
+- id: deye_01_discharge_curve
+  alias: "Deye-01 v1.0.68: Discharge Limiter with TOU-Gated Emergency Charge"
+  description:
+    "Controls discharge using load-aware linear seasonal SOC curves and
+    owns the emergency charge state machine. When the active TOU charge limit is 15%
+    and battery voltage drops below 50.5V, discharge is forced to 0A and 5A emergency
+    charging is enabled. Emergency charging continues until the active TOU limit rises
+    above 15%.
+
+    "
+  triggers:
+    - id: discharge_changed
+      trigger: state
+      entity_id: number.solarcust0186_maximum_battery_discharge_current
+    - id: soc_changed
+      trigger: state
+      entity_id: sensor.solarcust0186_battery_charge_level
+    - id: voltage_changed
+      trigger: state
+      entity_id: sensor.solarcust0186_battery_voltage
+    - id: grid_charge_changed
+      trigger: state
+      entity_id: switch.solarcust0186_grid_charge
+    - id: latch_changed
+      trigger: state
+      entity_id: input_boolean.deye_emergency_charge_needed
+    - id: tou_changed_1
+      trigger: state
+      entity_id: number.solarcust0186_time_point_1_batt_charge_limit
+    - id: tou_changed_2
+      trigger: state
+      entity_id: number.solarcust0186_time_point_2_batt_charge_limit
+    - id: tou_changed_3
+      trigger: state
+      entity_id: number.solarcust0186_time_point_3_batt_charge_limit
+    - id: tou_changed_4
+      trigger: state
+      entity_id: number.solarcust0186_time_point_4_batt_charge_limit
+    - id: tou_changed_5
+      trigger: state
+      entity_id: number.solarcust0186_time_point_5_batt_charge_limit
+    - id: tou_changed_6
+      trigger: state
+      entity_id: number.solarcust0186_time_point_6_batt_charge_limit
+    - id: ha_start
+      trigger: homeassistant
+      event: start
+    - id: periodic
+      trigger: time_pattern
+      seconds: /30
+  conditions: []
+  actions:
+    - variables:
+        soc: "{{ states('sensor.solarcust0186_battery_charge_level') | float(50) }}"
+        batt_v: "{{ states('sensor.solarcust0186_battery_voltage') | float(48) }}"
+        current_cap_a:
+          "{{ states('number.solarcust0186_maximum_battery_discharge_current')
+          | float(0) }}"
+        is_winter: "{{ now().month in [10, 11, 12, 1, 2, 3] }}"
+        load_avg:
+          "{{ states('sensor.house_load_avg_15m') | float(states('sensor.solarcust0186_load_totalpower')
+          | float(0)) }}"
+        outdoor_temp: "{{ states('sensor.ecodan_outdoor_avg_60m') | float(0) }}"
+        SUMMER_LOAD_THRESHOLD: 2200
+        is_summer_load: "{{ load_avg < SUMMER_LOAD_THRESHOLD }}"
+        is_high_load_stress: "{{ load_avg > 2500 or outdoor_temp < 2 }}"
+        DISCHARGE_STRATEGY_A:
+          "{% if is_winter %}\n  {% if is_high_load_stress %} 60
+          {% else %} 65 {% endif %}\n{% else %}\n  {% if is_high_load_stress %} 90 {%
+          else %} 90 {% endif %}\n{% endif %}"
+        DISCHARGE_MAX_A: "{{ DISCHARGE_STRATEGY_A }}"
+        W_SOC_MAX: 40
+        W_SOC_MIN: 15
+        W_AMP_MAX: 60
+        W_AMP_MIN: 8
+        S_SOC_MAX: 35
+        S_SOC_MIN: 15
+        S_AMP_MAX: 45
+        S_AMP_MIN: 5
+        ACTIVE_SOC_MAX: "{{ S_SOC_MAX if is_summer_load else W_SOC_MAX }}"
+        ACTIVE_SOC_MIN: "{{ S_SOC_MIN if is_summer_load else W_SOC_MIN }}"
+        ACTIVE_AMP_MAX: "{{ S_AMP_MAX if is_summer_load else W_AMP_MAX }}"
+        ACTIVE_AMP_MIN: "{{ S_AMP_MIN if is_summer_load else W_AMP_MIN }}"
+        POWER_MIN: 600
+        VOLTAGE_FLOOR_V: 49
+        TOU_TRIGGER_LIMIT: 15
+        EMERGENCY_CHARGE_A: 5
+        NORMAL_TOU_LIMIT: 90
+        emergency_charge_latched:
+          "{{ is_state('input_boolean.deye_emergency_charge_needed',
+          'on') }}"
+        grid_charge_on: "{{ is_state('switch.solarcust0186_grid_charge', 'on') }}"
+        solarbalance_enabled:
+          "{{ is_state('switch.solarcust0186_solarbalance_enabled',
+          'on') }}"
+        charge_current_a:
+          "{{ states('number.solarcust0186_maximum_battery_charge_current')
+          | int(0) }}"
+        grid_charge_current_a:
+          "{{ states('number.solarcust0186_maximum_battery_grid_charge_current')
+          | int(0) }}"
+        batt_charge_limit:
+          "{{ states('number.solarcust0186_batt_charge_limit') |
+          int(0) }}"
+        soba_low_batt_soc_limit:
+          "{{ states('number.solarcust0186_soba_low_batt_soc_limit')
+          | int(0) }}"
+        current_hour: "{{ now().hour }}"
+        active_tou_entity:
+          "{% if current_hour < 6 %}\n  number.solarcust0186_time_point_1_batt_charge_limit\n{%
+          elif current_hour < 10 %}\n  number.solarcust0186_time_point_2_batt_charge_limit\n{%
+          elif current_hour < 14 %}\n  number.solarcust0186_time_point_3_batt_charge_limit\n{%
+          elif current_hour < 17 %}\n  number.solarcust0186_time_point_4_batt_charge_limit\n{%
+          elif current_hour < 21 %}\n  number.solarcust0186_time_point_5_batt_charge_limit\n{%
+          else %}\n  number.solarcust0186_time_point_6_batt_charge_limit\n{% endif %}"
+        active_tou_limit: "{{ states(active_tou_entity) | int(0) }}"
+        regulation_enabled: "{{ active_tou_limit == TOU_TRIGGER_LIMIT }}"
+        release_ready: "{{ active_tou_limit > TOU_TRIGGER_LIMIT }}"
+        voltage_critical: "{{ batt_v < VOLTAGE_FLOOR_V }}"
+        start_emergency_charge:
+          "{{ regulation_enabled and voltage_critical and not
+          emergency_charge_latched }}"
+        stop_emergency_charge: "{{ emergency_charge_latched and release_ready }}"
+        soc_limit_a:
+          "{% set v_min_calc = (POWER_MIN / batt_v) | round(0) %}\n{% set
+          v_min_absolute = [v_min_calc, ACTIVE_AMP_MIN] | min %}\n\n{% if soc >= ACTIVE_SOC_MAX
+          %}\n  {{ ACTIVE_AMP_MAX }}\n{% elif soc <= ACTIVE_SOC_MIN %}\n  {{ v_min_absolute
+          }}\n{% else %}\n  {% set ratio = (soc - ACTIVE_SOC_MIN) / (ACTIVE_SOC_MAX
+          - ACTIVE_SOC_MIN) %}\n  {{ (ACTIVE_AMP_MIN + (ACTIVE_AMP_MAX - ACTIVE_AMP_MIN)
+          * ratio) | round(0) }}\n{% endif %}"
+        target_discharge_a:
+          "{% if emergency_charge_latched %}\n  0\n{% else %}\n  {{
+          [soc_limit_a | int, DISCHARGE_MAX_A | int] | min }}\n{% endif %}"
+        needs_enforce:
+          "{{ (current_cap_a | round(0) | int) != (target_discharge_a |
+          round(0) | int) }}"
+    - if:
+        - condition: template
+          value_template: "{{ start_emergency_charge }}"
+      then:
+        - action: input_boolean.turn_on
+          target:
+            entity_id: input_boolean.deye_emergency_charge_needed
+        - action: input_datetime.set_datetime
+          target:
+            entity_id: input_datetime.deye_charge_start_time
+          data:
+            datetime: "{{ now().isoformat() }}"
+        - action: persistent_notification.create
+          data:
+            notification_id: deye_charge_trigger_activated
+            title: "\U0001F50B CRITICAL BATTERY - DISCHARGE LOCKED"
+            message:
+              "Active TOU {{ active_tou_entity.split('.')[-1] }} is {{ active_tou_limit
+              }}% and voltage {{ batt_v | round(2) }}V < {{ VOLTAGE_FLOOR_V }}V detected.
+              Emergency 5A charge enabled until the active TOU limit rises above {{ TOU_TRIGGER_LIMIT
+              }}%. Time: {{ now().strftime('%H:%M:%S') }}
+
+              "
+        - variables:
+            emergency_charge_latched: true
+    - if:
+        - condition: template
+          value_template: "{{ emergency_charge_latched }}"
+      then:
+        - if:
+            - condition: template
+              value_template: "{{ not grid_charge_on }}"
+          then:
+            - action: switch.turn_on
+              target:
+                entity_id: switch.solarcust0186_grid_charge
+        - if:
+            - condition: template
+              value_template: "{{ grid_charge_current_a != EMERGENCY_CHARGE_A }}"
+          then:
+            - action: number.set_value
+              target:
+                entity_id: number.solarcust0186_maximum_battery_grid_charge_current
+              data:
+                value: "{{ EMERGENCY_CHARGE_A }}"
+        - if:
+            - condition: template
+              value_template: "{{ charge_current_a != EMERGENCY_CHARGE_A }}"
+          then:
+            - action: number.set_value
+              target:
+                entity_id: number.solarcust0186_maximum_battery_charge_current
+              data:
+                value: "{{ EMERGENCY_CHARGE_A }}"
+        - if:
+            - condition: template
+              value_template: "{{ batt_charge_limit != NORMAL_TOU_LIMIT }}"
+          then:
+            - action: number.set_value
+              target:
+                entity_id: number.solarcust0186_batt_charge_limit
+              data:
+                value: "{{ NORMAL_TOU_LIMIT }}"
+        - if:
+            - condition: template
+              value_template: "{{ soba_low_batt_soc_limit != NORMAL_TOU_LIMIT }}"
+          then:
+            - action: number.set_value
+              target:
+                entity_id: number.solarcust0186_soba_low_batt_soc_limit
+              data:
+                value: "{{ NORMAL_TOU_LIMIT }}"
+        - if:
+            - condition: template
+              value_template: "{{ solarbalance_enabled }}"
+          then:
+            - action: switch.turn_off
+              target:
+                entity_id: switch.solarcust0186_solarbalance_enabled
+              continue_on_error: true
+        - if:
+            - condition: template
+              value_template:
+                "{{ trigger.id == 'latch_changed' and trigger.to_state is
+                not none and trigger.to_state.state == 'on' }}"
+          then:
+            - action: persistent_notification.create
+              data:
+                notification_id: deye_emergency_charge_started
+                title: "\U0001F50B EMERGENCY CHARGE STARTED (5A ACTIVE TOU)"
+                message:
+                  "Critical voltage latch is active while the current TOU limit is
+                  {{ active_tou_limit }}%. SolarBalance disabled and grid charging forced
+                  ON at {{ EMERGENCY_CHARGE_A }}A. SOC: {{ soc | round(1) }}% | Voltage:
+                  {{ batt_v | round(2) }}V Started: {{ now().strftime('%H:%M:%S') }}
+
+                  "
+    - if:
+        - condition: template
+          value_template: "{{ stop_emergency_charge }}"
+      then:
+        - action: input_boolean.turn_off
+          target:
+            entity_id: input_boolean.deye_emergency_charge_needed
+        - if:
+            - condition: template
+              value_template: "{{ grid_charge_on }}"
+          then:
+            - action: switch.turn_off
+              target:
+                entity_id: switch.solarcust0186_grid_charge
+        - if:
+            - condition: template
+              value_template: "{{ batt_charge_limit != NORMAL_TOU_LIMIT }}"
+          then:
+            - action: number.set_value
+              target:
+                entity_id: number.solarcust0186_batt_charge_limit
+              data:
+                value: "{{ NORMAL_TOU_LIMIT }}"
+        - if:
+            - condition: template
+              value_template: "{{ soba_low_batt_soc_limit != NORMAL_TOU_LIMIT }}"
+          then:
+            - action: number.set_value
+              target:
+                entity_id: number.solarcust0186_soba_low_batt_soc_limit
+              data:
+                value: "{{ NORMAL_TOU_LIMIT }}"
+        - if:
+            - condition: template
+              value_template: "{{ not solarbalance_enabled }}"
+          then:
+            - action: switch.turn_on
+              target:
+                entity_id: switch.solarcust0186_solarbalance_enabled
+              continue_on_error: true
+        - action: input_datetime.set_datetime
+          target:
+            entity_id: input_datetime.deye_charge_end_time
+          data:
+            datetime: "{{ now().isoformat() }}"
+        - action: persistent_notification.create
+          data:
+            notification_id: deye_charge_trigger_released
+            title: ✅ BATTERY RECOVERY COMPLETE
+            message:
+              "Active TOU {{ active_tou_entity.split('.')[-1] }} is now {{ active_tou_limit
+              }}%. Emergency charge latch released because the active TOU limit is above
+              {{ TOU_TRIGGER_LIMIT }}%. Voltage: {{ batt_v | round(2) }}V Time: {{ now().strftime('%H:%M:%S')
+              }}
+
+              "
+        - action: persistent_notification.create
+          data:
+            notification_id: deye_emergency_charge_completed
+            title: ✅ EMERGENCY CHARGE COMPLETED - LATCH RELEASED
+            message:
+              "Emergency charge latch released. Grid charge turned OFF, global
+              charge guards restored to {{ NORMAL_TOU_LIMIT }}%, and SolarBalance re-enabled.
+              Final Voltage: {{ batt_v | round(2) }}V | Final SOC: {{ soc | round(1) }}%
+              Completed: {{ now().strftime('%H:%M:%S') }}
+
+              "
+    - if:
+        - condition: template
+          value_template: "{{ needs_enforce }}"
+      then:
+        - action: number.set_value
+          target:
+            entity_id: number.solarcust0186_maximum_battery_discharge_current
+          data:
+            value: "{{ target_discharge_a }}"
+  mode: queued
+  max: 10
+- id: "1774693693601"
+  alias: "Deye-Monitor-03 v1.0.0: SoBa Entity Inventory"
+  description:
+    "Builds a persistent notification with all SolarCustom / SoBa entities
+    matching solarcust0186. Use this as the baseline inventory before adding deeper
+    energy and economics analytics.
+
+    "
+  triggers:
+    - trigger: homeassistant
+      event: start
+  actions:
+    - variables:
+        soba_count:
+          "{{ states\n   | selectattr('entity_id', 'search', 'solarcust0186')\n
+          \  | list\n   | count }}"
+        soba_message: "SoBa entities found: {{ soba_count }}
+
+
+          {% for entity in states | selectattr('entity_id', 'search', 'solarcust0186')
+          | sort(attribute='entity_id') %}
+
+          - {{ entity.entity_id }} = {{ entity.state }}{% set unit = state_attr(entity.entity_id,
+          'unit_of_measurement') %}{% if unit %} {{ unit }}{% endif %}
+
+          {% endfor %}"
+    - action: persistent_notification.create
+      data:
+        notification_id: deye_soba_entity_inventory
+        title: Deye SoBa Entity Inventory
+        message: "{{ soba_message }}"
+  mode: single
+- id: "1774693843317"
+  alias: "Deye-Monitor-04 v1.0.0: SoBa Energy CSV Logging"
+  description:
+    "Logs SolarBalance energy and economics signals every minute using
+    confirmed solarcust0186 entities. Focuses on house load, PV contribution, grid
+    import / export, battery charge / discharge, and daily buy / sell totals.
+
+    "
+  triggers:
+    - trigger: time_pattern
+      minutes: /1
+  actions:
+    - action: shell_command.deye_log_line
+      data:
+        line: "{{ line }}"
+  mode: queued
+  max: 5
+  variables:
+    soc: "{{ states('sensor.solarcust0186_battery_charge_level') | float(0) }}"
+    volt: "{{ states('sensor.solarcust0186_battery_voltage') | float(0) }}"
+    load_w: "{{ states('sensor.solarcust0186_load_totalpower') | float(0) }}"
+    pv_w: "{{ states('sensor.solarcust0186_total_solar_power') | float(0) }}"
+    grid_w: "{{ states('sensor.solarcust0186_total_grid_power') | float(0) }}"
+    batt_w: "{{ states('sensor.solarcust0186_battery_output_power') | float(0) }}"
+    batt_mode:
+      "{% if batt_w > 50 %}\n  discharge\n{% elif batt_w < -50 %}\n  charge\n{%
+      else %}\n  idle\n{% endif %}"
+    batt_discharge_w: "{{ batt_w if batt_w > 0 else 0 }}"
+    batt_charge_w: "{{ (batt_w * -1) if batt_w < 0 else 0 }}"
+    grid_import_w: "{{ grid_w if grid_w > 0 else 0 }}"
+    grid_export_w: "{{ (grid_w * -1) if grid_w < 0 else 0 }}"
+    pv_to_house_w: "{{ [pv_w, load_w] | min | round(0) }}"
+    batt_to_house_w:
+      "{{ [batt_discharge_w | float(0), [load_w - pv_to_house_w, 0]
+      | max] | min | round(0) }}"
+    grid_to_house_w:
+      "{{ [load_w - pv_to_house_w - batt_to_house_w, 0] | max | round(0)
+      }}"
+    pv_spill_or_export_w:
+      "{{ [pv_w - pv_to_house_w - batt_charge_w, 0] | max | round(0)
+      }}"
+    daily_consumption_kwh: "{{ states('sensor.solarcust0186_daily_consumption')
+      | float(0) }}"
+    daily_bought_kwh:
+      "{{ states('sensor.solarcust0186_daily_energy_bought') | float(0)
+      }}"
+    daily_sold_kwh:
+      "{{ states('sensor.solarcust0186_daily_energy_sold') | float(0)
+      }}"
+    daily_pv_kwh:
+      "{{ states('sensor.solarcust0186_daily_pv_production') | float(0)
+      }}"
+    daily_batt_charge_kwh:
+      "{{ states('sensor.solarcust0186_today_charge_of_the_battery')
+      | float(0) }}"
+    daily_batt_discharge_kwh:
+      "{{ states('sensor.solarcust0186_today_discharge_of_the_battery')
+      | float(0) }}"
+    total_consumption_kwh: "{{ states('sensor.solarcust0186_total_consumption')
+      | float(0) }}"
+    total_bought_kwh:
+      "{{ states('sensor.solarcust0186_total_energy_bought') | float(0)
+      }}"
+    total_sold_kwh:
+      "{{ states('sensor.solarcust0186_total_energy_sold') | float(0)
+      }}"
+    total_pv_kwh:
+      "{{ states('sensor.solarcust0186_total_pv_production') | float(0)
+      }}"
+    current_buy_price_kr: "{{ states('sensor.solarcust0186_text1') | replace('
+      kr', '') | float(0) }}"
+    solar_sell_enabled: "{{ states('switch.solarcust0186_solar_sell') }}"
+    grid_charge_enabled: "{{ states('switch.solarcust0186_grid_charge') }}"
+    energy_priority: "{{ states('select.solarcust0186_energy_priority') }}"
+    low_batt_soc_limit:
+      "{{ states('number.solarcust0186_soba_low_batt_soc_limit')
+      | float(0) }}"
+    high_batt_soc_limit:
+      "{{ states('number.solarcust0186_soba_high_batt_soc_limit')
+      | float(0) }}"
+    line:
+      "{{ now().isoformat() }}, tag=soba_energy, soc={{ soc | round(1) }}, volt={{
+      volt | round(2) }}, load_w={{ load_w | round(0) }}, pv_w={{ pv_w | round(0)
+      }}, batt_w={{ batt_w | round(0) }}, batt_mode={{ batt_mode }}, batt_charge_w={{
+      batt_charge_w | round(0) }}, batt_discharge_w={{ batt_discharge_w | round(0)
+      }}, grid_w={{ grid_w | round(0) }}, grid_import_w={{ grid_import_w | round(0)
+      }}, grid_export_w={{ grid_export_w | round(0) }}, pv_to_house_w={{ pv_to_house_w
+      }}, batt_to_house_w={{ batt_to_house_w }}, grid_to_house_w={{ grid_to_house_w
+      }}, pv_spill_or_export_w={{ pv_spill_or_export_w }}, daily_consumption_kwh={{
+      daily_consumption_kwh | round(3) }}, daily_bought_kwh={{ daily_bought_kwh |
+      round(3) }}, daily_sold_kwh={{ daily_sold_kwh | round(3) }}, daily_pv_kwh={{
+      daily_pv_kwh | round(3) }}, daily_batt_charge_kwh={{ daily_batt_charge_kwh |
+      round(3) }}, daily_batt_discharge_kwh={{ daily_batt_discharge_kwh | round(3)
+      }}, total_consumption_kwh={{ total_consumption_kwh | round(1) }}, total_bought_kwh={{
+      total_bought_kwh | round(1) }}, total_sold_kwh={{ total_sold_kwh | round(1)
+      }}, total_pv_kwh={{ total_pv_kwh | round(1) }}, buy_price_kr={{ current_buy_price_kr
+      | round(3) }}, solar_sell={{ solar_sell_enabled }}, grid_charge={{ grid_charge_enabled
+      }}, energy_priority={{ energy_priority | replace(' ', '_') }}, low_batt_soc_limit={{
+      low_batt_soc_limit | round(0) }}, high_batt_soc_limit={{ high_batt_soc_limit
+      | round(0) }}"
+
+- id: deye_monitor_05_spot_price_cost_tracking
+  alias: "Deye-Monitor-05 v1.0.1: Spot Price Cost Tracking"
+  description: >
+    Uses cached Energidata spot prices and live grid import/export power to track
+    today's and yesterday's buy cost, sell value, and PV production value in kroner.
+  triggers:
+    - trigger: time_pattern
+      minutes: /1
+      id: accumulate
+    - trigger: time
+      at: "00:00:10"
+      id: rollover
+  conditions: []
+  actions:
+    - choose:
+        - conditions:
+            - condition: trigger
+              id: rollover
+          sequence:
+            - action: input_number.set_value
+              target:
+                entity_id: input_number.deye_grid_buy_cost_yesterday_kr
+              data:
+                value: "{{ states('input_number.deye_grid_buy_cost_today_kr') | float(0) | round(2) }}"
+            - action: input_number.set_value
+              target:
+                entity_id: input_number.deye_grid_sell_value_yesterday_kr
+              data:
+                value: "{{ states('input_number.deye_grid_sell_value_today_kr') | float(0) | round(2) }}"
+            - action: input_number.set_value
+              target:
+                entity_id: input_number.deye_pv_value_yesterday_kr
+              data:
+                value: "{{ states('input_number.deye_pv_value_today_kr') | float(0) | round(2) }}"
+            - action: input_number.set_value
+              target:
+                entity_id: input_number.deye_grid_buy_cost_today_kr
+              data:
+                value: 0
+            - action: input_number.set_value
+              target:
+                entity_id: input_number.deye_grid_sell_value_today_kr
+              data:
+                value: 0
+            - action: input_number.set_value
+              target:
+                entity_id: input_number.deye_pv_value_today_kr
+              data:
+                value: 0
+
+        - conditions:
+            - condition: trigger
+              id: accumulate
+            - condition: template
+              value_template: >-
+                {{ states('sensor.deye_spot_price_buy_now') not in ['unknown', 'unavailable', 'none', ''] }}
+          sequence:
+            - variables:
+                grid_w: "{{ states('sensor.solarcust0186_total_grid_power') | float(0) }}"
+                pv_w: "{{ states('sensor.solarcust0186_total_solar_power') | float(0) }}"
+                grid_import_w: "{{ grid_w if grid_w > 0 else 0 }}"
+                grid_export_w: "{{ (grid_w * -1) if grid_w < 0 else 0 }}"
+                buy_price_kr: "{{ states('sensor.deye_spot_price_buy_now') | float(0) }}"
+                sell_price_kr: "{{ states('sensor.deye_spot_price_sell_now') | float(0) }}"
+                buy_increment_kr: "{{ ((grid_import_w / 1000) / 60 * buy_price_kr) | round(4) }}"
+                sell_increment_kr: "{{ ((grid_export_w / 1000) / 60 * sell_price_kr) | round(4) }}"
+                pv_increment_kr: "{{ ((pv_w / 1000) / 60 * sell_price_kr) | round(4) }}"
+                buy_today_kr: "{{ states('input_number.deye_grid_buy_cost_today_kr') | float(0) }}"
+                sell_today_kr: "{{ states('input_number.deye_grid_sell_value_today_kr') | float(0) }}"
+                pv_today_kr: "{{ states('input_number.deye_pv_value_today_kr') | float(0) }}"
+            - action: input_number.set_value
+              target:
+                entity_id: input_number.deye_grid_buy_cost_today_kr
+              data:
+                value: "{{ (buy_today_kr + buy_increment_kr) | round(2) }}"
+            - action: input_number.set_value
+              target:
+                entity_id: input_number.deye_grid_sell_value_today_kr
+              data:
+                value: "{{ (sell_today_kr + sell_increment_kr) | round(2) }}"
+            - action: input_number.set_value
+              target:
+                entity_id: input_number.deye_pv_value_today_kr
+              data:
+                value: "{{ (pv_today_kr + pv_increment_kr) | round(2) }}"
+  mode: queued
+  max: 5

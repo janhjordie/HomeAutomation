@@ -1,0 +1,53 @@
+deye_grid_buy_cost_today_kr:
+  name: "Deye Grid Buy Cost Today"
+  min: 0
+  max: 10000
+  step: 0.01
+  mode: box
+  unit_of_measurement: "kr"
+  icon: mdi:cash-plus
+
+deye_grid_buy_cost_yesterday_kr:
+  name: "Deye Grid Buy Cost Yesterday"
+  min: 0
+  max: 10000
+  step: 0.01
+  mode: box
+  unit_of_measurement: "kr"
+  icon: mdi:cash-clock
+
+deye_grid_sell_value_today_kr:
+  name: "Deye Grid Sell Value Today"
+  min: 0
+  max: 10000
+  step: 0.01
+  mode: box
+  unit_of_measurement: "kr"
+  icon: mdi:cash-minus
+
+deye_grid_sell_value_yesterday_kr:
+  name: "Deye Grid Sell Value Yesterday"
+  min: 0
+  max: 10000
+  step: 0.01
+  mode: box
+  unit_of_measurement: "kr"
+  icon: mdi:cash-sync
+
+deye_pv_value_today_kr:
+  name: "Deye PV Value Today"
+  min: 0
+  max: 10000
+  step: 0.01
+  mode: box
+  unit_of_measurement: "kr"
+  icon: mdi:solar-power
+
+deye_pv_value_yesterday_kr:
+  name: "Deye PV Value Yesterday"
+  min: 0
+  max: 10000
+  step: 0.01
+  mode: box
+  unit_of_measurement: "kr"
+  icon: mdi:solar-power-variant

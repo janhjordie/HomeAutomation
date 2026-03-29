@@ -1,0 +1,211 @@
+sensor:
+  - name: "Deye Spot Price Buy Now"
+    unique_id: deye_spot_price_buy_now
+    unit_of_measurement: "kr/kWh"
+    state_class: measurement
+    state: >-
+      {% set records = state_attr('sensor.deye_spot_price_cache', 'records') | default([], true) %}
+      {% set ns = namespace(total=none) %}
+      {% set current_date = now().strftime('%Y-%m-%d') %}
+      {% set current_hour = now().hour %}
+      {% set month = now().month %}
+      {% for record in records %}
+        {% set time_dk = record.get('TimeDK', '') %}
+        {% if time_dk[:10] == current_date and (time_dk[11:13] | int(-1)) == current_hour %}
+          {% set spot = (record.get('DayAheadPriceDKK', 0) | float(0)) / 1000 %}
+          {% set spot_vat = spot * 1.25 %}
+          {% if current_hour < 6 %}
+            {% set tariff = 0.0965 %}
+          {% elif current_hour >= 17 and current_hour < 21 %}
+            {% if month >= 4 and month <= 9 %}
+              {% set tariff = 0.3763 %}
+            {% else %}
+              {% set tariff = 0.8683 %}
+            {% endif %}
+          {% else %}
+            {% if month >= 4 and month <= 9 %}
+              {% set tariff = 0.1448 %}
+            {% else %}
+              {% set tariff = 0.2894 %}
+            {% endif %}
+          {% endif %}
+          {% set ns.total = (spot_vat + 0.04 + tariff) %}
+        {% endif %}
+      {% endfor %}
+      {{ ns.total | round(3) if ns.total is not none else 'unknown' }}
+
+  - name: "Deye Spot Price Sell Now"
+    unique_id: deye_spot_price_sell_now
+    unit_of_measurement: "kr/kWh"
+    state_class: measurement
+    state: >-
+      {% set records = state_attr('sensor.deye_spot_price_cache', 'records') | default([], true) %}
+      {% set ns = namespace(spot=none) %}
+      {% set current_date = now().strftime('%Y-%m-%d') %}
+      {% set current_hour = now().hour %}
+      {% for record in records %}
+        {% set time_dk = record.get('TimeDK', '') %}
+        {% if time_dk[:10] == current_date and (time_dk[11:13] | int(-1)) == current_hour %}
+          {% set ns.spot = ((record.get('DayAheadPriceDKK', 0) | float(0)) / 1000 * 1.25) %}
+        {% endif %}
+      {% endfor %}
+      {{ ns.spot | round(3) if ns.spot is not none else 'unknown' }}
+
+  - name: "Deye Grid Buy Cost Today"
+    unique_id: deye_grid_buy_cost_today
+    unit_of_measurement: "kr"
+    state_class: measurement
+    state: "{{ states('input_number.deye_grid_buy_cost_today_kr') | float(0) | round(2) }}"
+
+  - name: "Deye Grid Buy Cost Yesterday"
+    unique_id: deye_grid_buy_cost_yesterday
+    unit_of_measurement: "kr"
+    state_class: measurement
+    state: "{{ states('input_number.deye_grid_buy_cost_yesterday_kr') | float(0) | round(2) }}"
+
+  - name: "Deye Grid Sell Value Today"
+    unique_id: deye_grid_sell_value_today
+    unit_of_measurement: "kr"
+    state_class: measurement
+    state: "{{ states('input_number.deye_grid_sell_value_today_kr') | float(0) | round(2) }}"
+
+  - name: "Deye Grid Sell Value Yesterday"
+    unique_id: deye_grid_sell_value_yesterday
+    unit_of_measurement: "kr"
+    state_class: measurement
+    state: "{{ states('input_number.deye_grid_sell_value_yesterday_kr') | float(0) | round(2) }}"
+
+  - name: "Deye PV Value Today"
+    unique_id: deye_pv_value_today
+    unit_of_measurement: "kr"
+    state_class: measurement
+    state: "{{ states('input_number.deye_pv_value_today_kr') | float(0) | round(2) }}"
+
+  - name: "Deye PV Value Yesterday"
+    unique_id: deye_pv_value_yesterday
+    unit_of_measurement: "kr"
+    state_class: measurement
+    state: "{{ states('input_number.deye_pv_value_yesterday_kr') | float(0) | round(2) }}"
+
+  - name: "Deye House Load Live"
+    unique_id: deye_house_load_live
+    unit_of_measurement: "W"
+    device_class: power
+    state_class: measurement
+    state: "{{ states('sensor.solarcust0186_load_totalpower') | float(0) | round(0) }}"
+
+  - name: "Deye Grid Import Live"
+    unique_id: deye_grid_import_live
+    unit_of_measurement: "W"
+    device_class: power
+    state_class: measurement
+    state: >-
+      {% set value = states('sensor.solarcust0186_total_grid_power') | float(0) %}
+      {{ value if value > 0 else 0 }}
+
+  - name: "Deye Grid Export Live"
+    unique_id: deye_grid_export_live
+    unit_of_measurement: "W"
+    device_class: power
+    state_class: measurement
+    state: >-
+      {% set value = states('sensor.solarcust0186_total_grid_power') | float(0) %}
+      {{ (value * -1) if value < 0 else 0 }}
+
+  - name: "Deye PV Live"
+    unique_id: deye_pv_live
+    unit_of_measurement: "W"
+    device_class: power
+    state_class: measurement
+    state: "{{ states('sensor.solarcust0186_total_solar_power') | float(0) | round(0) }}"
+
+  - name: "Deye Battery Live"
+    unique_id: deye_battery_live
+    unit_of_measurement: "W"
+    device_class: power
+    state_class: measurement
+    state: "{{ states('sensor.solarcust0186_battery_output_power') | float(0) | round(0) }}"
+
+  - name: "Deye Consumption Today Live"
+    unique_id: deye_consumption_today_live
+    unit_of_measurement: "kWh"
+    device_class: energy
+    state_class: total
+    state: "{{ states('sensor.deye_consumption_today') | float(0) | round(2) }}"
+
+  - name: "Deye Consumption Yesterday"
+    unique_id: deye_consumption_yesterday
+    unit_of_measurement: "kWh"
+    device_class: energy
+    state_class: total
+    state: "{{ state_attr('sensor.deye_consumption_today', 'last_period') | float(0) | round(2) }}"
+
+  - name: "Deye Grid Bought Today Live"
+    unique_id: deye_grid_bought_today_live
+    unit_of_measurement: "kWh"
+    device_class: energy
+    state_class: total
+    state: "{{ states('sensor.deye_grid_bought_today') | float(0) | round(2) }}"
+
+  - name: "Deye Grid Bought Yesterday"
+    unique_id: deye_grid_bought_yesterday
+    unit_of_measurement: "kWh"
+    device_class: energy
+    state_class: total
+    state: "{{ state_attr('sensor.deye_grid_bought_today', 'last_period') | float(0) | round(2) }}"
+
+  - name: "Deye Grid Sold Today Live"
+    unique_id: deye_grid_sold_today_live
+    unit_of_measurement: "kWh"
+    device_class: energy
+    state_class: total
+    state: "{{ states('sensor.deye_grid_sold_today') | float(0) | round(2) }}"
+
+  - name: "Deye Grid Sold Yesterday"
+    unique_id: deye_grid_sold_yesterday
+    unit_of_measurement: "kWh"
+    device_class: energy
+    state_class: total
+    state: "{{ state_attr('sensor.deye_grid_sold_today', 'last_period') | float(0) | round(2) }}"
+
+  - name: "Deye PV Today Live"
+    unique_id: deye_pv_today_live
+    unit_of_measurement: "kWh"
+    device_class: energy
+    state_class: total
+    state: "{{ states('sensor.deye_pv_today') | float(0) | round(2) }}"
+
+  - name: "Deye PV Yesterday"
+    unique_id: deye_pv_yesterday
+    unit_of_measurement: "kWh"
+    device_class: energy
+    state_class: total
+    state: "{{ state_attr('sensor.deye_pv_today', 'last_period') | float(0) | round(2) }}"
+
+  - name: "Deye Battery Charge Today Live"
+    unique_id: deye_battery_charge_today_live
+    unit_of_measurement: "kWh"
+    device_class: energy
+    state_class: total
+    state: "{{ states('sensor.deye_battery_charge_today') | float(0) | round(2) }}"
+
+  - name: "Deye Battery Charge Yesterday"
+    unique_id: deye_battery_charge_yesterday
+    unit_of_measurement: "kWh"
+    device_class: energy
+    state_class: total
+    state: "{{ state_attr('sensor.deye_battery_charge_today', 'last_period') | float(0) | round(2) }}"
+
+  - name: "Deye Battery Discharge Today Live"
+    unique_id: deye_battery_discharge_today_live
+    unit_of_measurement: "kWh"
+    device_class: energy
+    state_class: total
+    state: "{{ states('sensor.deye_battery_discharge_today') | float(0) | round(2) }}"
+
+  - name: "Deye Battery Discharge Yesterday"
+    unique_id: deye_battery_discharge_yesterday
+    unit_of_measurement: "kWh"
+    device_class: energy
+    state_class: total
+    state: "{{ state_attr('sensor.deye_battery_discharge_today', 'last_period') | float(0) | round(2) }}"

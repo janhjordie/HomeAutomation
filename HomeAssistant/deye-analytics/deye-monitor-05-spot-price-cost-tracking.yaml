@@ -1,0 +1,90 @@
+alias: "Deye-Monitor-05 v1.0.1: Spot Price Cost Tracking"
+description: >
+  Uses cached Energidata spot prices and live grid import/export power to track
+  today's and yesterday's buy cost, sell value, and PV production value in kroner.
+
+triggers:
+  - trigger: time_pattern
+    minutes: /1
+    id: accumulate
+  - trigger: time
+    at: "00:00:10"
+    id: rollover
+
+conditions: []
+
+actions:
+  - choose:
+      - conditions:
+          - condition: trigger
+            id: rollover
+        sequence:
+          - action: input_number.set_value
+            target:
+              entity_id: input_number.deye_grid_buy_cost_yesterday_kr
+            data:
+              value: "{{ states('input_number.deye_grid_buy_cost_today_kr') | float(0) | round(2) }}"
+          - action: input_number.set_value
+            target:
+              entity_id: input_number.deye_grid_sell_value_yesterday_kr
+            data:
+              value: "{{ states('input_number.deye_grid_sell_value_today_kr') | float(0) | round(2) }}"
+          - action: input_number.set_value
+            target:
+              entity_id: input_number.deye_pv_value_yesterday_kr
+            data:
+              value: "{{ states('input_number.deye_pv_value_today_kr') | float(0) | round(2) }}"
+          - action: input_number.set_value
+            target:
+              entity_id: input_number.deye_grid_buy_cost_today_kr
+            data:
+              value: 0
+          - action: input_number.set_value
+            target:
+              entity_id: input_number.deye_grid_sell_value_today_kr
+            data:
+              value: 0
+          - action: input_number.set_value
+            target:
+              entity_id: input_number.deye_pv_value_today_kr
+            data:
+              value: 0
+
+      - conditions:
+          - condition: trigger
+            id: accumulate
+          - condition: template
+            value_template: >-
+              {{ states('sensor.deye_spot_price_buy_now') not in ['unknown', 'unavailable', 'none', ''] }}
+        sequence:
+          - variables:
+              grid_w: "{{ states('sensor.solarcust0186_total_grid_power') | float(0) }}"
+              pv_w: "{{ states('sensor.solarcust0186_total_solar_power') | float(0) }}"
+              grid_import_w: "{{ grid_w if grid_w > 0 else 0 }}"
+              grid_export_w: "{{ (grid_w * -1) if grid_w < 0 else 0 }}"
+              buy_price_kr: "{{ states('sensor.deye_spot_price_buy_now') | float(0) }}"
+              sell_price_kr: "{{ states('sensor.deye_spot_price_sell_now') | float(0) }}"
+              buy_increment_kr: "{{ ((grid_import_w / 1000) / 60 * buy_price_kr) | round(4) }}"
+              sell_increment_kr: "{{ ((grid_export_w / 1000) / 60 * sell_price_kr) | round(4) }}"
+              pv_increment_kr: "{{ ((pv_w / 1000) / 60 * sell_price_kr) | round(4) }}"
+              buy_today_kr: "{{ states('input_number.deye_grid_buy_cost_today_kr') | float(0) }}"
+              sell_today_kr: "{{ states('input_number.deye_grid_sell_value_today_kr') | float(0) }}"
+              pv_today_kr: "{{ states('input_number.deye_pv_value_today_kr') | float(0) }}"
+          - action: input_number.set_value
+            target:
+              entity_id: input_number.deye_grid_buy_cost_today_kr
+            data:
+              value: "{{ (buy_today_kr + buy_increment_kr) | round(2) }}"
+          - action: input_number.set_value
+            target:
+              entity_id: input_number.deye_grid_sell_value_today_kr
+            data:
+              value: "{{ (sell_today_kr + sell_increment_kr) | round(2) }}"
+          - action: input_number.set_value
+            target:
+              entity_id: input_number.deye_pv_value_today_kr
+            data:
+              value: "{{ (pv_today_kr + pv_increment_kr) | round(2) }}"
+
+mode: queued
+max: 5

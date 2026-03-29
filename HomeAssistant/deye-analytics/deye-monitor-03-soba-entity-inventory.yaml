@@ -1,0 +1,27 @@
+alias: "Deye-Monitor-03 v1.0.0: SoBa Entity Inventory"
+description: >
+  Builds a persistent notification with all SolarCustom / SoBa entities matching
+  solarcust0186. Use this as the baseline inventory before adding deeper energy
+  and economics analytics.
+triggers:
+  - trigger: homeassistant
+    event: start
+actions:
+  - variables:
+      soba_count: >-
+        {{ states
+           | selectattr('entity_id', 'search', 'solarcust0186')
+           | list
+           | count }}
+      soba_message: |-
+        SoBa entities found: {{ soba_count }}
+
+        {% for entity in states | selectattr('entity_id', 'search', 'solarcust0186') | sort(attribute='entity_id') %}
+        - {{ entity.entity_id }} = {{ entity.state }}{% set unit = state_attr(entity.entity_id, 'unit_of_measurement') %}{% if unit %} {{ unit }}{% endif %}
+        {% endfor %}
+  - action: persistent_notification.create
+    data:
+      notification_id: deye_soba_entity_inventory
+      title: Deye SoBa Entity Inventory
+      message: "{{ soba_message }}"
+mode: single
