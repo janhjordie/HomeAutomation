@@ -14,6 +14,12 @@ const NIGHT_PLAN_SWITCH_HOUR = 17;
 const VAT_MULTIPLIER = 1.25;
 const ENERGIFYN_MARKUP_KR_PER_KWH_INCL_VAT = 0.04;
 const REDUCED_ELECTRICITY_TAX_KR_PER_KWH_INCL_VAT = 0;
+const IGNORE_ELECTRICITY_TAX = true;
+const STROMLIGNING_API_BASE_URL = 'https://stromligning.dk/api';
+const STROMLIGNING_API_KEY_VARIABLE_NAME = 'StromligningApiKey';
+const STROMLIGNING_SUPPLIER_ID = 'elektrus_c';
+const STROMLIGNING_CUSTOMER_GROUP_ID = 'c';
+const HOMEY_NOTIFICATION_USER_NAME = 'Jan Hjørdie';
 const ELEKTRUS_TARIFF_LOW_KR_PER_KWH_INCL_VAT = 0.0965;
 const ELEKTRUS_TARIFF_HIGH_SUMMER_KR_PER_KWH_INCL_VAT = 0.1448;
 const ELEKTRUS_TARIFF_HIGH_WINTER_KR_PER_KWH_INCL_VAT = 0.2894;
@@ -88,7 +94,7 @@ function calculateConsumerPrice(dateString, hour, spotPriceExVat) {
   };
 }
 
-function buildHourlyPrices(records) {
+function buildHourlyPricesFromEnergiDataService(records) {
   const buckets = new Map();
 
   for (const record of records) {
@@ -120,10 +126,126 @@ function buildHourlyPrices(records) {
       timestamp: bucket.timestamp,
       spotPrice: bucket.spotPriceSum / bucket.count,
       gridTariff: bucket.gridTariffSum / bucket.count,
+      transmissionTariff: 0,
+      electricityTax: REDUCED_ELECTRICITY_TAX_KR_PER_KWH_INCL_VAT,
       totalPrice: bucket.totalPriceSum / bucket.count,
+      sourceTotalPrice: bucket.totalPriceSum / bucket.count,
       price: bucket.totalPriceSum / bucket.count
     }))
     .sort((a, b) => a.timestamp - b.timestamp);
+}
+
+function sumPriceParts(parts) {
+  return parts.reduce((sum, value) => sum + (Number.isFinite(value) ? value : 0), 0);
+}
+
+function buildHourlyPricesFromStromligning(prices) {
+  return prices
+    .map(entry => {
+      const parsed = parseHourDK(entry.localDate);
+      const electricity = entry.details?.electricity || {};
+      const transmission = entry.details?.transmission || {};
+      const systemTariff = transmission.systemTariff || {};
+      const netTariff = transmission.netTariff || {};
+      const distribution = entry.details?.distribution || {};
+      const electricityTax = entry.details?.electricityTax || {};
+      const electricityTaxTotal = IGNORE_ELECTRICITY_TAX ? 0 : (electricityTax.total || 0);
+      const ignoredElectricityTaxTotal = IGNORE_ELECTRICITY_TAX ? (electricityTax.total || 0) : 0;
+      const sourceTotalPrice = (entry.price?.total || 0) - ignoredElectricityTaxTotal;
+
+      return {
+        date: parsed.date,
+        hour: parsed.hour,
+        timestamp: new Date(entry.date).getTime(),
+        spotPrice: electricity.value || 0,
+        gridTariff: distribution.total || 0,
+        transmissionTariff: sumPriceParts([systemTariff.total, netTariff.total]),
+        electricityTax: electricityTaxTotal,
+        totalPrice: sourceTotalPrice + ENERGIFYN_MARKUP_KR_PER_KWH_INCL_VAT,
+        sourceTotalPrice,
+        price: sourceTotalPrice + ENERGIFYN_MARKUP_KR_PER_KWH_INCL_VAT
+      };
+    })
+    .sort((a, b) => a.timestamp - b.timestamp);
+}
+
+async function fetchStromligningPriceData(todayDate, tomorrowDate) {
+  const apiKey = await getRequiredLogicString(STROMLIGNING_API_KEY_VARIABLE_NAME);
+  const params = new URLSearchParams({
+    supplierId: STROMLIGNING_SUPPLIER_ID,
+    customerGroupId: STROMLIGNING_CUSTOMER_GROUP_ID,
+    aggregation: '1h'
+  });
+  const url = `${STROMLIGNING_API_BASE_URL}/prices?${params.toString()}`;
+
+  const res = await fetch(url, {
+    headers: {
+      Accept: 'application/json',
+      'X-API-Key': apiKey
+    }
+  });
+
+  if (!res.ok) {
+    throw new Error(`Stromligning API fejl (${res.status})`);
+  }
+
+  const json = await res.json();
+
+  if (!json.prices || json.prices.length === 0) {
+    throw new Error('Ingen Stromligning-priser fundet');
+  }
+
+  const allHours = buildHourlyPricesFromStromligning(json.prices);
+  const hours = allHours.filter(entry => entry.date === todayDate || entry.date === tomorrowDate);
+  const todayPrices = hours.filter(entry => entry.date === todayDate);
+  const tomorrowPrices = hours.filter(entry => entry.date === tomorrowDate);
+
+  if (todayPrices.length === 0) {
+    throw new Error(`Ingen Stromligning-priser fundet for i dag (${todayDate})`);
+  }
+
+  return {
+    allHours,
+    todayPrices,
+    tomorrowPrices,
+    priceSource: 'stromligning'
+  };
+}
+
+async function fetchEnergiDataServicePriceData(yesterdayDate, dayAfterTomorrowDate, todayDate, tomorrowDate) {
+  const params = new URLSearchParams({
+    start: `${yesterdayDate}T00:00`,
+    end: `${dayAfterTomorrowDate}T00:00`,
+    filter: JSON.stringify({ PriceArea: PRICE_AREA }),
+    sort: 'TimeDK ASC',
+    limit: '500'
+  });
+  const url = `https://api.energidataservice.dk/dataset/${DATASET}?${params.toString()}`;
+
+  const res = await fetch(url);
+  const json = await res.json();
+
+  if (!json.records || json.records.length === 0) {
+    throw new Error(`Ingen data fundet i ${DATASET} for ${todayDate} eller ${tomorrowDate}`);
+  }
+
+  json.records.sort((a, b) => new Date(`${a.TimeUTC}Z`) - new Date(`${b.TimeUTC}Z`));
+
+  const allHours = buildHourlyPricesFromEnergiDataService(json.records);
+  const hours = allHours.filter(entry => entry.date === todayDate || entry.date === tomorrowDate);
+  const todayPrices = hours.filter(entry => entry.date === todayDate);
+  const tomorrowPrices = hours.filter(entry => entry.date === tomorrowDate);
+
+  if (todayPrices.length === 0) {
+    throw new Error(`Ingen priser fundet for i dag (${todayDate})`);
+  }
+
+  return {
+    allHours,
+    todayPrices,
+    tomorrowPrices,
+    priceSource: 'energidataservice'
+  };
 }
 
 function formatHour(hour) {
@@ -282,6 +404,22 @@ async function getLogicVarByName(name) {
   return Object.values(all).find(v => v.name === name) || null;
 }
 
+async function getRequiredLogicString(name) {
+  const variable = await getLogicVarByName(name);
+
+  if (!variable) {
+    throw new Error(`Logic-variabel '${name}' ikke fundet`);
+  }
+
+  const value = String(variable.value || '').trim();
+
+  if (!value) {
+    throw new Error(`Logic-variabel '${name}' er tom`);
+  }
+
+  return value;
+}
+
 function coerceLogicValue(variable, value) {
   if (variable.type === 'number') {
     return Number(value);
@@ -294,11 +432,14 @@ function coerceLogicValue(variable, value) {
   return value == null ? '' : String(value);
 }
 
-async function setLogicVarIfExists(name, value) {
+async function setLogicVarIfExists(name, value, options = {}) {
+  const { suppressMissingLog = false } = options;
   const variable = await getLogicVarByName(name);
 
   if (!variable) {
-    console.log(`Logic-variabel '${name}' ikke fundet. Springer over.`);
+    if (!suppressMissingLog) {
+      console.log(`Logic-variabel '${name}' ikke fundet. Springer over.`);
+    }
     return false;
   }
 
@@ -310,16 +451,21 @@ async function setLogicVarIfExists(name, value) {
   return true;
 }
 
+async function sendApiFailureNotification(apiName, error) {
+  const message = `${HOMEY_NOTIFICATION_USER_NAME}: EV-opladning kunne ikke hente prisdata fra ${apiName}. Fejl: ${error.message}`;
+
+  try {
+    await Homey.notifications.createNotification({
+      excerpt: message
+    });
+  } catch (notificationError) {
+    console.log(`Kunne ikke sende Homey-notifikation for ${apiName}: ${notificationError.message}`);
+  }
+}
+
 async function updateChargeLogicVariables(payload) {
-  await setLogicVarIfExists('charge_start', payload.charge_start);
-  await setLogicVarIfExists('charge_end', payload.charge_end);
-  await setLogicVarIfExists('charge_hours_array', payload.charge_hours_array);
-  await setLogicVarIfExists('charge_hours', payload.charge_hours);
-  await setLogicVarIfExists('charge_message', payload.charge_message || '');
+  await setLogicVarIfExists('charge_message', payload.charge_message || '', { suppressMissingLog: true });
   await setLogicVarIfExists('charge_now', payload.charge_now || false);
-  await setLogicVarIfExists('charge_plan_key', payload.planKey || '');
-  await setLogicVarIfExists('charge_plan_type', payload.planType || '');
-  await setLogicVarIfExists('charge_plan_label', payload.planLabel || '');
 }
 
 async function getChargeHoursNeeded() {
@@ -351,41 +497,23 @@ const chargeHoursNeeded = await getChargeHoursNeeded();
 // ==============================
 // FETCH DATA
 // ==============================
-const params = new URLSearchParams({
-  start: `${yesterday}T00:00`,
-  end: `${dayAfterTomorrow}T00:00`,
-  filter: JSON.stringify({ PriceArea: PRICE_AREA }),
-  sort: 'TimeDK ASC',
-  limit: '500'
-});
-const url = `https://api.energidataservice.dk/dataset/${DATASET}?${params.toString()}`;
+let priceData;
 
-const res = await fetch(url);
-const json = await res.json();
+try {
+  priceData = await fetchStromligningPriceData(today, tomorrow);
+} catch (error) {
+  await sendApiFailureNotification('Strømligning', error);
+  console.log(`Stromligning utilgaengelig (${error.message}). Falder tilbage til ${DATASET}.`);
 
-if (!json.records || json.records.length === 0) {
-  throw new Error(`Ingen data fundet i ${DATASET} for ${today} eller ${tomorrow}`);
+  try {
+    priceData = await fetchEnergiDataServicePriceData(yesterday, dayAfterTomorrow, today, tomorrow);
+  } catch (fallbackError) {
+    await sendApiFailureNotification('Energi Data Service', fallbackError);
+    throw fallbackError;
+  }
 }
 
-// ==============================
-// SORT
-// ==============================
-json.records.sort((a, b) => new Date(`${a.TimeUTC}Z`) - new Date(`${b.TimeUTC}Z`));
-
-// ==============================
-// MAP
-// ==============================
-const allHours = buildHourlyPrices(json.records);
-
-const hours = allHours
-  .filter(entry => entry.date === today || entry.date === tomorrow);
-
-const todayPrices = hours.filter(entry => entry.date === today);
-const tomorrowPrices = hours.filter(entry => entry.date === tomorrow);
-
-if (todayPrices.length === 0) {
-  throw new Error(`Ingen priser fundet for i dag (${today})`);
-}
+const { allHours, todayPrices, tomorrowPrices, priceSource } = priceData;
 
 // ==============================
 // DEBUG
@@ -399,10 +527,12 @@ function logPrices(label, date, dayHours) {
   }
 
   dayHours.forEach(h => {
-    console.log(`${String(h.hour).padStart(2, '0')}:00 -> ${h.totalPrice.toFixed(3)} kr (spot ${h.spotPrice.toFixed(3)}, tarif ${h.gridTariff.toFixed(3)})`);
+    const spotPriceInclVat = h.spotPrice * VAT_MULTIPLIER;
+    console.log(`${String(h.hour).padStart(2, '0')}:00 -> ${h.totalPrice.toFixed(3)} kr (spot+moms ${spotPriceInclVat.toFixed(3)}, distribution ${h.gridTariff.toFixed(3)}, transmission ${h.transmissionTariff.toFixed(3)}, EnergiFyn ${ENERGIFYN_MARKUP_KR_PER_KWH_INCL_VAT.toFixed(3)}, elafgift ${h.electricityTax.toFixed(3)})`);
   });
 }
 
+console.log(`Priskilde: ${priceSource}`);
 logPrices('I DAG', today, todayPrices);
 console.log('');
 logPrices('I MORGEN', tomorrow, tomorrowPrices);
@@ -476,34 +606,10 @@ if (!best) {
   console.log(`charge_hours: ${available_charge_hours_text}`);
 
   const payload = {
-    charge_start: -1,
-    charge_end: -1,
-    charge_hours_array: available_charge_hours_array,
-    charge_hours: available_charge_hours_text,
     charge_message: cheapestDishwasherSlot
       ? `Ingen ${chargePlanWindow.messagePrefix.toLowerCase()} endnu. ${cheapestDishwasherSlot.message}.`
       : `Ingen ${chargePlanWindow.messagePrefix.toLowerCase()} endnu`,
-    charge_now: false,
-    charge_hours_list: available_charge_hours,
-    hours: available_charge_hours,
-    start: -1,
-    end: -1,
-    startDate: '',
-    endDate: '',
-    totalCost: 0,
-    totalSpotCost: 0,
-    totalGridTariffCost: 0,
-    totalEnergifynMarkupCost: 0,
-    totalElectricityTaxCost: 0,
-    prices: {
-      today: todayPrices.map(({ hour, spotPrice, gridTariff, totalPrice }) => ({ hour, spotPrice, gridTariff, totalPrice })),
-      tomorrow: tomorrowPrices.map(({ hour, spotPrice, gridTariff, totalPrice }) => ({ hour, spotPrice, gridTariff, totalPrice }))
-    },
-    bestWindow: null,
-    waitingForTomorrowPrices,
-    planKey: chargePlanWindow.planKey,
-    planType: chargePlanWindow.planType,
-    planLabel: chargePlanWindow.label
+    charge_now: false
   };
 
   await updateChargeLogicVariables(payload);
@@ -521,9 +627,11 @@ const charge_hours_array = JSON.stringify(charge_hours);
 const charge_hours_text = charge_hours.join(',');
 const charge_now = charge_hours.includes(currentHour);
 const totalSpotCost = best.hours.reduce((sum, hour) => sum + hour.spotPrice, 0) * KW;
+const totalSpotVatCost = totalSpotCost * (VAT_MULTIPLIER - 1);
 const totalGridTariffCost = best.hours.reduce((sum, hour) => sum + hour.gridTariff, 0) * KW;
+const totalTransmissionTariffCost = best.hours.reduce((sum, hour) => sum + hour.transmissionTariff, 0) * KW;
 const totalEnergifynMarkupCost = best.hours.length * KW * ENERGIFYN_MARKUP_KR_PER_KWH_INCL_VAT;
-const totalElectricityTaxCost = best.hours.length * KW * REDUCED_ELECTRICITY_TAX_KR_PER_KWH_INCL_VAT;
+const totalElectricityTaxCost = best.hours.reduce((sum, hour) => sum + hour.electricityTax, 0) * KW;
 const dishwasherMessageSuffix = cheapestDishwasherSlot
   ? ` ${cheapestDishwasherSlot.message}.`
   : '';
@@ -540,8 +648,10 @@ console.log(`charge_hours_array: ${charge_hours_array}`);
 console.log(`charge_hours: ${charge_hours_text}`);
 console.log(`charge_now: ${charge_now}`);
 console.log(`Pris inkl. moms/tilaeg (11 kW): ${totalCost.toFixed(2)} kr`);
-console.log(`Ren spotpris (11 kW): ${totalSpotCost.toFixed(2)} kr`);
-console.log(`Elektrus nettarif (11 kW): ${totalGridTariffCost.toFixed(2)} kr`);
+console.log(`Spot ekskl. moms (11 kW): ${totalSpotCost.toFixed(2)} kr`);
+console.log(`Moms paa spot (11 kW): ${totalSpotVatCost.toFixed(2)} kr`);
+console.log(`Elektrus distribution (11 kW): ${totalGridTariffCost.toFixed(2)} kr`);
+console.log(`Transmission/systemtariffer (11 kW): ${totalTransmissionTariffCost.toFixed(2)} kr`);
 console.log(`EnergiFyn tillaeg (11 kW): ${totalEnergifynMarkupCost.toFixed(2)} kr`);
 console.log(`Elafgift (11 kW): ${totalElectricityTaxCost.toFixed(2)} kr`);
 if (cheapestDishwasherSlot) {
@@ -550,36 +660,9 @@ if (cheapestDishwasherSlot) {
 console.log(`charge_message: ${charge_message}`);
 
 const payload = {
-  charge_start,
-  charge_end,
-  charge_hours_array,
-  charge_hours: charge_hours_text,
   charge_message,
   charge_now,
-  charge_hours_list: charge_hours,
-  hours: charge_hours,
-  start: charge_start,
-  end: charge_end,
-  startDate: best.start.date,
-  endDate: best.end.date,
-  totalCost,
-  totalSpotCost,
-  totalGridTariffCost,
-  totalEnergifynMarkupCost,
-  totalElectricityTaxCost,
-  prices: {
-    today: todayPrices.map(({ hour, spotPrice, gridTariff, totalPrice }) => ({ hour, spotPrice, gridTariff, totalPrice })),
-    tomorrow: tomorrowPrices.map(({ hour, spotPrice, gridTariff, totalPrice }) => ({ hour, spotPrice, gridTariff, totalPrice }))
-  },
-  planKey: chargePlanWindow.planKey,
-  planType: chargePlanWindow.planType,
-  planLabel: chargePlanWindow.label,
-  bestWindow: {
-    hours: best.hours.map(({ date, hour, spotPrice, gridTariff, totalPrice }) => ({ date, hour, spotPrice, gridTariff, totalPrice })),
-    start: best.start,
-    end: best.end,
-    totalCost
-  }
+  totalCost
 };
 
 await updateChargeLogicVariables(payload);
