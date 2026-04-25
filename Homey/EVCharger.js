@@ -9,6 +9,7 @@ const NIGHT_CHARGE_WINDOW_START = 21;
 const NIGHT_CHARGE_WINDOW_END = 6;
 const DAY_CHARGE_WINDOW_START = 8;
 const DAY_CHARGE_WINDOW_END = 17;
+const DAY_CHARGE_EARLY_START_SPOT_TOLERANCE_KR_PER_KWH = 0.10;
 const DAY_PLAN_SWITCH_HOUR = 7;
 const NIGHT_PLAN_SWITCH_HOUR = 17;
 const VAT_MULTIPLIER = 1.25;
@@ -334,6 +335,96 @@ function getNextHourEntry(windowHours, index) {
   return nextEntry;
 }
 
+function getContiguousBlock(windowHours, startIndex, length) {
+  if (startIndex + length > windowHours.length) {
+    return null;
+  }
+
+  const blockHours = [];
+
+  for (let offset = 0; offset < length; offset++) {
+    const entry = windowHours[startIndex + offset];
+
+    if (offset > 0) {
+      const previousEntry = windowHours[startIndex + offset - 1];
+
+      if (entry.timestamp - previousEntry.timestamp !== 60 * 60 * 1000) {
+        return null;
+      }
+    }
+
+    blockHours.push(entry);
+  }
+
+  return blockHours;
+}
+
+function buildChargeBlock(blockHours) {
+  const startHour = blockHours[0];
+  const endTime = new Date(blockHours[blockHours.length - 1].timestamp + 60 * 60 * 1000);
+  const endLocal = new Intl.DateTimeFormat('sv-SE', {
+    timeZone: DK_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    hourCycle: 'h23'
+  }).format(endTime).replace(' ', 'T');
+  const endParsed = parseHourDK(`${endLocal}:00`);
+
+  return {
+    start: startHour,
+    end: endParsed,
+    sum: blockHours.reduce((sum, hour) => sum + hour.price, 0),
+    hours: blockHours
+  };
+}
+
+function findBestChargeBlock(windowHours, chargeHoursNeeded) {
+  let bestBlock = null;
+
+  for (let index = 0; index <= windowHours.length - chargeHoursNeeded; index++) {
+    const blockHours = getContiguousBlock(windowHours, index, chargeHoursNeeded);
+
+    if (!blockHours) {
+      continue;
+    }
+
+    const candidate = buildChargeBlock(blockHours);
+
+    if (!bestBlock || candidate.sum < bestBlock.sum) {
+      bestBlock = candidate;
+    }
+  }
+
+  return bestBlock;
+}
+
+function findEarlyStartDayChargeBlock(windowHours, chargeHoursNeeded, spotTolerance) {
+  if (windowHours.length < chargeHoursNeeded) {
+    return null;
+  }
+
+  const cheapestSpotPrice = Math.min(...windowHours.map(entry => entry.spotPrice));
+  const maxAcceptedSpotPrice = cheapestSpotPrice + spotTolerance;
+
+  for (let index = 0; index <= windowHours.length - chargeHoursNeeded; index++) {
+    const blockHours = getContiguousBlock(windowHours, index, chargeHoursNeeded);
+
+    if (!blockHours) {
+      continue;
+    }
+
+    const allHoursWithinTolerance = blockHours.every(entry => entry.spotPrice <= maxAcceptedSpotPrice);
+
+    if (allHoursWithinTolerance) {
+      return buildChargeBlock(blockHours);
+    }
+  }
+
+  return null;
+}
+
 function findCheapestDishwasherSlot(windowHours) {
   let bestSlot = null;
 
@@ -552,44 +643,14 @@ const available_charge_hours_array = JSON.stringify(available_charge_hours);
 const available_charge_hours_text = available_charge_hours.join(',');
 const cheapestDishwasherSlot = findCheapestDishwasherSlot(chargeWindowHours);
 
-let best = null;
-
-for (let i = 0; i <= chargeWindowHours.length - chargeHoursNeeded; i++) {
-  let sum = 0;
-  let valid = true;
-
-  for (let j = 0; j < chargeHoursNeeded; j++) {
-    if (j > 0 && chargeWindowHours[i + j].timestamp - chargeWindowHours[i + j - 1].timestamp !== 60 * 60 * 1000) {
-      valid = false;
-      break;
-    }
-    sum += chargeWindowHours[i + j].price;
-  }
-
-  if (!valid) continue;
-
-  if (!best || sum < best.sum) {
-    const blockHours = chargeWindowHours.slice(i, i + chargeHoursNeeded);
-    const startHour = blockHours[0];
-    const endTime = new Date(blockHours[blockHours.length - 1].timestamp + 60 * 60 * 1000);
-    const endLocal = new Intl.DateTimeFormat('sv-SE', {
-      timeZone: DK_TIME_ZONE,
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      hourCycle: 'h23'
-    }).format(endTime).replace(' ', 'T');
-    const endParsed = parseHourDK(`${endLocal}:00`);
-
-    best = {
-      start: startHour,
-      end: endParsed,
-      sum,
-      hours: blockHours
-    };
-  }
-}
+const earlyStartBest = chargePlanWindow.planType === 'day'
+  ? findEarlyStartDayChargeBlock(
+      chargeWindowHours,
+      chargeHoursNeeded,
+      DAY_CHARGE_EARLY_START_SPOT_TOLERANCE_KR_PER_KWH
+    )
+  : null;
+const best = earlyStartBest || findBestChargeBlock(chargeWindowHours, chargeHoursNeeded);
 
 if (!best) {
   const waitingForTomorrowPrices = chargePlanWindow.endDate === tomorrow && tomorrowPrices.length === 0;
@@ -644,6 +705,9 @@ console.log(`ChargeHours: ${chargeHoursNeeded}`);
 console.log(`Timer: ${best.hours.map(h => `${h.date} ${String(h.hour).padStart(2, '0')}:00`).join(', ')}`);
 console.log(`Start: ${best.start.date} ${String(charge_start).padStart(2, '0')}:00`);
 console.log(`Slut: ${best.end.date} ${String(charge_end).padStart(2, '0')}:00`);
+if (earlyStartBest) {
+  console.log(`Tidlig dagstart aktiv: alle valgte timer er inden for ${(DAY_CHARGE_EARLY_START_SPOT_TOLERANCE_KR_PER_KWH * 100).toFixed(0)} ore/kWh fra billigste spot-time i dagvinduet.`);
+}
 console.log(`charge_hours_array: ${charge_hours_array}`);
 console.log(`charge_hours: ${charge_hours_text}`);
 console.log(`charge_now: ${charge_now}`);
