@@ -7,25 +7,22 @@ const PRICE_AREA = 'DK2';
 const DATASET = 'DayAheadPrices';
 const NIGHT_CHARGE_WINDOW_START = 21;
 const NIGHT_CHARGE_WINDOW_END = 6;
-const DAY_CHARGE_WINDOW_START = 8;
+const DAY_CHARGE_WINDOW_START = 9;
 const DAY_CHARGE_WINDOW_END = 17;
-const DAY_CHARGE_EARLY_START_SPOT_TOLERANCE_KR_PER_KWH = 0.10;
 const DAY_PLAN_SWITCH_HOUR = 7;
 const NIGHT_PLAN_SWITCH_HOUR = 17;
+const SPOT_CHARGE_THRESHOLD_KR_INCL_VAT = 0.30;
+const SLOT_MINUTES = 15;
+const SLOT_MS = SLOT_MINUTES * 60 * 1000;
+const SLOTS_PER_HOUR = 60 / SLOT_MINUTES;
 const VAT_MULTIPLIER = 1.25;
-const ENERGIFYN_MARKUP_KR_PER_KWH_INCL_VAT = 0.04;
-const REDUCED_ELECTRICITY_TAX_KR_PER_KWH_INCL_VAT = 0;
-const IGNORE_ELECTRICITY_TAX = true;
 const STROMLIGNING_API_BASE_URL = 'https://stromligning.dk/api';
 const STROMLIGNING_API_KEY_VARIABLE_NAME = 'StromligningApiKey';
 const STROMLIGNING_SUPPLIER_ID = 'elektrus_c';
 const STROMLIGNING_CUSTOMER_GROUP_ID = 'c';
+// Stromligning API tillader kun 1h,1d,1M,1Y - kvarterspriser udvides lokalt fra timepriser.
+const STROMLIGNING_AGGREGATION = '1h';
 const HOMEY_NOTIFICATION_USER_NAME = 'Jan Hjørdie';
-const ELEKTRUS_TARIFF_LOW_KR_PER_KWH_INCL_VAT = 0.0965;
-const ELEKTRUS_TARIFF_HIGH_SUMMER_KR_PER_KWH_INCL_VAT = 0.1448;
-const ELEKTRUS_TARIFF_HIGH_WINTER_KR_PER_KWH_INCL_VAT = 0.2894;
-const ELEKTRUS_TARIFF_PEAK_SUMMER_KR_PER_KWH_INCL_VAT = 0.3763;
-const ELEKTRUS_TARIFF_PEAK_WINTER_KR_PER_KWH_INCL_VAT = 0.8683;
 
 // ==============================
 // GET REAL TODAY/TOMORROW (DK)
@@ -53,121 +50,137 @@ function addDays(dateString, days) {
   return formatDateInTimeZone(date, 'UTC');
 }
 
-function parseHourDK(hourDK) {
-  const [datePart, timePart] = hourDK.split('T');
-  const hour = Number(timePart.slice(0, 2));
+function parseSlotDK(dateTimeDK) {
+  const [datePart, timePart] = dateTimeDK.split('T');
+  const [hourPart, minutePart = '00'] = timePart.split(':');
 
   return {
     date: datePart,
-    hour
+    hour: Number(hourPart),
+    minute: Number(minutePart.slice(0, 2))
   };
 }
 
-function getElektrusTariffInclVat(dateString, hour) {
-  const month = Number(dateString.slice(5, 7));
-  const isSummer = month >= 4 && month <= 9;
+function normalizeQuarterMinute(minute) {
+  return Math.floor(minute / SLOT_MINUTES) * SLOT_MINUTES;
+}
 
-  if (hour < 6) {
-    return ELEKTRUS_TARIFF_LOW_KR_PER_KWH_INCL_VAT;
+function getSpotPriceInclVat(spotPriceExVat, spotPriceInclVat) {
+  if (Number.isFinite(spotPriceInclVat)) {
+    return spotPriceInclVat;
   }
 
-  if (hour >= 17 && hour < 21) {
-    return isSummer
-      ? ELEKTRUS_TARIFF_PEAK_SUMMER_KR_PER_KWH_INCL_VAT
-      : ELEKTRUS_TARIFF_PEAK_WINTER_KR_PER_KWH_INCL_VAT;
-  }
-
-  return isSummer
-    ? ELEKTRUS_TARIFF_HIGH_SUMMER_KR_PER_KWH_INCL_VAT
-    : ELEKTRUS_TARIFF_HIGH_WINTER_KR_PER_KWH_INCL_VAT;
+  return spotPriceExVat * VAT_MULTIPLIER;
 }
 
-function calculateConsumerPrice(dateString, hour, spotPriceExVat) {
-  const spotPriceInclVat = spotPriceExVat * VAT_MULTIPLIER;
-  const gridTariffInclVat = getElektrusTariffInclVat(dateString, hour);
-
-  return {
-    gridTariff: gridTariffInclVat,
-    totalPrice: spotPriceInclVat
-    + ENERGIFYN_MARKUP_KR_PER_KWH_INCL_VAT
-    + REDUCED_ELECTRICITY_TAX_KR_PER_KWH_INCL_VAT
-    + gridTariffInclVat
-  };
+function getSlotKey(slot) {
+  return `${slot.date}T${String(slot.hour).padStart(2, '0')}:${String(slot.minute).padStart(2, '0')}`;
 }
 
-function buildHourlyPricesFromEnergiDataService(records) {
-  const buckets = new Map();
-
-  for (const record of records) {
-    const parsed = parseHourDK(record.TimeDK);
-    const key = `${parsed.date}T${String(parsed.hour).padStart(2, '0')}`;
-    const bucket = buckets.get(key) || {
-      date: parsed.date,
-      hour: parsed.hour,
-      timestamp: new Date(`${record.TimeUTC}Z`).getTime(),
-      spotPriceSum: 0,
-      totalPriceSum: 0,
-      count: 0
-    };
-
-    const spotPrice = record.DayAheadPriceDKK / 1000;
-    const priceDetails = calculateConsumerPrice(parsed.date, parsed.hour, spotPrice);
-
-    bucket.spotPriceSum += spotPrice;
-    bucket.totalPriceSum += priceDetails.totalPrice;
-    bucket.gridTariffSum = (bucket.gridTariffSum || 0) + priceDetails.gridTariff;
-    bucket.count += 1;
-    buckets.set(key, bucket);
-  }
-
-  return Array.from(buckets.values())
-    .map(bucket => ({
-      date: bucket.date,
-      hour: bucket.hour,
-      timestamp: bucket.timestamp,
-      spotPrice: bucket.spotPriceSum / bucket.count,
-      gridTariff: bucket.gridTariffSum / bucket.count,
-      transmissionTariff: 0,
-      electricityTax: REDUCED_ELECTRICITY_TAX_KR_PER_KWH_INCL_VAT,
-      totalPrice: bucket.totalPriceSum / bucket.count,
-      sourceTotalPrice: bucket.totalPriceSum / bucket.count,
-      price: bucket.totalPriceSum / bucket.count
-    }))
-    .sort((a, b) => a.timestamp - b.timestamp);
-}
-
-function sumPriceParts(parts) {
-  return parts.reduce((sum, value) => sum + (Number.isFinite(value) ? value : 0), 0);
-}
-
-function buildHourlyPricesFromStromligning(prices) {
-  return prices
-    .map(entry => {
-      const parsed = parseHourDK(entry.localDate);
-      const electricity = entry.details?.electricity || {};
-      const transmission = entry.details?.transmission || {};
-      const systemTariff = transmission.systemTariff || {};
-      const netTariff = transmission.netTariff || {};
-      const distribution = entry.details?.distribution || {};
-      const electricityTax = entry.details?.electricityTax || {};
-      const electricityTaxTotal = IGNORE_ELECTRICITY_TAX ? 0 : (electricityTax.total || 0);
-      const ignoredElectricityTaxTotal = IGNORE_ELECTRICITY_TAX ? (electricityTax.total || 0) : 0;
-      const sourceTotalPrice = (entry.price?.total || 0) - ignoredElectricityTaxTotal;
+function buildQuarterPricesFromEnergiDataService(records) {
+  return records
+    .map(record => {
+      const parsed = parseSlotDK(record.TimeDK);
+      const minute = normalizeQuarterMinute(parsed.minute);
+      const spotPriceExVat = record.DayAheadPriceDKK / 1000;
 
       return {
         date: parsed.date,
         hour: parsed.hour,
-        timestamp: new Date(entry.date).getTime(),
-        spotPrice: electricity.value || 0,
-        gridTariff: distribution.total || 0,
-        transmissionTariff: sumPriceParts([systemTariff.total, netTariff.total]),
-        electricityTax: electricityTaxTotal,
-        totalPrice: sourceTotalPrice + ENERGIFYN_MARKUP_KR_PER_KWH_INCL_VAT,
-        sourceTotalPrice,
-        price: sourceTotalPrice + ENERGIFYN_MARKUP_KR_PER_KWH_INCL_VAT
+        minute,
+        timestamp: new Date(`${record.TimeUTC}Z`).getTime(),
+        spotPrice: spotPriceExVat,
+        spotPriceInclVat: getSpotPriceInclVat(spotPriceExVat)
       };
     })
     .sort((a, b) => a.timestamp - b.timestamp);
+}
+
+function buildQuarterPricesFromStromligning(prices) {
+  return prices
+    .map(entry => {
+      const parsed = parseSlotDK(entry.localDate);
+      const minute = normalizeQuarterMinute(parsed.minute);
+      const electricity = entry.details?.electricity || {};
+      const spotPriceExVat = electricity.value || 0;
+      const spotPriceInclVat = getSpotPriceInclVat(
+        spotPriceExVat,
+        electricity.total
+      );
+
+      return {
+        date: parsed.date,
+        hour: parsed.hour,
+        minute,
+        timestamp: new Date(entry.date).getTime(),
+        spotPrice: spotPriceExVat,
+        spotPriceInclVat
+      };
+    })
+    .sort((a, b) => a.timestamp - b.timestamp);
+}
+
+function expandHourlySlotsToQuarters(slots) {
+  if (slots.length < 2) {
+    return slots;
+  }
+
+  const sorted = [...slots].sort((a, b) => a.timestamp - b.timestamp);
+  const averageGapMs = (sorted[sorted.length - 1].timestamp - sorted[0].timestamp)
+    / (sorted.length - 1);
+
+  if (averageGapMs <= SLOT_MS * 1.5) {
+    return slots;
+  }
+
+  const expanded = [];
+
+  for (const slot of sorted) {
+    for (let quarter = 0; quarter < SLOTS_PER_HOUR; quarter++) {
+      const minute = quarter * SLOT_MINUTES;
+
+      expanded.push({
+        ...slot,
+        minute,
+        timestamp: slot.timestamp + (quarter * SLOT_MS)
+      });
+    }
+  }
+
+  return expanded.sort((a, b) => a.timestamp - b.timestamp);
+}
+
+function isHourlyExpandedSlots(slots) {
+  if (slots.length < SLOTS_PER_HOUR + 1) {
+    return false;
+  }
+
+  const buckets = new Map();
+
+  for (const slot of slots) {
+    const key = `${slot.date}T${String(slot.hour).padStart(2, '0')}`;
+    const bucket = buckets.get(key) || new Set();
+    bucket.add(slot.spotPriceInclVat.toFixed(6));
+    buckets.set(key, bucket);
+  }
+
+  let hoursWithMultipleQuarters = 0;
+  let hoursWithIdenticalQuarters = 0;
+
+  for (const uniquePrices of buckets.values()) {
+    if (uniquePrices.size === 0) {
+      continue;
+    }
+
+    hoursWithMultipleQuarters += 1;
+
+    if (uniquePrices.size === 1) {
+      hoursWithIdenticalQuarters += 1;
+    }
+  }
+
+  return hoursWithMultipleQuarters > 0
+    && hoursWithIdenticalQuarters / hoursWithMultipleQuarters >= 0.9;
 }
 
 async function fetchStromligningPriceData(todayDate, tomorrowDate) {
@@ -175,7 +188,7 @@ async function fetchStromligningPriceData(todayDate, tomorrowDate) {
   const params = new URLSearchParams({
     supplierId: STROMLIGNING_SUPPLIER_ID,
     customerGroupId: STROMLIGNING_CUSTOMER_GROUP_ID,
-    aggregation: '1h'
+    aggregation: STROMLIGNING_AGGREGATION
   });
   const url = `${STROMLIGNING_API_BASE_URL}/prices?${params.toString()}`;
 
@@ -196,20 +209,21 @@ async function fetchStromligningPriceData(todayDate, tomorrowDate) {
     throw new Error('Ingen Stromligning-priser fundet');
   }
 
-  const allHours = buildHourlyPricesFromStromligning(json.prices);
-  const hours = allHours.filter(entry => entry.date === todayDate || entry.date === tomorrowDate);
-  const todayPrices = hours.filter(entry => entry.date === todayDate);
-  const tomorrowPrices = hours.filter(entry => entry.date === tomorrowDate);
+  const allSlots = expandHourlySlotsToQuarters(buildQuarterPricesFromStromligning(json.prices));
+  const slots = allSlots.filter(entry => entry.date === todayDate || entry.date === tomorrowDate);
+  const todaySlots = slots.filter(entry => entry.date === todayDate);
+  const tomorrowSlots = slots.filter(entry => entry.date === tomorrowDate);
 
-  if (todayPrices.length === 0) {
+  if (todaySlots.length === 0) {
     throw new Error(`Ingen Stromligning-priser fundet for i dag (${todayDate})`);
   }
 
   return {
-    allHours,
-    todayPrices,
-    tomorrowPrices,
-    priceSource: 'stromligning'
+    allSlots,
+    todaySlots,
+    tomorrowSlots,
+    priceSource: 'stromligning',
+    priceResolution: '1h->15m'
   };
 }
 
@@ -219,7 +233,7 @@ async function fetchEnergiDataServicePriceData(yesterdayDate, dayAfterTomorrowDa
     end: `${dayAfterTomorrowDate}T00:00`,
     filter: JSON.stringify({ PriceArea: PRICE_AREA }),
     sort: 'TimeDK ASC',
-    limit: '500'
+    limit: '2000'
   });
   const url = `https://api.energidataservice.dk/dataset/${DATASET}?${params.toString()}`;
 
@@ -232,20 +246,21 @@ async function fetchEnergiDataServicePriceData(yesterdayDate, dayAfterTomorrowDa
 
   json.records.sort((a, b) => new Date(`${a.TimeUTC}Z`) - new Date(`${b.TimeUTC}Z`));
 
-  const allHours = buildHourlyPricesFromEnergiDataService(json.records);
-  const hours = allHours.filter(entry => entry.date === todayDate || entry.date === tomorrowDate);
-  const todayPrices = hours.filter(entry => entry.date === todayDate);
-  const tomorrowPrices = hours.filter(entry => entry.date === tomorrowDate);
+  const allSlots = expandHourlySlotsToQuarters(buildQuarterPricesFromEnergiDataService(json.records));
+  const slots = allSlots.filter(entry => entry.date === todayDate || entry.date === tomorrowDate);
+  const todaySlots = slots.filter(entry => entry.date === todayDate);
+  const tomorrowSlots = slots.filter(entry => entry.date === tomorrowDate);
 
-  if (todayPrices.length === 0) {
+  if (todaySlots.length === 0) {
     throw new Error(`Ingen priser fundet for i dag (${todayDate})`);
   }
 
   return {
-    allHours,
-    todayPrices,
-    tomorrowPrices,
-    priceSource: 'energidataservice'
+    allSlots,
+    todaySlots,
+    tomorrowSlots,
+    priceSource: 'energidataservice',
+    priceResolution: '15m'
   };
 }
 
@@ -255,6 +270,10 @@ function formatHour(hour) {
 
 function formatHourNumber(hour) {
   return String(hour).padStart(2, '0');
+}
+
+function formatSlotTime(slot) {
+  return `${formatHourNumber(slot.hour)}:${String(slot.minute).padStart(2, '0')}`;
 }
 
 function formatLocalTime(timestamp) {
@@ -305,124 +324,89 @@ function getChargePlanWindow(currentHour, todayDate, yesterdayDate, tomorrowDate
   };
 }
 
-function getHoursForWindow(allHours, window) {
+function isSlotInWindow(slot, window) {
   if (window.startDate === window.endDate) {
-    return allHours.filter(entry =>
-      entry.date === window.startDate &&
-      entry.hour >= window.startHour &&
-      entry.hour < window.endHour
-    );
+    return slot.date === window.startDate
+      && slot.hour >= window.startHour
+      && slot.hour < window.endHour;
   }
 
-  return allHours.filter(entry =>
-    (entry.date === window.startDate && entry.hour >= window.startHour) ||
-    (entry.date === window.endDate && entry.hour < window.endHour)
-  );
+  return (slot.date === window.startDate && slot.hour >= window.startHour)
+    || (slot.date === window.endDate && slot.hour < window.endHour);
 }
 
-function getNextHourEntry(windowHours, index) {
-  if (index >= windowHours.length - 1) {
-    return null;
-  }
-
-  const currentEntry = windowHours[index];
-  const nextEntry = windowHours[index + 1];
-
-  if (nextEntry.timestamp - currentEntry.timestamp !== 60 * 60 * 1000) {
-    return null;
-  }
-
-  return nextEntry;
+function getSlotsForWindow(allSlots, window) {
+  return allSlots
+    .filter(slot => isSlotInWindow(slot, window))
+    .sort((a, b) => a.timestamp - b.timestamp);
 }
 
-function getContiguousBlock(windowHours, startIndex, length) {
-  if (startIndex + length > windowHours.length) {
-    return null;
-  }
-
-  const blockHours = [];
-
-  for (let offset = 0; offset < length; offset++) {
-    const entry = windowHours[startIndex + offset];
-
-    if (offset > 0) {
-      const previousEntry = windowHours[startIndex + offset - 1];
-
-      if (entry.timestamp - previousEntry.timestamp !== 60 * 60 * 1000) {
-        return null;
+function selectCheapestPlanSlots(windowSlots, chargeSlotsNeeded) {
+  return [...windowSlots]
+    .sort((a, b) => {
+      if (a.spotPriceInclVat !== b.spotPriceInclVat) {
+        return a.spotPriceInclVat - b.spotPriceInclVat;
       }
-    }
 
-    blockHours.push(entry);
-  }
-
-  return blockHours;
+      return a.timestamp - b.timestamp;
+    })
+    .slice(0, chargeSlotsNeeded);
 }
 
-function buildChargeBlock(blockHours) {
-  const startHour = blockHours[0];
-  const endTime = new Date(blockHours[blockHours.length - 1].timestamp + 60 * 60 * 1000);
-  const endLocal = new Intl.DateTimeFormat('sv-SE', {
-    timeZone: DK_TIME_ZONE,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    hourCycle: 'h23'
-  }).format(endTime).replace(' ', 'T');
-  const endParsed = parseHourDK(`${endLocal}:00`);
+function evaluateChargePlan(windowSlots, chargeHoursNeeded, spotThresholdInclVat, currentSlot) {
+  const chargeSlotsNeeded = chargeHoursNeeded * SLOTS_PER_HOUR;
+  const planSlots = selectCheapestPlanSlots(windowSlots, chargeSlotsNeeded);
+  const planSlotKeys = new Set(planSlots.map(getSlotKey));
+  const isBelowThreshold = slot => slot.spotPriceInclVat < spotThresholdInclVat;
+  const isChargingSlot = slot => isBelowThreshold(slot) || planSlotKeys.has(getSlotKey(slot));
+  const chargingSlots = windowSlots.filter(isChargingSlot);
+  const thresholdSlots = windowSlots.filter(isBelowThreshold);
+  const currentSlotKey = currentSlot ? getSlotKey(currentSlot) : null;
+  const currentSlotInWindow = Boolean(
+    currentSlot && windowSlots.some(slot => getSlotKey(slot) === currentSlotKey)
+  );
+  const charge_now = currentSlotInWindow && isChargingSlot(currentSlot);
+  const nextChargingSlot = windowSlots.find(slot =>
+    slot.timestamp > (currentSlot?.timestamp || 0) && isChargingSlot(slot)
+  );
 
   return {
-    start: startHour,
-    end: endParsed,
-    sum: blockHours.reduce((sum, hour) => sum + hour.price, 0),
-    hours: blockHours
+    planSlots,
+    chargingSlots,
+    thresholdSlots,
+    charge_now,
+    nextChargingSlot,
+    chargeSlotsNeeded,
+    planSlotKeys
   };
 }
 
-function findBestChargeBlock(windowHours, chargeHoursNeeded) {
-  let bestBlock = null;
+function aggregateSlotsToHours(windowSlots) {
+  const buckets = new Map();
 
-  for (let index = 0; index <= windowHours.length - chargeHoursNeeded; index++) {
-    const blockHours = getContiguousBlock(windowHours, index, chargeHoursNeeded);
+  for (const slot of windowSlots) {
+    const key = `${slot.date}T${String(slot.hour).padStart(2, '0')}`;
+    const bucket = buckets.get(key) || {
+      date: slot.date,
+      hour: slot.hour,
+      timestamp: slot.timestamp,
+      spotPriceInclVatSum: 0,
+      count: 0
+    };
 
-    if (!blockHours) {
-      continue;
-    }
-
-    const candidate = buildChargeBlock(blockHours);
-
-    if (!bestBlock || candidate.sum < bestBlock.sum) {
-      bestBlock = candidate;
-    }
+    bucket.spotPriceInclVatSum += slot.spotPriceInclVat;
+    bucket.count += 1;
+    buckets.set(key, bucket);
   }
 
-  return bestBlock;
-}
-
-function findEarlyStartDayChargeBlock(windowHours, chargeHoursNeeded, spotTolerance) {
-  if (windowHours.length < chargeHoursNeeded) {
-    return null;
-  }
-
-  const cheapestSpotPrice = Math.min(...windowHours.map(entry => entry.spotPrice));
-  const maxAcceptedSpotPrice = cheapestSpotPrice + spotTolerance;
-
-  for (let index = 0; index <= windowHours.length - chargeHoursNeeded; index++) {
-    const blockHours = getContiguousBlock(windowHours, index, chargeHoursNeeded);
-
-    if (!blockHours) {
-      continue;
-    }
-
-    const allHoursWithinTolerance = blockHours.every(entry => entry.spotPrice <= maxAcceptedSpotPrice);
-
-    if (allHoursWithinTolerance) {
-      return buildChargeBlock(blockHours);
-    }
-  }
-
-  return null;
+  return Array.from(buckets.values())
+    .map(bucket => ({
+      date: bucket.date,
+      hour: bucket.hour,
+      timestamp: bucket.timestamp,
+      price: bucket.spotPriceInclVatSum / bucket.count
+    }))
+    .sort((a, b) => a.timestamp - b.timestamp);
 }
 
 function findCheapestDishwasherSlot(windowHours) {
@@ -430,9 +414,9 @@ function findCheapestDishwasherSlot(windowHours) {
 
   for (let index = 0; index < windowHours.length; index++) {
     const currentEntry = windowHours[index];
-    const nextEntry = getNextHourEntry(windowHours, index);
+    const nextEntry = windowHours[index + 1];
 
-    if (!nextEntry) {
+    if (!nextEntry || nextEntry.timestamp - currentEntry.timestamp !== 60 * 60 * 1000) {
       continue;
     }
 
@@ -452,42 +436,83 @@ function findCheapestDishwasherSlot(windowHours) {
     return null;
   }
 
-  const startLocal = new Intl.DateTimeFormat('sv-SE', {
-    timeZone: DK_TIME_ZONE,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hourCycle: 'h23'
-  }).format(new Date(bestSlot.startTimestamp));
-
-  const endLocal = new Intl.DateTimeFormat('sv-SE', {
-    timeZone: DK_TIME_ZONE,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hourCycle: 'h23'
-  }).format(new Date(bestSlot.endTimestamp));
-
   return {
     ...bestSlot,
-    startLocal,
-    endLocal,
     startTime: formatLocalTime(bestSlot.startTimestamp),
     endTime: formatLocalTime(bestSlot.endTimestamp),
     message: `Opvask kl. ${formatHourNumber(bestSlot.startHour)}`
   };
 }
 
-function getHourInTimeZone(date, timeZone) {
-  return Number(new Intl.DateTimeFormat('en-GB', {
+function getDateTimePartsInTimeZone(date, timeZone) {
+  const parts = new Intl.DateTimeFormat('en-GB', {
     timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
     hour: '2-digit',
+    minute: '2-digit',
     hourCycle: 'h23'
-  }).format(date));
+  }).formatToParts(date);
+
+  return {
+    date: `${parts.find(part => part.type === 'year').value}-${parts.find(part => part.type === 'month').value}-${parts.find(part => part.type === 'day').value}`,
+    hour: Number(parts.find(part => part.type === 'hour').value),
+    minute: normalizeQuarterMinute(Number(parts.find(part => part.type === 'minute').value))
+  };
+}
+
+function getHourInTimeZone(date, timeZone) {
+  return getDateTimePartsInTimeZone(date, timeZone).hour;
+}
+
+function findCurrentSlot(allSlots, now) {
+  const current = getDateTimePartsInTimeZone(now, DK_TIME_ZONE);
+  const currentKey = `${current.date}T${String(current.hour).padStart(2, '0')}:${String(current.minute).padStart(2, '0')}`;
+
+  return allSlots.find(slot => getSlotKey(slot) === currentKey) || {
+    date: current.date,
+    hour: current.hour,
+    minute: current.minute,
+    timestamp: now.getTime(),
+    spotPrice: null,
+    spotPriceInclVat: null
+  };
+}
+
+function buildChargeMessage(chargePlanWindow, evaluation, currentSlot) {
+  const {
+    chargingSlots,
+    thresholdSlots,
+    planSlots,
+    charge_now,
+    nextChargingSlot,
+    chargeSlotsNeeded
+  } = evaluation;
+  const dishwasherMessageSuffix = evaluation.dishwasherMessageSuffix || '';
+  const currentSpotText = Number.isFinite(currentSlot.spotPriceInclVat)
+    ? currentSlot.spotPriceInclVat.toFixed(2)
+    : '?';
+
+  if (charge_now) {
+    const reason = currentSlot.spotPriceInclVat < SPOT_CHARGE_THRESHOLD_KR_INCL_VAT
+      ? `spot ${currentSpotText}`
+      : `plan (${currentSpotText})`;
+
+    return `${chargePlanWindow.messagePrefix}: lader nu (${reason}).${dishwasherMessageSuffix}`;
+  }
+
+  if (chargingSlots.length === 0) {
+    return `Ingen ${chargePlanWindow.messagePrefix.toLowerCase()} endnu.${dishwasherMessageSuffix}`;
+  }
+
+  const nextText = nextChargingSlot
+    ? `naeste kl. ${formatSlotTime(nextChargingSlot)} (spot ${nextChargingSlot.spotPriceInclVat.toFixed(2)})`
+    : 'ingen flere kvarter i vinduet';
+  const thresholdHours = (thresholdSlots.length / SLOTS_PER_HOUR).toFixed(1);
+  const planHours = (planSlots.length / SLOTS_PER_HOUR).toFixed(1);
+
+  return `${chargePlanWindow.messagePrefix}: ${thresholdHours}t under ${SPOT_CHARGE_THRESHOLD_KR_INCL_VAT.toFixed(2)}, ${planHours}t i ${chargeSlotsNeeded}-kvarters plan. ${nextText}.${dishwasherMessageSuffix}`;
 }
 
 async function getLogicVarByName(name) {
@@ -545,13 +570,29 @@ async function setLogicVarIfExists(name, value, options = {}) {
 async function sendApiFailureNotification(apiName, error) {
   const message = `${HOMEY_NOTIFICATION_USER_NAME}: EV-opladning kunne ikke hente prisdata fra ${apiName}. Fejl: ${error.message}`;
 
-  try {
-    await Homey.notifications.createNotification({
-      excerpt: message
-    });
-  } catch (notificationError) {
-    console.log(`Kunne ikke sende Homey-notifikation for ${apiName}: ${notificationError.message}`);
+  if (typeof Homey.flow?.runFlowCardAction === 'function') {
+    try {
+      await Homey.flow.runFlowCardAction({
+        uri: 'homey:flowcardaction:homey:manager:notifications:create_notification',
+        id: 'homey:manager:notifications:create_notification',
+        args: { text: message }
+      });
+      return;
+    } catch (flowNotificationError) {
+      console.log(`Flow-notifikation fejlede for ${apiName}: ${flowNotificationError.message}`);
+    }
   }
+
+  if (typeof Homey.notifications?.createNotification === 'function') {
+    try {
+      await Homey.notifications.createNotification({ excerpt: message });
+      return;
+    } catch (notificationError) {
+      console.log(`Homey.notifications fejlede for ${apiName}: ${notificationError.message}`);
+    }
+  }
+
+  console.log(`NOTIFIKATION (kun log): ${message}`);
 }
 
 async function updateChargeLogicVariables(payload) {
@@ -586,85 +627,82 @@ const currentHour = getHourInTimeZone(now, DK_TIME_ZONE);
 const chargeHoursNeeded = await getChargeHoursNeeded();
 
 // ==============================
-// FETCH DATA
+// FETCH DATA (EDS foerst: rigtige kvarterspriser; Stromligning kun 1h)
 // ==============================
 let priceData;
 
 try {
-  priceData = await fetchStromligningPriceData(today, tomorrow);
-} catch (error) {
-  await sendApiFailureNotification('Strømligning', error);
-  console.log(`Stromligning utilgaengelig (${error.message}). Falder tilbage til ${DATASET}.`);
+  priceData = await fetchEnergiDataServicePriceData(yesterday, dayAfterTomorrow, today, tomorrow);
+  console.log('Priser hentet fra Energi Data Service (kvartersoploesning).');
+} catch (edsError) {
+  console.log(`${DATASET} utilgaengelig (${edsError.message}). Falder tilbage til Stromligning.`);
 
   try {
-    priceData = await fetchEnergiDataServicePriceData(yesterday, dayAfterTomorrow, today, tomorrow);
-  } catch (fallbackError) {
-    await sendApiFailureNotification('Energi Data Service', fallbackError);
-    throw fallbackError;
+    priceData = await fetchStromligningPriceData(today, tomorrow);
+  } catch (stromligningError) {
+    await sendApiFailureNotification('Energi Data Service', edsError);
+    await sendApiFailureNotification('Strømligning', stromligningError);
+    throw stromligningError;
   }
 }
 
-const { allHours, todayPrices, tomorrowPrices, priceSource } = priceData;
+const { allSlots, todaySlots, tomorrowSlots, priceSource, priceResolution } = priceData;
+const usesHourlyExpandedPrices = priceResolution === '1h->15m'
+  || isHourlyExpandedSlots(todaySlots);
+
+if (usesHourlyExpandedPrices) {
+  console.log('Bemærk: Priser er timebaserede (4 ens kvarter/time). Spot under 0,30 kan overses mellem kvarter.');
+}
 
 // ==============================
 // DEBUG
 // ==============================
-function logPrices(label, date, dayHours) {
+function logPrices(label, date, daySlots) {
   console.log(`--- ${label} (${date}) ---`);
 
-  if (dayHours.length === 0) {
+  if (daySlots.length === 0) {
     console.log('Ingen priser tilgaengelige');
     return;
   }
 
-  dayHours.forEach(h => {
-    const spotPriceInclVat = h.spotPrice * VAT_MULTIPLIER;
-    console.log(`${String(h.hour).padStart(2, '0')}:00 -> ${h.totalPrice.toFixed(3)} kr (spot+moms ${spotPriceInclVat.toFixed(3)}, distribution ${h.gridTariff.toFixed(3)}, transmission ${h.transmissionTariff.toFixed(3)}, EnergiFyn ${ENERGIFYN_MARKUP_KR_PER_KWH_INCL_VAT.toFixed(3)}, elafgift ${h.electricityTax.toFixed(3)})`);
+  daySlots.forEach(slot => {
+    console.log(`${formatSlotTime(slot)} -> spot ${slot.spotPriceInclVat.toFixed(3)} kr (inkl. moms)`);
   });
 }
 
-console.log(`Priskilde: ${priceSource}`);
-logPrices('I DAG', today, todayPrices);
+console.log(`Priskilde: ${priceSource} (${priceResolution || STROMLIGNING_AGGREGATION})`);
+logPrices('I DAG', today, todaySlots);
 console.log('');
-logPrices('I MORGEN', tomorrow, tomorrowPrices);
+logPrices('I MORGEN', tomorrow, tomorrowSlots);
 
 // ==============================
-// FIND BILLIGSTE BLOK I LADEVINDUE
+// KVARtersplan i ladevindue
 // ==============================
 const chargePlanWindow = getChargePlanWindow(currentHour, today, yesterday, tomorrow);
-const chargeWindowHours = getHoursForWindow(allHours, chargePlanWindow);
+const chargeWindowSlots = getSlotsForWindow(allSlots, chargePlanWindow);
+const currentSlot = findCurrentSlot(allSlots, now);
 
 console.log('');
 console.log(`Ladevinduet der bruges: ${chargePlanWindow.label}`);
 console.log(`Plantype: ${chargePlanWindow.planType}`);
+console.log(`Spot-taerskel: ${SPOT_CHARGE_THRESHOLD_KR_INCL_VAT.toFixed(2)} kr/kWh (inkl. moms)`);
+console.log(`Nuvaerende kvarter: ${getSlotKey(currentSlot)}`);
 
-const available_charge_hours = chargeWindowHours.map(({ hour }) => hour);
+const available_charge_hours = [...new Set(chargeWindowSlots.map(({ hour }) => hour))].sort((a, b) => a - b);
 const available_charge_hours_array = JSON.stringify(available_charge_hours);
 const available_charge_hours_text = available_charge_hours.join(',');
-const cheapestDishwasherSlot = findCheapestDishwasherSlot(chargeWindowHours);
+const cheapestDishwasherSlot = findCheapestDishwasherSlot(aggregateSlotsToHours(chargeWindowSlots));
 
-const earlyStartBest = chargePlanWindow.planType === 'day'
-  ? findEarlyStartDayChargeBlock(
-      chargeWindowHours,
-      chargeHoursNeeded,
-      DAY_CHARGE_EARLY_START_SPOT_TOLERANCE_KR_PER_KWH
-    )
-  : null;
-const best = earlyStartBest || findBestChargeBlock(chargeWindowHours, chargeHoursNeeded);
+if (chargeWindowSlots.length === 0) {
+  const waitingForTomorrowPrices = chargePlanWindow.endDate === tomorrow && tomorrowSlots.length === 0;
 
-if (!best) {
-  const waitingForTomorrowPrices = chargePlanWindow.endDate === tomorrow && tomorrowPrices.length === 0;
-
-  console.log("\n--- RESULT ---");
+  console.log('\n--- RESULT ---');
 
   if (waitingForTomorrowPrices) {
     console.log(`Ingen beregning endnu: priser for i morgen (${tomorrow}) er ikke tilgaengelige for ${chargePlanWindow.messagePrefix.toLowerCase()}`);
   } else {
-    console.log(`Ingen gyldig blok med ${chargeHoursNeeded} sammenhaengende timer fundet i ${chargePlanWindow.messagePrefix.toLowerCase()}`);
+    console.log(`Ingen kvarterspriser fundet i ${chargePlanWindow.messagePrefix.toLowerCase()}`);
   }
-
-  console.log(`charge_hours_array: ${available_charge_hours_array}`);
-  console.log(`charge_hours: ${available_charge_hours_text}`);
 
   const payload = {
     charge_message: cheapestDishwasherSlot
@@ -677,47 +715,39 @@ if (!best) {
   return payload;
 }
 
-// ==============================
-// RESULT
-// ==============================
-const totalCost = best.sum * KW;
-const charge_hours = best.hours.map(({ hour }) => hour);
-const charge_start = best.start.hour;
-const charge_end = best.end.hour;
-const charge_hours_array = JSON.stringify(charge_hours);
-const charge_hours_text = charge_hours.join(',');
-const charge_now = charge_hours.includes(currentHour);
-const totalSpotCost = best.hours.reduce((sum, hour) => sum + hour.spotPrice, 0) * KW;
-const totalSpotVatCost = totalSpotCost * (VAT_MULTIPLIER - 1);
-const totalGridTariffCost = best.hours.reduce((sum, hour) => sum + hour.gridTariff, 0) * KW;
-const totalTransmissionTariffCost = best.hours.reduce((sum, hour) => sum + hour.transmissionTariff, 0) * KW;
-const totalEnergifynMarkupCost = best.hours.length * KW * ENERGIFYN_MARKUP_KR_PER_KWH_INCL_VAT;
-const totalElectricityTaxCost = best.hours.reduce((sum, hour) => sum + hour.electricityTax, 0) * KW;
-const dishwasherMessageSuffix = cheapestDishwasherSlot
+const evaluation = evaluateChargePlan(
+  chargeWindowSlots,
+  chargeHoursNeeded,
+  SPOT_CHARGE_THRESHOLD_KR_INCL_VAT,
+  currentSlot
+);
+evaluation.dishwasherMessageSuffix = cheapestDishwasherSlot
   ? ` ${cheapestDishwasherSlot.message}.`
   : '';
-const planLabelShort = chargePlanWindow.planType === 'night' ? 'Nat' : 'Dag';
-const plannedHoursText = `${charge_hours.length} ${charge_hours.length === 1 ? 'time' : 'timer'} planlagt opladning`;
-const charge_message = `${plannedHoursText} kl. ${formatHourNumber(charge_start)}-${formatHourNumber(charge_end)}. ${totalCost.toFixed(2)} kr.${dishwasherMessageSuffix}`;
 
-console.log("\n--- RESULT ---");
-console.log(`ChargeHours: ${chargeHoursNeeded}`);
-console.log(`Timer: ${best.hours.map(h => `${h.date} ${String(h.hour).padStart(2, '0')}:00`).join(', ')}`);
-console.log(`Start: ${best.start.date} ${String(charge_start).padStart(2, '0')}:00`);
-console.log(`Slut: ${best.end.date} ${String(charge_end).padStart(2, '0')}:00`);
-if (earlyStartBest) {
-  console.log(`Tidlig dagstart aktiv: alle valgte timer er inden for ${(DAY_CHARGE_EARLY_START_SPOT_TOLERANCE_KR_PER_KWH * 100).toFixed(0)} ore/kWh fra billigste spot-time i dagvinduet.`);
-}
+const {
+  chargingSlots,
+  thresholdSlots,
+  planSlots,
+  charge_now
+} = evaluation;
+const charge_hours = [...new Set(chargingSlots.map(({ hour }) => hour))].sort((a, b) => a - b);
+const charge_hours_array = JSON.stringify(charge_hours);
+const charge_hours_text = charge_hours.join(',');
+const totalSpotCost = chargingSlots.reduce((sum, slot) => sum + slot.spotPrice, 0) * KW * (SLOT_MINUTES / 60);
+const totalSpotInclVatCost = chargingSlots.reduce((sum, slot) => sum + slot.spotPriceInclVat, 0) * KW * (SLOT_MINUTES / 60);
+const charge_message = buildChargeMessage(chargePlanWindow, evaluation, currentSlot);
+
+console.log('\n--- RESULT ---');
+console.log(`ChargeHours: ${chargeHoursNeeded} (${evaluation.chargeSlotsNeeded} kvarter)`);
+console.log(`Kvarter under taerskel: ${thresholdSlots.map(getSlotKey).join(', ') || 'ingen'}`);
+console.log(`Planlagte billigste kvarter: ${planSlots.map(getSlotKey).join(', ') || 'ingen'}`);
+console.log(`Alle ladekvarter: ${chargingSlots.map(getSlotKey).join(', ') || 'ingen'}`);
 console.log(`charge_hours_array: ${charge_hours_array}`);
 console.log(`charge_hours: ${charge_hours_text}`);
 console.log(`charge_now: ${charge_now}`);
-console.log(`Pris inkl. moms/tilaeg (11 kW): ${totalCost.toFixed(2)} kr`);
-console.log(`Spot ekskl. moms (11 kW): ${totalSpotCost.toFixed(2)} kr`);
-console.log(`Moms paa spot (11 kW): ${totalSpotVatCost.toFixed(2)} kr`);
-console.log(`Elektrus distribution (11 kW): ${totalGridTariffCost.toFixed(2)} kr`);
-console.log(`Transmission/systemtariffer (11 kW): ${totalTransmissionTariffCost.toFixed(2)} kr`);
-console.log(`EnergiFyn tillaeg (11 kW): ${totalEnergifynMarkupCost.toFixed(2)} kr`);
-console.log(`Elafgift (11 kW): ${totalElectricityTaxCost.toFixed(2)} kr`);
+console.log(`Spot ekskl. moms (${KW} kW, valgte kvarter): ${totalSpotCost.toFixed(2)} kr`);
+console.log(`Spot inkl. moms (${KW} kW, valgte kvarter): ${totalSpotInclVatCost.toFixed(2)} kr`);
 if (cheapestDishwasherSlot) {
   console.log(cheapestDishwasherSlot.message);
 }
@@ -726,7 +756,7 @@ console.log(`charge_message: ${charge_message}`);
 const payload = {
   charge_message,
   charge_now,
-  totalCost
+  totalCost: totalSpotInclVatCost
 };
 
 await updateChargeLogicVariables(payload);
