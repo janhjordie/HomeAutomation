@@ -22,6 +22,10 @@ const STROMLIGNING_SUPPLIER_ID = 'elektrus_c';
 const STROMLIGNING_CUSTOMER_GROUP_ID = 'c';
 // Stromligning API tillader kun 1h,1d,1M,1Y - kvarterspriser udvides lokalt fra timepriser.
 const STROMLIGNING_AGGREGATION = '1h';
+const FORCE_CHARGE_VARIABLE_NAME = 'forceCharge';
+const CHARGE_HOURS_VARIABLE_NAME = 'ChargeHours';
+const CHARGE_NOW_VARIABLE_NAME = 'charge_now';
+const CHARGE_MESSAGE_VARIABLE_NAME = 'charge_message';
 const HOMEY_NOTIFICATION_USER_NAME = 'Jan Hjørdie';
 
 // ==============================
@@ -487,12 +491,17 @@ function buildChargeMessage(chargePlanWindow, evaluation, currentSlot) {
     planSlots,
     charge_now,
     nextChargingSlot,
-    chargeSlotsNeeded
+    chargeSlotsNeeded,
+    forceChargeActive
   } = evaluation;
   const dishwasherMessageSuffix = evaluation.dishwasherMessageSuffix || '';
   const currentSpotText = Number.isFinite(currentSlot.spotPriceInclVat)
     ? currentSlot.spotPriceInclVat.toFixed(2)
     : '?';
+
+  if (charge_now && forceChargeActive) {
+    return `Dagopladning: tvungen opladning aktiv (spot ${currentSpotText}).${dishwasherMessageSuffix}`;
+  }
 
   if (charge_now) {
     const reason = currentSlot.spotPriceInclVat < SPOT_CHARGE_THRESHOLD_KR_INCL_VAT
@@ -515,9 +524,65 @@ function buildChargeMessage(chargePlanWindow, evaluation, currentSlot) {
   return `${chargePlanWindow.messagePrefix}: ${thresholdHours}t under ${SPOT_CHARGE_THRESHOLD_KR_INCL_VAT.toFixed(2)}, ${planHours}t i ${chargeSlotsNeeded}-kvarters plan. ${nextText}.${dishwasherMessageSuffix}`;
 }
 
+function parseLogicBoolean(value) {
+  if (typeof value === 'boolean') {
+    return value;
+  }
+
+  const normalized = String(value ?? '').trim().toLowerCase();
+
+  if (normalized === 'true' || normalized === '1' || normalized === 'on') {
+    return true;
+  }
+
+  if (normalized === 'false' || normalized === '0' || normalized === 'off' || normalized === '') {
+    return false;
+  }
+
+  return Boolean(value);
+}
+
+function isDayForceChargeActive(forceCharge, chargePlanWindow, currentSlot) {
+  return forceCharge
+    && chargePlanWindow.planType === 'day'
+    && isSlotInWindow(currentSlot, chargePlanWindow);
+}
+
 async function getLogicVarByName(name) {
   const all = await Homey.logic.getVariables();
   return Object.values(all).find(v => v.name === name) || null;
+}
+
+async function ensureLogicVariable(name, type, defaultValue) {
+  const existing = await getLogicVarByName(name);
+
+  if (existing) {
+    return existing;
+  }
+
+  if (typeof Homey.logic?.createVariable !== 'function') {
+    console.log(`Logic-variabel '${name}' findes ikke, og Homey.logic.createVariable er ikke tilgaengelig.`);
+    return null;
+  }
+
+  console.log(`Opretter Logic-variabel '${name}' (${type}).`);
+  return Homey.logic.createVariable({
+    variable: {
+      name,
+      type,
+      value: defaultValue
+    }
+  });
+}
+
+async function getForceChargeActive() {
+  const variable = await ensureLogicVariable(FORCE_CHARGE_VARIABLE_NAME, 'boolean', false);
+
+  if (!variable) {
+    return false;
+  }
+
+  return parseLogicBoolean(variable.value);
 }
 
 async function getRequiredLogicString(name) {
@@ -537,34 +602,36 @@ async function getRequiredLogicString(name) {
 }
 
 function coerceLogicValue(variable, value) {
-  if (variable.type === 'number') {
-    return Number(value);
+  if (variable.type === 'boolean') {
+    return parseLogicBoolean(value);
   }
 
-  if (variable.type === 'boolean') {
-    return Boolean(value);
+  if (variable.type === 'number') {
+    return Number(value);
   }
 
   return value == null ? '' : String(value);
 }
 
-async function setLogicVarIfExists(name, value, options = {}) {
-  const { suppressMissingLog = false } = options;
-  const variable = await getLogicVarByName(name);
+async function setLogicVariable(name, value, type, defaultValue) {
+  const variable = await ensureLogicVariable(name, type, defaultValue);
 
   if (!variable) {
-    if (!suppressMissingLog) {
-      console.log(`Logic-variabel '${name}' ikke fundet. Springer over.`);
-    }
     return false;
   }
 
-  const coercedValue = coerceLogicValue(variable, value);
   await Homey.logic.updateVariable({
     id: variable.id,
-    variable: { value: coercedValue }
+    variable: { value: coerceLogicValue(variable, value) }
   });
   return true;
+}
+
+async function ensureChargeLogicVariables() {
+  await ensureLogicVariable(FORCE_CHARGE_VARIABLE_NAME, 'boolean', false);
+  await ensureLogicVariable(CHARGE_HOURS_VARIABLE_NAME, 'number', DEFAULT_CHARGE_HOURS);
+  await ensureLogicVariable(CHARGE_NOW_VARIABLE_NAME, 'boolean', false);
+  await ensureLogicVariable(CHARGE_MESSAGE_VARIABLE_NAME, 'string', '');
 }
 
 async function sendApiFailureNotification(apiName, error) {
@@ -596,22 +663,21 @@ async function sendApiFailureNotification(apiName, error) {
 }
 
 async function updateChargeLogicVariables(payload) {
-  await setLogicVarIfExists('charge_message', payload.charge_message || '', { suppressMissingLog: true });
-  await setLogicVarIfExists('charge_now', payload.charge_now || false);
+  await setLogicVariable(CHARGE_MESSAGE_VARIABLE_NAME, payload.charge_message || '', 'string', '');
+  await setLogicVariable(CHARGE_NOW_VARIABLE_NAME, payload.charge_now || false, 'boolean', false);
 }
 
 async function getChargeHoursNeeded() {
-  const variable = await getLogicVarByName('ChargeHours');
+  const variable = await ensureLogicVariable(CHARGE_HOURS_VARIABLE_NAME, 'number', DEFAULT_CHARGE_HOURS);
 
   if (!variable) {
-    console.log(`Logic-variabel 'ChargeHours' ikke fundet. Bruger standard: ${DEFAULT_CHARGE_HOURS} timer`);
     return DEFAULT_CHARGE_HOURS;
   }
 
   const parsedValue = Number(variable.value);
 
   if (!Number.isInteger(parsedValue) || parsedValue <= 0) {
-    console.log(`Logic-variabel 'ChargeHours' har ugyldig vaerdi (${variable.value}). Bruger standard: ${DEFAULT_CHARGE_HOURS} timer`);
+    console.log(`Logic-variabel '${CHARGE_HOURS_VARIABLE_NAME}' har ugyldig vaerdi (${variable.value}). Bruger standard: ${DEFAULT_CHARGE_HOURS} timer`);
     return DEFAULT_CHARGE_HOURS;
   }
 
@@ -624,7 +690,10 @@ const today = formatDateInTimeZone(now, DK_TIME_ZONE);
 const tomorrow = addDays(today, 1);
 const dayAfterTomorrow = addDays(today, 2);
 const currentHour = getHourInTimeZone(now, DK_TIME_ZONE);
+
+await ensureChargeLogicVariables();
 const chargeHoursNeeded = await getChargeHoursNeeded();
+const forceCharge = await getForceChargeActive();
 
 // ==============================
 // FETCH DATA (EDS foerst: rigtige kvarterspriser; Stromligning kun 1h)
@@ -686,6 +755,7 @@ console.log('');
 console.log(`Ladevinduet der bruges: ${chargePlanWindow.label}`);
 console.log(`Plantype: ${chargePlanWindow.planType}`);
 console.log(`Spot-taerskel: ${SPOT_CHARGE_THRESHOLD_KR_INCL_VAT.toFixed(2)} kr/kWh (inkl. moms)`);
+console.log(`Force charge (forceCharge): ${forceCharge ? 'aktiv' : 'inaktiv'}`);
 console.log(`Nuvaerende kvarter: ${getSlotKey(currentSlot)}`);
 
 const available_charge_hours = [...new Set(chargeWindowSlots.map(({ hour }) => hour))].sort((a, b) => a - b);
@@ -704,11 +774,15 @@ if (chargeWindowSlots.length === 0) {
     console.log(`Ingen kvarterspriser fundet i ${chargePlanWindow.messagePrefix.toLowerCase()}`);
   }
 
+  const forceChargeActive = isDayForceChargeActive(forceCharge, chargePlanWindow, currentSlot);
+
   const payload = {
-    charge_message: cheapestDishwasherSlot
-      ? `Ingen ${chargePlanWindow.messagePrefix.toLowerCase()} endnu. ${cheapestDishwasherSlot.message}.`
-      : `Ingen ${chargePlanWindow.messagePrefix.toLowerCase()} endnu`,
-    charge_now: false
+    charge_message: forceChargeActive
+      ? `Dagopladning: tvungen opladning aktiv.${cheapestDishwasherSlot ? ` ${cheapestDishwasherSlot.message}.` : ''}`
+      : cheapestDishwasherSlot
+        ? `Ingen ${chargePlanWindow.messagePrefix.toLowerCase()} endnu. ${cheapestDishwasherSlot.message}.`
+        : `Ingen ${chargePlanWindow.messagePrefix.toLowerCase()} endnu`,
+    charge_now: forceChargeActive
   };
 
   await updateChargeLogicVariables(payload);
@@ -725,6 +799,13 @@ evaluation.dishwasherMessageSuffix = cheapestDishwasherSlot
   ? ` ${cheapestDishwasherSlot.message}.`
   : '';
 
+const forceChargeActive = isDayForceChargeActive(forceCharge, chargePlanWindow, currentSlot);
+
+if (forceChargeActive) {
+  evaluation.charge_now = true;
+  evaluation.forceChargeActive = true;
+}
+
 const {
   chargingSlots,
   thresholdSlots,
@@ -740,6 +821,9 @@ const charge_message = buildChargeMessage(chargePlanWindow, evaluation, currentS
 
 console.log('\n--- RESULT ---');
 console.log(`ChargeHours: ${chargeHoursNeeded} (${evaluation.chargeSlotsNeeded} kvarter)`);
+if (forceChargeActive) {
+  console.log('Tvungen dagopladning aktiv: charge_now=true uanset spotpris (kun 9-17).');
+}
 console.log(`Kvarter under taerskel: ${thresholdSlots.map(getSlotKey).join(', ') || 'ingen'}`);
 console.log(`Planlagte billigste kvarter: ${planSlots.map(getSlotKey).join(', ') || 'ingen'}`);
 console.log(`Alle ladekvarter: ${chargingSlots.map(getSlotKey).join(', ') || 'ingen'}`);
