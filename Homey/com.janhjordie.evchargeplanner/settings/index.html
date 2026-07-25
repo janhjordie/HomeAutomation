@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <script type="text/javascript" src="/homey.js" data-origin="settings"></script>
+  <meta charset="utf-8">
+</head>
+<body>
+  <header class="homey-header">
+    <h1 class="homey-title" data-i18n="settings.title"></h1>
+    <p class="homey-subtitle" data-i18n="settings.subtitle"></p>
+  </header>
+
+  <fieldset class="homey-form-fieldset">
+    <legend class="homey-form-legend" data-i18n="settings.pairing_section"></legend>
+    <p class="homey-form-help" data-i18n="settings.pairing_auto_help"></p>
+    <button id="create_device" type="button" class="homey-button-primary-full" data-i18n="settings.create_device"></button>
+    <p class="homey-form-help" data-i18n="settings.create_device_help"></p>
+  </fieldset>
+
+  <fieldset class="homey-form-fieldset">
+    <legend class="homey-form-legend" data-i18n="settings.price_section"></legend>
+
+    <div class="homey-form-group">
+      <label class="homey-form-label" for="price_area" data-i18n="settings.price_area"></label>
+      <input class="homey-form-input" id="price_area" type="text" value="DK2" />
+    </div>
+
+    <div class="homey-form-group">
+      <label class="homey-form-label" for="spot_threshold" data-i18n="settings.spot_threshold"></label>
+      <input class="homey-form-input" id="spot_threshold" type="number" step="0.01" value="0.30" />
+    </div>
+
+    <div class="homey-form-group">
+      <label class="homey-form-label" for="charger_kw" data-i18n="settings.charger_kw"></label>
+      <input class="homey-form-input" id="charger_kw" type="number" step="1" value="11" />
+    </div>
+
+    <div class="homey-form-group">
+      <label class="homey-form-label" for="stromligning_api_key" data-i18n="settings.stromligning_api_key"></label>
+      <input class="homey-form-input" id="stromligning_api_key" type="password" value="" autocomplete="off" />
+      <p class="homey-form-help" data-i18n="settings.stromligning_api_key_help"></p>
+    </div>
+  </fieldset>
+
+  <fieldset class="homey-form-fieldset">
+    <legend class="homey-form-legend" data-i18n="settings.charge_section"></legend>
+
+    <div class="homey-form-group">
+      <label class="homey-form-label" for="day_charge_start" data-i18n="settings.day_charge_start"></label>
+      <input class="homey-form-input" id="day_charge_start" type="number" min="0" max="23" step="1" value="9" />
+      <p class="homey-form-help" data-i18n="settings.hour_help"></p>
+    </div>
+
+    <div class="homey-form-group">
+      <label class="homey-form-label" for="day_charge_end" data-i18n="settings.day_charge_end"></label>
+      <input class="homey-form-input" id="day_charge_end" type="number" min="0" max="23" step="1" value="17" />
+      <p class="homey-form-help" data-i18n="settings.hour_help"></p>
+    </div>
+
+    <div class="homey-form-group">
+      <label class="homey-form-label" for="night_charge_start" data-i18n="settings.night_charge_start"></label>
+      <input class="homey-form-input" id="night_charge_start" type="number" min="0" max="23" step="1" value="21" />
+      <p class="homey-form-help" data-i18n="settings.hour_help"></p>
+    </div>
+
+    <div class="homey-form-group">
+      <label class="homey-form-label" for="night_charge_end" data-i18n="settings.night_charge_end"></label>
+      <input class="homey-form-input" id="night_charge_end" type="number" min="0" max="23" step="1" value="6" />
+      <p class="homey-form-help" data-i18n="settings.hour_help"></p>
+    </div>
+
+    <div class="homey-form-group">
+      <label class="homey-form-label" for="default_charge_hours" data-i18n="settings.default_charge_hours"></label>
+      <input class="homey-form-input" id="default_charge_hours" type="number" min="1" max="24" step="1" value="3" />
+      <p class="homey-form-help" data-i18n="settings.default_charge_hours_help"></p>
+    </div>
+  </fieldset>
+
+  <fieldset class="homey-form-fieldset">
+    <legend class="homey-form-legend" data-i18n="settings.compat_section"></legend>
+
+    <div class="homey-form-group">
+      <label class="homey-form-label">
+        <input id="mirror_logic_variables" type="checkbox" checked />
+        <span data-i18n="settings.mirror_logic_variables"></span>
+      </label>
+    </div>
+
+    <div class="homey-form-group">
+      <label class="homey-form-label">
+        <input id="validation_enabled" type="checkbox" checked />
+        <span data-i18n="settings.validation_enabled"></span>
+      </label>
+    </div>
+
+    <div class="homey-form-group">
+      <label class="homey-form-label" for="notification_user" data-i18n="settings.notification_user"></label>
+      <input class="homey-form-input" id="notification_user" type="text" value="Jan Hjørdie" />
+    </div>
+  </fieldset>
+
+  <button id="save" class="homey-button-primary-full" data-i18n="settings.save"></button>
+
+  <script type="text/javascript">
+    function onHomeyReady(Homey) {
+      Homey.ready();
+
+      const fields = [
+        'price_area',
+        'spot_threshold',
+        'charger_kw',
+        'notification_user',
+        'stromligning_api_key',
+        'day_charge_start',
+        'day_charge_end',
+        'night_charge_start',
+        'night_charge_end',
+        'default_charge_hours'
+      ];
+
+      fields.forEach((field) => {
+        Homey.get(field, (err, value) => {
+          if (err) return Homey.alert(err);
+          if (value !== null && value !== undefined) {
+            document.getElementById(field).value = value;
+          }
+        });
+      });
+
+      ['mirror_logic_variables', 'validation_enabled'].forEach((field) => {
+        Homey.get(field, (err, value) => {
+          if (err) return Homey.alert(err);
+          document.getElementById(field).checked = value !== false;
+        });
+      });
+
+      document.getElementById('save').addEventListener('click', () => {
+        const saveField = (name, value, callback) => {
+          Homey.set(name, value, callback);
+        };
+
+        let pending = fields.length + 2;
+        const done = (err) => {
+          if (err) return Homey.alert(err);
+          pending -= 1;
+          if (pending === 0) Homey.alert(Homey.__('settings.saved'));
+        };
+
+        fields.forEach((field) => {
+          const el = document.getElementById(field);
+          const value = ['spot_threshold', 'charger_kw', 'day_charge_start', 'day_charge_end', 'night_charge_start', 'night_charge_end', 'default_charge_hours'].includes(field)
+            ? Number(el.value)
+            : el.value;
+          saveField(field, value, done);
+        });
+
+        saveField('mirror_logic_variables', document.getElementById('mirror_logic_variables').checked, done);
+        saveField('validation_enabled', document.getElementById('validation_enabled').checked, done);
+      });
+
+      document.getElementById('create_device').addEventListener('click', () => {
+        Homey.api('POST', '/create-device', {}, (err, result) => {
+          if (err) return Homey.alert(err.message || String(err));
+          Homey.alert(Homey.__('settings.create_device_success', { name: result.name || 'EV Ladeplan' }));
+        });
+      });
+    }
+  </script>
+</body>
+</html>

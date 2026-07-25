@@ -1,0 +1,10 @@
+{
+  "type": "string",
+  "title": {
+    "en": "Charge message",
+    "da": "Ladebesked"
+  },
+  "getable": true,
+  "setable": false,
+  "uiComponent": "sensor"
+}

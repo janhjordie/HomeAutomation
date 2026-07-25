@@ -1,0 +1,117 @@
+alias: "Deye-06 v1.0.0: Manual Grid Sell (Battery Export)"
+description: >
+  Manual override to discharge the battery to the grid and sell electricity.
+  Turn on input_boolean.deye_manual_grid_sell or run script.deye_start_grid_sell.
+  Disables SolarBalance, enables solar sell, and maximizes discharge until min SOC.
+  Re-applies settings every 30 seconds while active so Deye-01 does not override.
+triggers:
+  - id: manual_toggle
+    trigger: state
+    entity_id: input_boolean.deye_manual_grid_sell
+  - id: ha_start
+    trigger: homeassistant
+    event: start
+  - id: periodic
+    trigger: time_pattern
+    seconds: /30
+conditions: []
+actions:
+  - variables:
+      manual_grid_sell_active: "{{ is_state('input_boolean.deye_manual_grid_sell', 'on') }}"
+      soc: "{{ states('sensor.solarcust0186_battery_charge_level') | float(50) }}"
+      batt_v: "{{ states('sensor.solarcust0186_battery_voltage') | float(48) }}"
+      min_soc_target: "{{ states('input_number.deye_grid_sell_min_soc') | float(20) | round(0) | int }}"
+      sell_price_kr: "{{ states('sensor.deye_spot_price_sell_now') | float(0) }}"
+      is_winter: "{{ now().month in [10, 11, 12, 1, 2, 3] }}"
+      DISCHARGE_A: "{{ 65 if is_winter else 90 }}"
+      NORMAL_TOU_LIMIT: 90
+      soc_target_reached: "{{ soc <= min_soc_target }}"
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ manual_grid_sell_active and not soc_target_reached }}"
+        sequence:
+          - action: switch.turn_off
+            target:
+              entity_id: switch.solarcust0186_grid_charge
+          - action: switch.turn_on
+            target:
+              entity_id: switch.solarcust0186_solar_sell
+          - action: number.set_value
+            target:
+              entity_id: number.solarcust0186_maximum_battery_discharge_current
+            data:
+              value: "{{ DISCHARGE_A }}"
+          - action: number.set_value
+            target:
+              entity_id: number.solarcust0186_soba_low_batt_soc_limit
+            data:
+              value: "{{ min_soc_target }}"
+          - action: number.set_value
+            target:
+              entity_id: number.solarcust0186_batt_charge_limit
+            data:
+              value: "{{ min_soc_target }}"
+          - action: switch.turn_off
+            target:
+              entity_id: switch.solarcust0186_solarbalance_enabled
+            continue_on_error: true
+          - if:
+              - condition: trigger
+                id: manual_toggle
+            then:
+              - action: persistent_notification.create
+                data:
+                  notification_id: deye_manual_grid_sell_enabled
+                  title: "⚡ MANUAL GRID SELL ACTIVE"
+                  message: >
+                    Battery export enabled until SOC {{ min_soc_target }}%.
+                    Discharge: {{ DISCHARGE_A }}A | Solar sell: ON | SolarBalance: OFF
+                    Current SOC: {{ soc | round(1) }}% | Spot sell: {{ sell_price_kr | round(3) }} kr/kWh
+                    Time: {{ now().strftime('%H:%M:%S') }}
+      - conditions:
+          - condition: template
+            value_template: "{{ manual_grid_sell_active and soc_target_reached }}"
+        sequence:
+          - action: input_boolean.turn_off
+            target:
+              entity_id: input_boolean.deye_manual_grid_sell
+          - action: persistent_notification.create
+            data:
+              notification_id: deye_manual_grid_sell_target_reached
+              title: "✅ GRID SELL STOPPED - SOC TARGET"
+              message: >
+                Battery reached target SOC {{ min_soc_target }}%.
+                Manual grid sell turned off automatically.
+      - conditions:
+          - condition: template
+            value_template: "{{ not manual_grid_sell_active }}"
+          - condition: trigger
+            id: manual_toggle
+          - condition: template
+            value_template: "{{ trigger.to_state.state == 'off' }}"
+        sequence:
+          - action: number.set_value
+            target:
+              entity_id: number.solarcust0186_soba_low_batt_soc_limit
+            data:
+              value: "{{ NORMAL_TOU_LIMIT }}"
+          - action: number.set_value
+            target:
+              entity_id: number.solarcust0186_batt_charge_limit
+            data:
+              value: "{{ NORMAL_TOU_LIMIT }}"
+          - action: switch.turn_on
+            target:
+              entity_id: switch.solarcust0186_solarbalance_enabled
+            continue_on_error: true
+          - action: persistent_notification.create
+            data:
+              notification_id: deye_manual_grid_sell_disabled
+              title: "✅ MANUAL GRID SELL DISABLED"
+              message: >
+                Battery export override disabled. SolarBalance re-enabled.
+                SOC: {{ soc | round(1) }}% | Voltage: {{ batt_v | round(2) }}V
+                Time: {{ now().strftime('%H:%M:%S') }}
+mode: queued
+max: 5

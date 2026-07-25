@@ -10,6 +10,10 @@ input_boolean:
     name: "Deye Manual Emergency Charge"
     icon: mdi:battery-charging-high
 
+  deye_manual_grid_sell:
+    name: "Deye Manual Grid Sell"
+    icon: mdi:transmission-tower-export
+
 input_datetime:
   deye_charge_start_time:
     name: "Deye Charge Start Time"

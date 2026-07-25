@@ -1,0 +1,11 @@
+{
+  "name": "com.janhjordie.evchargeplanner",
+  "version": "1.0.3",
+  "private": true,
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "smoke": "node scripts/smoke-test.js"
+  }
+}

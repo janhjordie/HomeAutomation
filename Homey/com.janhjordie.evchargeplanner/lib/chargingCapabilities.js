@@ -1,0 +1,47 @@
+'use strict';
+
+const { DEFAULT_CHARGER_KW } = require('./constants');
+
+const SYSTEM_CHARGING_CAPABILITIES = [
+  'measure_power',
+  'evcharger_charging',
+  'evcharger_charging_state'
+];
+
+function getMeasurePowerW(chargeNow, chargerKw) {
+  if (!chargeNow) {
+    return 0;
+  }
+
+  const kw = Number(chargerKw);
+  return Math.round((Number.isFinite(kw) && kw > 0 ? kw : DEFAULT_CHARGER_KW) * 1000);
+}
+
+function getChargingState(chargeNow) {
+  return chargeNow ? 'plugged_in_charging' : 'plugged_in';
+}
+
+async function ensureSystemChargingCapabilities(device) {
+  for (const capability of SYSTEM_CHARGING_CAPABILITIES) {
+    if (!device.hasCapability(capability)) {
+      await device.addCapability(capability);
+    }
+  }
+}
+
+async function syncChargingCapabilities(device, { chargeNow, chargerKw }) {
+  const charging = Boolean(chargeNow);
+  const powerW = getMeasurePowerW(charging, chargerKw);
+
+  await device.setCapabilityValue('measure_power', powerW);
+  await device.setCapabilityValue('evcharger_charging', charging);
+  await device.setCapabilityValue('evcharger_charging_state', getChargingState(charging));
+}
+
+module.exports = {
+  SYSTEM_CHARGING_CAPABILITIES,
+  getMeasurePowerW,
+  getChargingState,
+  ensureSystemChargingCapabilities,
+  syncChargingCapabilities
+};

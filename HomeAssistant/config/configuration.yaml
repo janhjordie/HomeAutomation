@@ -58,6 +58,7 @@ shell_command:
     bash -c "printf '%s\n' '{{ line }}' >> /config/ecodan_curve_samples.csv"
 
 utility_meter: !include includes/deye-soba-dashboard-sensors.yaml
+input_boolean: !include includes/deye-grid-sell-boolean.yaml
 template:
   - !include includes/deye-soba-dashboard-sensors-template.yaml
 

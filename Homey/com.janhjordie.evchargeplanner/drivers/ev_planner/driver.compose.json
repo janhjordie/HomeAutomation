@@ -1,0 +1,92 @@
+{
+  "name": {
+    "en": "EV Charge Planner",
+    "da": "EV Ladeplan"
+  },
+  "class": "evcharger",
+  "capabilities": [
+    "measure_power",
+    "evcharger_charging",
+    "evcharger_charging_state",
+    "charge_now",
+    "charge_message",
+    "charge_schedule",
+    "force_charge"
+  ],
+  "capabilitiesOptions": {
+    "measure_power": {
+      "approximated": true
+    }
+  },
+  "energy": {
+    "evCharger": true
+  },
+  "images": {
+    "small": "/drivers/ev_planner/assets/images/small.png",
+    "large": "/drivers/ev_planner/assets/images/large.png",
+    "xlarge": "/drivers/ev_planner/assets/images/xlarge.png"
+  },
+  "pair": [
+    {
+      "id": "list_devices",
+      "template": "list_devices",
+      "navigation": {
+        "next": "add_devices"
+      }
+    },
+    {
+      "id": "add_devices",
+      "template": "add_devices"
+    }
+  ],
+  "settings": [
+    {
+      "id": "charge_hours",
+      "type": "number",
+      "label": {
+        "en": "Charge hours needed",
+        "da": "Ladetimer behov"
+      },
+      "value": 3,
+      "min": 1,
+      "max": 24,
+      "units": {
+        "en": "hours",
+        "da": "timer"
+      }
+    },
+    {
+      "id": "one_shot_enabled",
+      "type": "checkbox",
+      "label": {
+        "en": "One-shot charge active",
+        "da": "Engangsopladning aktiv"
+      },
+      "value": false
+    },
+    {
+      "id": "one_shot_charge_hours",
+      "type": "number",
+      "label": {
+        "en": "One-shot charge hours",
+        "da": "Engangsopladning timer"
+      },
+      "value": 7,
+      "min": 1,
+      "max": 24,
+      "units": {
+        "en": "hours",
+        "da": "timer"
+      }
+    },
+    {
+      "id": "one_shot_ready_by",
+      "type": "text",
+      "label": {
+        "en": "Ready by (HH:mm)",
+        "da": "Klar kl. (TT:mm)"
+      },
+      "value": "09:30"
+    }
+  ]
+}

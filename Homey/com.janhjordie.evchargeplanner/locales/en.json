@@ -1,0 +1,31 @@
+{
+  "settings": {
+    "title": "EV Charge Planner",
+    "subtitle": "Global settings for spot price charging",
+    "pairing_section": "Device",
+    "pairing_auto_help": "The app automatically creates an EV Ladeplan device on startup when none exists. CLI apps usually do not appear in the New Device search.",
+    "create_device": "Create another EV Ladeplan device",
+    "create_device_help": "Use this for a second car. The first device is created automatically.",
+    "create_device_success": "Device created: {{name}}. Find it under Devices.",
+    "price_section": "Price settings",
+    "price_area": "Price area (e.g. DK2)",
+    "spot_threshold": "Spot threshold incl. VAT (kr/kWh)",
+    "charger_kw": "Charger power (kW)",
+    "stromligning_api_key": "Strømligning API key",
+    "stromligning_api_key_help": "Only needed as fallback when Energi Data Service is unavailable. Get your key at stromligning.dk.",
+    "charge_section": "Charge windows",
+    "day_charge_start": "Day: start (hour 0-23)",
+    "day_charge_end": "Day: end (hour 0-23)",
+    "night_charge_start": "Night: start (hour 0-23)",
+    "night_charge_end": "Night: end (hour 0-23)",
+    "default_charge_hours": "Default charge hours",
+    "default_charge_hours_help": "Used as default for new devices. Can be overridden per device in device settings.",
+    "hour_help": "24-hour clock (e.g. 9 = 09:00, 21 = 21:00).",
+    "compat_section": "Compatibility",
+    "mirror_logic_variables": "Mirror to Logic variables (parallel run)",
+    "validation_enabled": "Log validation comparisons (EVC-013)",
+    "notification_user": "Notification user name",
+    "save": "Save changes",
+    "saved": "Settings saved"
+  }
+}

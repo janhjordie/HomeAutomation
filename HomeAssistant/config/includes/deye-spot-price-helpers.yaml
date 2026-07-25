@@ -105,3 +105,13 @@ deye_battery_discharge_value_total_kr:
   mode: box
   unit_of_measurement: "kr"
   icon: mdi:battery-heart
+
+deye_grid_sell_min_soc:
+  name: "Deye Grid Sell Min SOC"
+  min: 10
+  max: 80
+  step: 1
+  mode: box
+  unit_of_measurement: "%"
+  icon: mdi:battery-arrow-down-outline
+  initial: 20

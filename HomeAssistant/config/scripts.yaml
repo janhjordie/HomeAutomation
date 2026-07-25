@@ -1,0 +1,17 @@
+deye_start_grid_sell:
+  alias: "Deye - Start battery grid sell"
+  description: Discharge battery to grid until min SOC (input_number.deye_grid_sell_min_soc).
+  mode: single
+  sequence:
+    - action: input_boolean.turn_on
+      target:
+        entity_id: input_boolean.deye_manual_grid_sell
+
+deye_stop_grid_sell:
+  alias: "Deye - Stop battery grid sell"
+  description: Stop manual grid sell and restore SolarBalance defaults.
+  mode: single
+  sequence:
+    - action: input_boolean.turn_off
+      target:
+        entity_id: input_boolean.deye_manual_grid_sell

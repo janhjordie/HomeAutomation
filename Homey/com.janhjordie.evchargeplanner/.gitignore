@@ -1,0 +1,8 @@
+env.json
+.node_modules/
+.python_cache/
+.DS_Store
+
+
+# Added by Homey CLI
+/.homeybuild/

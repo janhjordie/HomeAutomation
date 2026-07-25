@@ -1,0 +1,142 @@
+{
+  "triggers": [
+    {
+      "id": "plan_updated",
+      "title": {
+        "en": "Charge plan updated",
+        "da": "Ladeplan opdateret"
+      },
+      "titleFormatted": {
+        "en": "Charge plan updated: [[charge_message]]",
+        "da": "Ladeplan opdateret: [[charge_message]]"
+      },
+      "tokens": [
+        {
+          "name": "charge_message",
+          "type": "string",
+          "title": {
+            "en": "Message",
+            "da": "Besked"
+          }
+        },
+        {
+          "name": "charge_schedule",
+          "type": "string",
+          "title": {
+            "en": "Schedule",
+            "da": "Plan"
+          }
+        },
+        {
+          "name": "spot_price",
+          "type": "number",
+          "title": {
+            "en": "Current spot price",
+            "da": "Aktuel spotpris"
+          }
+        }
+      ]
+    },
+    {
+      "id": "price_api_error",
+      "title": {
+        "en": "Price API failed",
+        "da": "Pris-API fejlede"
+      },
+      "tokens": [
+        {
+          "name": "error_message",
+          "type": "string",
+          "title": {
+            "en": "Error",
+            "da": "Fejl"
+          }
+        }
+      ]
+    }
+  ],
+  "conditions": [
+    {
+      "id": "should_charge",
+      "title": {
+        "en": "!{{Should|Should not}} charge now",
+        "da": "!{{Skal|Skal ikke}} lade nu"
+      }
+    },
+    {
+      "id": "force_charge_active",
+      "title": {
+        "en": "Force charge !{{is|is not}} active",
+        "da": "Tvungen opladning !{{er|er ikke}} aktiv"
+      }
+    },
+    {
+      "id": "one_shot_active",
+      "title": {
+        "en": "One-shot charge !{{is|is not}} active",
+        "da": "Engangsopladning !{{er|er ikke}} aktiv"
+      }
+    }
+  ],
+  "actions": [
+    {
+      "id": "force_charge_on",
+      "title": {
+        "en": "Start force charge (daytime)",
+        "da": "Start tvungen opladning (dag)"
+      },
+      "highlight": true
+    },
+    {
+      "id": "force_charge_off",
+      "title": {
+        "en": "Stop force charge",
+        "da": "Stop tvungen opladning"
+      }
+    },
+    {
+      "id": "start_one_shot",
+      "title": {
+        "en": "Start one-shot charge",
+        "da": "Start engangsopladning"
+      },
+      "titleFormatted": {
+        "en": "Start one-shot charge: [[hours]]h ready by [[ready_by]]",
+        "da": "Start engangsopladning: [[hours]]t klar [[ready_by]]"
+      },
+      "args": [
+        {
+          "name": "hours",
+          "type": "number",
+          "title": {
+            "en": "Hours",
+            "da": "Timer"
+          }
+        },
+        {
+          "name": "ready_by",
+          "type": "text",
+          "title": {
+            "en": "Ready by (HH:mm)",
+            "da": "Klar kl. (TT:mm)"
+          }
+        }
+      ]
+    },
+    {
+      "id": "cancel_one_shot",
+      "title": {
+        "en": "Cancel one-shot charge",
+        "da": "Afbryd engangsopladning"
+      }
+    },
+    {
+      "id": "recalculate_now",
+      "title": {
+        "en": "Recalculate charge plan now",
+        "da": "Genberegn ladeplan nu"
+      },
+      "highlight": true
+    }
+  ]
+}

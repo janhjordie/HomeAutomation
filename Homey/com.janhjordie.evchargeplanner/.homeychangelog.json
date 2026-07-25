@@ -1,0 +1,14 @@
+{
+  "1.0.1": {
+    "en": "Add configurable day/night charge windows, pairing guide in settings, and driver pairing fixes.",
+    "da": "Tilføj konfigurerbare dag/nat-ladevinduer, pairing-vejledning i indstillinger og driver-rettelser."
+  },
+  "1.0.2": {
+    "en": "Auto-create EV Ladeplan device on startup; add create-device button in settings.",
+    "da": "Auto-opret EV Ladeplan-enhed ved opstart; tilføj knap i indstillinger."
+  },
+  "1.0.3": {
+    "en": "EV charger tile: power toggle, measure_power status (W), and evcharger class.",
+    "da": "EV-lader flise: power-knap, measure_power status (W), og evcharger-klasse."
+  }
+}

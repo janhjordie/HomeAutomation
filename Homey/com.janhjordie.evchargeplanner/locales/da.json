@@ -1,0 +1,31 @@
+{
+  "settings": {
+    "title": "EV Ladeplan",
+    "subtitle": "Globale indstillinger for spotpris-opladning",
+    "pairing_section": "Enhed",
+    "pairing_auto_help": "App'en opretter automatisk en EV Ladeplan-enhed ved opstart, hvis ingen findes. CLI-apps vises typisk ikke i New Device-søgningen.",
+    "create_device": "Opret ekstra EV Ladeplan-enhed",
+    "create_device_help": "Brug dette til en anden bil. Første enhed oprettes automatisk.",
+    "create_device_success": "Enhed oprettet: {{name}}. Find den under Enheder.",
+    "price_section": "Prisindstillinger",
+    "price_area": "Prisområde (fx DK2)",
+    "spot_threshold": "Spot-tærskel inkl. moms (kr/kWh)",
+    "charger_kw": "Ladeeffekt (kW)",
+    "stromligning_api_key": "Strømligning API-nøgle",
+    "stromligning_api_key_help": "Kun nødvendig som fallback hvis Energi Data Service er utilgængelig. Hent nøgle på stromligning.dk.",
+    "charge_section": "Ladevinduer",
+    "day_charge_start": "Dag: start (time 0-23)",
+    "day_charge_end": "Dag: slut (time 0-23)",
+    "night_charge_start": "Nat: start (time 0-23)",
+    "night_charge_end": "Nat: slut (time 0-23)",
+    "default_charge_hours": "Standard ladetimer",
+    "default_charge_hours_help": "Bruges som standard for nye enheder. Kan overstyres per enhed under enhedsindstillinger.",
+    "hour_help": "Klokkeslæt i 24-timers format (fx 9 = 09:00, 21 = 21:00).",
+    "compat_section": "Kompatibilitet",
+    "mirror_logic_variables": "Spejl til Logic-variabler (parallel kørsel)",
+    "validation_enabled": "Log valideringssammenligninger (EVC-013)",
+    "notification_user": "Notifikationsnavn",
+    "save": "Gem ændringer",
+    "saved": "Indstillinger gemt"
+  }
+}

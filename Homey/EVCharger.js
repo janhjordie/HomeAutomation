@@ -1,3 +1,7 @@
+// DEPRECATED: Erstattet af Homey app com.janhjordie.evchargeplanner (EVC-014)
+// Se docs/01-backlog/02-ev-charger-migration-guide.md
+// Behold kun under parallel validation (EVC-013) — deaktiver cron-Flow efter cutover.
+//
 // ==============================
 // SETTINGS
 // ==============================
@@ -26,6 +30,11 @@ const FORCE_CHARGE_VARIABLE_NAME = 'forceCharge';
 const CHARGE_HOURS_VARIABLE_NAME = 'ChargeHours';
 const CHARGE_NOW_VARIABLE_NAME = 'charge_now';
 const CHARGE_MESSAGE_VARIABLE_NAME = 'charge_message';
+const ONE_SHOT_CHARGE_VARIABLE_NAME = 'oneShotCharge';
+const ONE_SHOT_CHARGE_HOURS_VARIABLE_NAME = 'oneShotChargeHours';
+const ONE_SHOT_READY_BY_VARIABLE_NAME = 'oneShotReadyBy';
+const DEFAULT_ONE_SHOT_CHARGE_HOURS = 7;
+const DEFAULT_ONE_SHOT_READY_BY = '09:30';
 const HOMEY_NOTIFICATION_USER_NAME = 'Jan Hjørdie';
 
 // ==============================
@@ -357,11 +366,12 @@ function selectCheapestPlanSlots(windowSlots, chargeSlotsNeeded) {
     .slice(0, chargeSlotsNeeded);
 }
 
-function evaluateChargePlan(windowSlots, chargeHoursNeeded, spotThresholdInclVat, currentSlot) {
+function evaluateChargePlan(windowSlots, chargeHoursNeeded, spotThresholdInclVat, currentSlot, options = {}) {
+  const { useSpotThreshold = true } = options;
   const chargeSlotsNeeded = chargeHoursNeeded * SLOTS_PER_HOUR;
   const planSlots = selectCheapestPlanSlots(windowSlots, chargeSlotsNeeded);
   const planSlotKeys = new Set(planSlots.map(getSlotKey));
-  const isBelowThreshold = slot => slot.spotPriceInclVat < spotThresholdInclVat;
+  const isBelowThreshold = slot => useSpotThreshold && slot.spotPriceInclVat < spotThresholdInclVat;
   const isChargingSlot = slot => isBelowThreshold(slot) || planSlotKeys.has(getSlotKey(slot));
   const chargingSlots = windowSlots.filter(isChargingSlot);
   const thresholdSlots = windowSlots.filter(isBelowThreshold);
@@ -383,6 +393,104 @@ function evaluateChargePlan(windowSlots, chargeHoursNeeded, spotThresholdInclVat
     chargeSlotsNeeded,
     planSlotKeys
   };
+}
+
+function parseReadyByTime(readyByText) {
+  const match = String(readyByText || '').trim().match(/^(\d{1,2})[:.](\d{2})$/);
+
+  if (!match) {
+    return null;
+  }
+
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+    return null;
+  }
+
+  return {
+    hour,
+    minute: normalizeQuarterMinute(minute)
+  };
+}
+
+function resolveOneShotDeadline(now, readyByText, todayDate, tomorrowDate) {
+  const readyBy = parseReadyByTime(readyByText) || parseReadyByTime(DEFAULT_ONE_SHOT_READY_BY);
+  const nowParts = getDateTimePartsInTimeZone(now, DK_TIME_ZONE);
+  const nowMinutes = nowParts.hour * 60 + nowParts.minute;
+  const readyMinutes = readyBy.hour * 60 + readyBy.minute;
+  const useToday = nowMinutes < readyMinutes;
+  const date = useToday ? todayDate : tomorrowDate;
+
+  return {
+    date,
+    hour: readyBy.hour,
+    minute: readyBy.minute,
+    label: `${date} ${formatHourNumber(readyBy.hour)}:${String(readyBy.minute).padStart(2, '0')}`
+  };
+}
+
+function isSlotBeforeDeadline(slot, deadline) {
+  if (slot.date !== deadline.date) {
+    return slot.date < deadline.date;
+  }
+
+  if (slot.hour !== deadline.hour) {
+    return slot.hour < deadline.hour;
+  }
+
+  return slot.minute < deadline.minute;
+}
+
+function isSlotAtOrAfterNow(slot, now) {
+  const nowParts = getDateTimePartsInTimeZone(now, DK_TIME_ZONE);
+
+  if (slot.date !== nowParts.date) {
+    return slot.date > nowParts.date;
+  }
+
+  if (slot.hour !== nowParts.hour) {
+    return slot.hour > nowParts.hour;
+  }
+
+  return slot.minute >= nowParts.minute;
+}
+
+function getOneShotWindowSlots(allSlots, now, deadline) {
+  return allSlots
+    .filter(slot => isSlotAtOrAfterNow(slot, now) && isSlotBeforeDeadline(slot, deadline))
+    .sort((a, b) => a.timestamp - b.timestamp);
+}
+
+function isOneShotFinished(now, deadline, planSlots, currentSlot) {
+  const nowParts = getDateTimePartsInTimeZone(now, DK_TIME_ZONE);
+  const pastDeadline = !isSlotBeforeDeadline(
+    { date: nowParts.date, hour: nowParts.hour, minute: nowParts.minute },
+    deadline
+  );
+
+  if (pastDeadline) {
+    return true;
+  }
+
+  if (!planSlots.length) {
+    return false;
+  }
+
+  const lastPlanSlot = [...planSlots].sort((a, b) => a.timestamp - b.timestamp).at(-1);
+  const currentIsAfterLastPlan = currentSlot
+    && (
+      currentSlot.date > lastPlanSlot.date
+      || (currentSlot.date === lastPlanSlot.date && currentSlot.hour > lastPlanSlot.hour)
+      || (
+        currentSlot.date === lastPlanSlot.date
+        && currentSlot.hour === lastPlanSlot.hour
+        && currentSlot.minute > lastPlanSlot.minute
+      )
+    );
+
+  return Boolean(currentIsAfterLastPlan);
 }
 
 function aggregateSlotsToHours(windowSlots) {
@@ -484,6 +592,56 @@ function findCurrentSlot(allSlots, now) {
   };
 }
 
+function formatSlotLabel(slot) {
+  return `${slot.date} ${formatSlotTime(slot)}`;
+}
+
+function formatChargeSchedule(slots) {
+  if (!slots.length) {
+    return 'ingen';
+  }
+
+  const ordered = [...slots].sort((a, b) => a.timestamp - b.timestamp);
+  const ranges = [];
+  let rangeStart = ordered[0];
+  let rangeEnd = ordered[0];
+
+  for (let index = 1; index < ordered.length; index++) {
+    const slot = ordered[index];
+    const expectedNext = rangeEnd.timestamp + SLOT_MS;
+
+    if (slot.timestamp === expectedNext) {
+      rangeEnd = slot;
+      continue;
+    }
+
+    ranges.push({ start: rangeStart, end: rangeEnd });
+    rangeStart = slot;
+    rangeEnd = slot;
+  }
+
+  ranges.push({ start: rangeStart, end: rangeEnd });
+
+  return ranges.map(({ start, end }) => {
+    const endTime = new Date(end.timestamp + SLOT_MS);
+    const endParts = getDateTimePartsInTimeZone(endTime, DK_TIME_ZONE);
+    const endLabel = `${formatHourNumber(endParts.hour)}:${String(endParts.minute).padStart(2, '0')}`;
+
+    if (start.date === endParts.date) {
+      return `${formatSlotTime(start)}-${endLabel}`;
+    }
+
+    return `${formatSlotLabel(start)} -> ${endParts.date} ${endLabel}`;
+  }).join(', ');
+}
+
+function formatChargeSlotsDetailed(slots) {
+  return [...slots]
+    .sort((a, b) => a.timestamp - b.timestamp)
+    .map(slot => `${formatSlotLabel(slot)} (${slot.spotPriceInclVat.toFixed(2)})`)
+    .join(', ');
+}
+
 function buildChargeMessage(chargePlanWindow, evaluation, currentSlot) {
   const {
     chargingSlots,
@@ -492,12 +650,29 @@ function buildChargeMessage(chargePlanWindow, evaluation, currentSlot) {
     charge_now,
     nextChargingSlot,
     chargeSlotsNeeded,
-    forceChargeActive
+    forceChargeActive,
+    oneShotActive,
+    oneShotDeadlineLabel
   } = evaluation;
   const dishwasherMessageSuffix = evaluation.dishwasherMessageSuffix || '';
   const currentSpotText = Number.isFinite(currentSlot.spotPriceInclVat)
     ? currentSlot.spotPriceInclVat.toFixed(2)
     : '?';
+  const scheduleSlots = oneShotActive ? planSlots : chargingSlots;
+  const scheduleText = formatChargeSchedule(scheduleSlots);
+
+  if (charge_now && oneShotActive) {
+    return `Engangsopladning: lader nu (spot ${currentSpotText}), klar ${oneShotDeadlineLabel}. Plan: ${scheduleText}.${dishwasherMessageSuffix}`;
+  }
+
+  if (oneShotActive) {
+    const nextText = nextChargingSlot
+      ? `naeste kl. ${formatSlotTime(nextChargingSlot)} (spot ${nextChargingSlot.spotPriceInclVat.toFixed(2)})`
+      : 'ingen flere kvarter før deadline';
+    const planHours = (planSlots.length / SLOTS_PER_HOUR).toFixed(1);
+
+    return `Engangsopladning: ${planHours}t planlagt, klar ${oneShotDeadlineLabel}. Plan: ${scheduleText}. ${nextText}.${dishwasherMessageSuffix}`;
+  }
 
   if (charge_now && forceChargeActive) {
     return `Dagopladning: tvungen opladning aktiv (spot ${currentSpotText}).${dishwasherMessageSuffix}`;
@@ -508,7 +683,7 @@ function buildChargeMessage(chargePlanWindow, evaluation, currentSlot) {
       ? `spot ${currentSpotText}`
       : `plan (${currentSpotText})`;
 
-    return `${chargePlanWindow.messagePrefix}: lader nu (${reason}).${dishwasherMessageSuffix}`;
+    return `${chargePlanWindow.messagePrefix}: lader nu (${reason}). Plan: ${scheduleText}.${dishwasherMessageSuffix}`;
   }
 
   if (chargingSlots.length === 0) {
@@ -521,7 +696,7 @@ function buildChargeMessage(chargePlanWindow, evaluation, currentSlot) {
   const thresholdHours = (thresholdSlots.length / SLOTS_PER_HOUR).toFixed(1);
   const planHours = (planSlots.length / SLOTS_PER_HOUR).toFixed(1);
 
-  return `${chargePlanWindow.messagePrefix}: ${thresholdHours}t under ${SPOT_CHARGE_THRESHOLD_KR_INCL_VAT.toFixed(2)}, ${planHours}t i ${chargeSlotsNeeded}-kvarters plan. ${nextText}.${dishwasherMessageSuffix}`;
+  return `${chargePlanWindow.messagePrefix}: ${thresholdHours}t under ${SPOT_CHARGE_THRESHOLD_KR_INCL_VAT.toFixed(2)}, ${planHours}t i ${chargeSlotsNeeded}-kvarters plan. Plan: ${scheduleText}. ${nextText}.${dishwasherMessageSuffix}`;
 }
 
 function parseLogicBoolean(value) {
@@ -632,6 +807,9 @@ async function ensureChargeLogicVariables() {
   await ensureLogicVariable(CHARGE_HOURS_VARIABLE_NAME, 'number', DEFAULT_CHARGE_HOURS);
   await ensureLogicVariable(CHARGE_NOW_VARIABLE_NAME, 'boolean', false);
   await ensureLogicVariable(CHARGE_MESSAGE_VARIABLE_NAME, 'string', '');
+  await ensureLogicVariable(ONE_SHOT_CHARGE_VARIABLE_NAME, 'boolean', false);
+  await ensureLogicVariable(ONE_SHOT_CHARGE_HOURS_VARIABLE_NAME, 'number', DEFAULT_ONE_SHOT_CHARGE_HOURS);
+  await ensureLogicVariable(ONE_SHOT_READY_BY_VARIABLE_NAME, 'string', DEFAULT_ONE_SHOT_READY_BY);
 }
 
 async function sendApiFailureNotification(apiName, error) {
@@ -684,6 +862,45 @@ async function getChargeHoursNeeded() {
   return parsedValue;
 }
 
+async function getOneShotChargeConfig() {
+  const enabledVariable = await ensureLogicVariable(ONE_SHOT_CHARGE_VARIABLE_NAME, 'boolean', false);
+  const hoursVariable = await ensureLogicVariable(
+    ONE_SHOT_CHARGE_HOURS_VARIABLE_NAME,
+    'number',
+    DEFAULT_ONE_SHOT_CHARGE_HOURS
+  );
+  const readyByVariable = await ensureLogicVariable(
+    ONE_SHOT_READY_BY_VARIABLE_NAME,
+    'string',
+    DEFAULT_ONE_SHOT_READY_BY
+  );
+
+  const enabled = enabledVariable ? parseLogicBoolean(enabledVariable.value) : false;
+  const parsedHours = Number(hoursVariable?.value);
+  const chargeHours = Number.isInteger(parsedHours) && parsedHours > 0
+    ? parsedHours
+    : DEFAULT_ONE_SHOT_CHARGE_HOURS;
+  const readyByRaw = String(readyByVariable?.value || DEFAULT_ONE_SHOT_READY_BY).trim();
+  const readyBy = parseReadyByTime(readyByRaw)
+    ? readyByRaw.replace('.', ':')
+    : DEFAULT_ONE_SHOT_READY_BY;
+
+  if (readyByRaw && !parseReadyByTime(readyByRaw)) {
+    console.log(`Logic-variabel '${ONE_SHOT_READY_BY_VARIABLE_NAME}' har ugyldig vaerdi (${readyByRaw}). Bruger ${DEFAULT_ONE_SHOT_READY_BY}.`);
+  }
+
+  return {
+    enabled,
+    chargeHours,
+    readyBy
+  };
+}
+
+async function disableOneShotCharge(reason) {
+  await setLogicVariable(ONE_SHOT_CHARGE_VARIABLE_NAME, false, 'boolean', false);
+  console.log(`Engangsopladning slaaet fra: ${reason}`);
+}
+
 const now = new Date();
 const yesterday = addDays(formatDateInTimeZone(now, DK_TIME_ZONE), -1);
 const today = formatDateInTimeZone(now, DK_TIME_ZONE);
@@ -694,6 +911,7 @@ const currentHour = getHourInTimeZone(now, DK_TIME_ZONE);
 await ensureChargeLogicVariables();
 const chargeHoursNeeded = await getChargeHoursNeeded();
 const forceCharge = await getForceChargeActive();
+const oneShotConfig = await getOneShotChargeConfig();
 
 // ==============================
 // FETCH DATA (EDS foerst: rigtige kvarterspriser; Stromligning kun 1h)
@@ -747,15 +965,35 @@ logPrices('I MORGEN', tomorrow, tomorrowSlots);
 // ==============================
 // KVARtersplan i ladevindue
 // ==============================
-const chargePlanWindow = getChargePlanWindow(currentHour, today, yesterday, tomorrow);
-const chargeWindowSlots = getSlotsForWindow(allSlots, chargePlanWindow);
 const currentSlot = findCurrentSlot(allSlots, now);
+let chargePlanWindow = getChargePlanWindow(currentHour, today, yesterday, tomorrow);
+let chargeWindowSlots = getSlotsForWindow(allSlots, chargePlanWindow);
+let activeChargeHoursNeeded = chargeHoursNeeded;
+let oneShotActive = false;
+let oneShotDeadline = null;
+
+if (oneShotConfig.enabled) {
+  oneShotDeadline = resolveOneShotDeadline(now, oneShotConfig.readyBy, today, tomorrow);
+  chargeWindowSlots = getOneShotWindowSlots(allSlots, now, oneShotDeadline);
+  activeChargeHoursNeeded = oneShotConfig.chargeHours;
+  oneShotActive = true;
+  chargePlanWindow = {
+    planType: 'oneshot',
+    planKey: `oneshot-${oneShotDeadline.date}-${oneShotConfig.readyBy}`,
+    label: `nu -> ${oneShotDeadline.label}`,
+    messagePrefix: 'Engangsopladning'
+  };
+}
 
 console.log('');
 console.log(`Ladevinduet der bruges: ${chargePlanWindow.label}`);
 console.log(`Plantype: ${chargePlanWindow.planType}`);
 console.log(`Spot-taerskel: ${SPOT_CHARGE_THRESHOLD_KR_INCL_VAT.toFixed(2)} kr/kWh (inkl. moms)`);
 console.log(`Force charge (forceCharge): ${forceCharge ? 'aktiv' : 'inaktiv'}`);
+console.log(`Engangsopladning (oneShotCharge): ${oneShotActive ? 'aktiv' : 'inaktiv'}`);
+if (oneShotActive) {
+  console.log(`Engangsopladning: ${oneShotConfig.chargeHours} timer, klar ${oneShotDeadline.label}`);
+}
 console.log(`Nuvaerende kvarter: ${getSlotKey(currentSlot)}`);
 
 const available_charge_hours = [...new Set(chargeWindowSlots.map(({ hour }) => hour))].sort((a, b) => a - b);
@@ -764,24 +1002,31 @@ const available_charge_hours_text = available_charge_hours.join(',');
 const cheapestDishwasherSlot = findCheapestDishwasherSlot(aggregateSlotsToHours(chargeWindowSlots));
 
 if (chargeWindowSlots.length === 0) {
-  const waitingForTomorrowPrices = chargePlanWindow.endDate === tomorrow && tomorrowSlots.length === 0;
+  const waitingForTomorrowPrices = !oneShotActive
+    && chargePlanWindow.endDate === tomorrow
+    && tomorrowSlots.length === 0;
 
   console.log('\n--- RESULT ---');
 
-  if (waitingForTomorrowPrices) {
+  if (oneShotActive) {
+    await disableOneShotCharge(`ingen kvarter tilbage foer deadline ${oneShotDeadline.label}`);
+  } else if (waitingForTomorrowPrices) {
     console.log(`Ingen beregning endnu: priser for i morgen (${tomorrow}) er ikke tilgaengelige for ${chargePlanWindow.messagePrefix.toLowerCase()}`);
   } else {
     console.log(`Ingen kvarterspriser fundet i ${chargePlanWindow.messagePrefix.toLowerCase()}`);
   }
 
-  const forceChargeActive = isDayForceChargeActive(forceCharge, chargePlanWindow, currentSlot);
+  const forceChargeActive = !oneShotActive
+    && isDayForceChargeActive(forceCharge, chargePlanWindow, currentSlot);
 
   const payload = {
-    charge_message: forceChargeActive
-      ? `Dagopladning: tvungen opladning aktiv.${cheapestDishwasherSlot ? ` ${cheapestDishwasherSlot.message}.` : ''}`
-      : cheapestDishwasherSlot
-        ? `Ingen ${chargePlanWindow.messagePrefix.toLowerCase()} endnu. ${cheapestDishwasherSlot.message}.`
-        : `Ingen ${chargePlanWindow.messagePrefix.toLowerCase()} endnu`,
+    charge_message: oneShotActive
+      ? `Engangsopladning afsluttet (ingen kvarter foer ${oneShotDeadline.label}).`
+      : forceChargeActive
+        ? `Dagopladning: tvungen opladning aktiv.${cheapestDishwasherSlot ? ` ${cheapestDishwasherSlot.message}.` : ''}`
+        : cheapestDishwasherSlot
+          ? `Ingen ${chargePlanWindow.messagePrefix.toLowerCase()} endnu. ${cheapestDishwasherSlot.message}.`
+          : `Ingen ${chargePlanWindow.messagePrefix.toLowerCase()} endnu`,
     charge_now: forceChargeActive
   };
 
@@ -791,19 +1036,46 @@ if (chargeWindowSlots.length === 0) {
 
 const evaluation = evaluateChargePlan(
   chargeWindowSlots,
-  chargeHoursNeeded,
+  activeChargeHoursNeeded,
   SPOT_CHARGE_THRESHOLD_KR_INCL_VAT,
-  currentSlot
+  currentSlot,
+  { useSpotThreshold: !oneShotActive }
 );
+
+if (oneShotActive && evaluation.planSlots.length < evaluation.chargeSlotsNeeded) {
+  console.log(
+    `Advarsel: kun ${evaluation.planSlots.length}/${evaluation.chargeSlotsNeeded} kvarter tilgaengelige foer ${oneShotDeadline.label}.`
+  );
+}
 evaluation.dishwasherMessageSuffix = cheapestDishwasherSlot
   ? ` ${cheapestDishwasherSlot.message}.`
   : '';
 
-const forceChargeActive = isDayForceChargeActive(forceCharge, chargePlanWindow, currentSlot);
+if (oneShotActive) {
+  evaluation.oneShotActive = true;
+  evaluation.oneShotDeadlineLabel = oneShotDeadline.label;
 
-if (forceChargeActive) {
-  evaluation.charge_now = true;
-  evaluation.forceChargeActive = true;
+  if (isOneShotFinished(now, oneShotDeadline, evaluation.planSlots, currentSlot)) {
+    await disableOneShotCharge(`klar-tidspunkt naaet eller plan afsluttet (${oneShotDeadline.label})`);
+    evaluation.charge_now = false;
+    evaluation.oneShotActive = false;
+
+    const payload = {
+      charge_message: `Engangsopladning afsluttet (klar ${oneShotDeadline.label}).`,
+      charge_now: false,
+      totalCost: 0
+    };
+
+    await updateChargeLogicVariables(payload);
+    return payload;
+  }
+} else {
+  const forceChargeActive = isDayForceChargeActive(forceCharge, chargePlanWindow, currentSlot);
+
+  if (forceChargeActive) {
+    evaluation.charge_now = true;
+    evaluation.forceChargeActive = true;
+  }
 }
 
 const {
@@ -818,15 +1090,23 @@ const charge_hours_text = charge_hours.join(',');
 const totalSpotCost = chargingSlots.reduce((sum, slot) => sum + slot.spotPrice, 0) * KW * (SLOT_MINUTES / 60);
 const totalSpotInclVatCost = chargingSlots.reduce((sum, slot) => sum + slot.spotPriceInclVat, 0) * KW * (SLOT_MINUTES / 60);
 const charge_message = buildChargeMessage(chargePlanWindow, evaluation, currentSlot);
+const scheduleSlots = oneShotActive ? planSlots : chargingSlots;
+const scheduleSummary = formatChargeSchedule(scheduleSlots);
+const scheduleDetailed = formatChargeSlotsDetailed(scheduleSlots);
 
 console.log('\n--- RESULT ---');
-console.log(`ChargeHours: ${chargeHoursNeeded} (${evaluation.chargeSlotsNeeded} kvarter)`);
-if (forceChargeActive) {
+console.log(`ChargeHours: ${activeChargeHoursNeeded} (${evaluation.chargeSlotsNeeded} kvarter)`);
+if (oneShotActive) {
+  console.log(`Engangsopladning aktiv: ignorerer dag/nat, klar ${oneShotDeadline.label}.`);
+}
+if (evaluation.forceChargeActive) {
   console.log('Tvungen dagopladning aktiv: charge_now=true uanset spotpris (kun 9-17).');
 }
 console.log(`Kvarter under taerskel: ${thresholdSlots.map(getSlotKey).join(', ') || 'ingen'}`);
 console.log(`Planlagte billigste kvarter: ${planSlots.map(getSlotKey).join(', ') || 'ingen'}`);
 console.log(`Alle ladekvarter: ${chargingSlots.map(getSlotKey).join(', ') || 'ingen'}`);
+console.log(`Ladeplan (intervaller): ${scheduleSummary}`);
+console.log(`Ladeplan (detaljer): ${scheduleDetailed || 'ingen'}`);
 console.log(`charge_hours_array: ${charge_hours_array}`);
 console.log(`charge_hours: ${charge_hours_text}`);
 console.log(`charge_now: ${charge_now}`);
@@ -840,7 +1120,8 @@ console.log(`charge_message: ${charge_message}`);
 const payload = {
   charge_message,
   charge_now,
-  totalCost: totalSpotInclVatCost
+  totalCost: totalSpotInclVatCost,
+  charge_schedule: scheduleSummary
 };
 
 await updateChargeLogicVariables(payload);
