@@ -80,9 +80,18 @@ function isDayForceChargeActive(forceCharge, chargePlanWindow, currentSlot) {
     && isSlotInWindow(currentSlot, chargePlanWindow);
 }
 
+function isNightChargeAllowed(nightChargeEnabled, chargePlanWindow) {
+  if (chargePlanWindow.planType !== 'night') {
+    return true;
+  }
+
+  return nightChargeEnabled !== false;
+}
+
 module.exports = {
   getChargePlanWindow,
   isSlotInWindow,
   getSlotsForWindow,
-  isDayForceChargeActive
+  isDayForceChargeActive,
+  isNightChargeAllowed
 };

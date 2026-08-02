@@ -1,5 +1,13 @@
 {
-  "1.0.1": {
+  "1.0.15": {
+    "en": "Fix Logic variable mirroring via Manager API so charge_now and other variables stay in sync with the device.",
+    "da": "Ret Logic-variabel spejling via Manager API, så charge_now og andre variabler følger enheden."
+  },
+  "1.0.14": {
+    "en": "Night charging toggle, reliable 15-minute scheduler with quarter-hour alignment, and device UI sliders/toggles.",
+    "da": "Natteopladning-toggle, pålidelig 15-minutters scheduler med kvarters-justering, og device UI med sliders/toggles."
+  },
+  "1.0.13": {
     "en": "Add configurable day/night charge windows, pairing guide in settings, and driver pairing fixes.",
     "da": "Tilføj konfigurerbare dag/nat-ladevinduer, pairing-vejledning i indstillinger og driver-rettelser."
   },
@@ -10,5 +18,17 @@
   "1.0.3": {
     "en": "EV charger tile: power toggle, measure_power status (W), and evcharger class.",
     "da": "EV-lader flise: power-knap, measure_power status (W), og evcharger-klasse."
+  },
+  "1.0.6": {
+    "en": "Fix device.js syntax error and improve EV Ladeplan device discovery/provisioning.",
+    "da": "Ret syntaxfejl i device.js og forbedret EV Ladeplan device-discovery/provisioning."
+  },
+  "1.0.5": {
+    "en": "Direct Easee charger control from charge_now, with optional real power sync to the planner tile.",
+    "da": "Direkte Easee-styring fra charge_now, med valgfri synkronisering af rigtig effekt til ladeplan-flisen."
+  },
+  "1.0.4": {
+    "en": "Fix one-shot charge: freeze plan for single run, reset Logic variable, and fix false 11 kW display.",
+    "da": "Ret engangsopladning: fast plan kun én gang, nulstil Logic-variabel, og ret forkert 11 kW visning."
   }
 }

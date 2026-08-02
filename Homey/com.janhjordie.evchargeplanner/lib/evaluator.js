@@ -5,6 +5,7 @@ const {
   DK_TIME_ZONE,
   DEFAULT_CHARGE_HOURS,
   DEFAULT_ONE_SHOT_CHARGE_HOURS,
+  MAX_CHARGE_HOURS,
   DEFAULT_ONE_SHOT_READY_BY,
   DEFAULT_SPOT_CHARGE_THRESHOLD_KR_INCL_VAT,
   DEFAULT_CHARGER_KW,
@@ -12,14 +13,18 @@ const {
 } = require('./constants');
 const { formatDateInTimeZone, addDays, getHourInTimeZone } = require('./timezone');
 const { fetchPrices } = require('./price/fetchPrices');
-const { findCurrentSlot, getSlotKey } = require('./price/slotBuilder');
-const { getChargePlanWindow, getSlotsForWindow, isDayForceChargeActive } = require('./planner/windows');
+const { findCurrentSlot, getSlotKey, SLOTS_PER_HOUR } = require('./price/slotBuilder');
+const { getChargePlanWindow, getSlotsForWindow, isDayForceChargeActive, isNightChargeAllowed } = require('./planner/windows');
 const { buildWindowConfig } = require('./planner/windowConfig');
-const { evaluateChargePlan } = require('./planner/chargePlan');
+const { evaluateChargePlan, selectCheapestPlanSlots } = require('./planner/chargePlan');
 const {
   resolveOneShotDeadline,
   getOneShotWindowSlots,
-  isOneShotFinished,
+  isOneShotSessionFinished,
+  buildOneShotSessionKey,
+  parseCachedPlanKeys,
+  serializeCachedPlanKeys,
+  getSlotsByKeys,
   formatChargeSchedule,
   formatChargeSlotsDetailed,
   buildChargeMessage
@@ -35,11 +40,14 @@ function buildDeviceConfig(settings = {}, appDefaults = {}) {
   const oneShotHours = Number(settings.one_shot_charge_hours);
 
   return {
-    chargeHours: Number.isInteger(chargeHours) && chargeHours > 0 ? chargeHours : fallbackChargeHours,
+    chargeHours: Number.isInteger(chargeHours) && chargeHours > 0
+      ? Math.min(chargeHours, MAX_CHARGE_HOURS)
+      : fallbackChargeHours,
     forceCharge: Boolean(settings.force_charge),
+    nightChargeEnabled: settings.night_charge_enabled !== false,
     oneShotEnabled: Boolean(settings.one_shot_enabled),
     oneShotChargeHours: Number.isInteger(oneShotHours) && oneShotHours > 0
-      ? oneShotHours
+      ? Math.min(oneShotHours, MAX_CHARGE_HOURS)
       : DEFAULT_ONE_SHOT_CHARGE_HOURS,
     oneShotReadyBy: String(settings.one_shot_ready_by || DEFAULT_ONE_SHOT_READY_BY).trim()
   };
@@ -118,6 +126,114 @@ async function evaluateChargePlanForDevice(deviceConfig, appConfig, options = {}
       label: `nu -> ${oneShotDeadline.label}`,
       messagePrefix: 'Engangsopladning'
     };
+    const cheapestDishwasherSlot = findCheapestDishwasherSlot(
+      aggregateSlotsToHours(chargeWindowSlots),
+      timeZone
+    );
+
+    const sessionKey = buildOneShotSessionKey(
+      oneShotDeadline,
+      deviceConfig.oneShotChargeHours,
+      deviceConfig.oneShotReadyBy
+    );
+    const oneShotCache = options.oneShotCache || {};
+    let cachedPlanKeys = parseCachedPlanKeys(oneShotCache.planKeys);
+    let oneShotCacheUpdate = null;
+
+    if (oneShotCache.sessionKey !== sessionKey || cachedPlanKeys.length === 0) {
+      const chargeSlotsNeeded = activeChargeHoursNeeded * SLOTS_PER_HOUR;
+      const initialPlan = selectCheapestPlanSlots(chargeWindowSlots, chargeSlotsNeeded);
+      cachedPlanKeys = initialPlan.map(getSlotKey);
+      oneShotCacheUpdate = {
+        sessionKey,
+        planKeys: serializeCachedPlanKeys(cachedPlanKeys)
+      };
+    }
+
+    const cachedPlanSlots = getSlotsByKeys(allSlots, cachedPlanKeys);
+
+    if (isOneShotSessionFinished(now, oneShotDeadline, cachedPlanSlots, timeZone)) {
+      oneShotDisabledReason = `engangsopladning afsluttet (${oneShotDeadline.label})`;
+
+      return {
+        charge_now: false,
+        charge_message: `Engangsopladning afsluttet (klar ${oneShotDeadline.label}).`,
+        charge_schedule: 'ingen',
+        totalCost: 0,
+        oneShotActive: false,
+        oneShotDisabledReason,
+        oneShotCacheUpdate: { clear: true },
+        forceChargeActive: false,
+        priceSource,
+        priceResolution,
+        usesHourlyExpandedPrices,
+        fetchLog,
+        currentSlot,
+        chargePlanWindow,
+        evaluation: null,
+        debug: {
+          todaySlots,
+          tomorrowSlots,
+          currentSlotKey: getSlotKey(currentSlot),
+          cachedPlanKeys
+        }
+      };
+    }
+
+    const chargeSlotsNeeded = cachedPlanSlots.length;
+    const evaluation = evaluateChargePlan(
+      cachedPlanSlots,
+      chargeSlotsNeeded / SLOTS_PER_HOUR,
+      appConfig.spotThreshold,
+      currentSlot,
+      { useSpotThreshold: false }
+    );
+
+    evaluation.oneShotActive = true;
+    evaluation.oneShotDeadlineLabel = oneShotDeadline.label;
+    evaluation.dishwasherMessageSuffix = cheapestDishwasherSlot
+      ? ` ${cheapestDishwasherSlot.message}.`
+      : '';
+
+    const scheduleSummary = formatChargeSchedule(cachedPlanSlots, timeZone);
+    const scheduleDetailed = formatChargeSlotsDetailed(cachedPlanSlots);
+    const charge_message = buildChargeMessage(
+      chargePlanWindow,
+      evaluation,
+      currentSlot,
+      appConfig.spotThreshold
+    );
+    const totalSpotInclVatCost = evaluation.chargingSlots.reduce(
+      (sum, slot) => sum + slot.spotPriceInclVat,
+      0
+    ) * appConfig.chargerKw * (SLOT_MINUTES / 60);
+
+    return {
+      charge_now: evaluation.charge_now,
+      charge_message,
+      charge_schedule: scheduleSummary,
+      totalCost: totalSpotInclVatCost,
+      oneShotActive,
+      oneShotDisabledReason,
+      oneShotCacheUpdate,
+      forceChargeActive: false,
+      priceSource,
+      priceResolution,
+      usesHourlyExpandedPrices,
+      fetchLog,
+      currentSlot,
+      chargePlanWindow,
+      evaluation,
+      debug: {
+        todaySlots,
+        tomorrowSlots,
+        currentSlotKey: getSlotKey(currentSlot),
+        scheduleDetailed,
+        activeChargeHoursNeeded,
+        chargeSlotsNeeded: evaluation.chargeSlotsNeeded,
+        cachedPlanKeys
+      }
+    };
   }
 
   const cheapestDishwasherSlot = findCheapestDishwasherSlot(
@@ -182,57 +298,33 @@ async function evaluateChargePlanForDevice(deviceConfig, appConfig, options = {}
     ? ` ${cheapestDishwasherSlot.message}.`
     : '';
 
-  if (oneShotActive) {
-    evaluation.oneShotActive = true;
-    evaluation.oneShotDeadlineLabel = oneShotDeadline.label;
+  const forceChargeActive = isDayForceChargeActive(
+    deviceConfig.forceCharge,
+    chargePlanWindow,
+    currentSlot
+  );
 
-    if (isOneShotFinished(now, oneShotDeadline, evaluation.planSlots, currentSlot, timeZone)) {
-      oneShotDisabledReason = `klar-tidspunkt naaet eller plan afsluttet (${oneShotDeadline.label})`;
-
-      return {
-        charge_now: false,
-        charge_message: `Engangsopladning afsluttet (klar ${oneShotDeadline.label}).`,
-        charge_schedule: 'ingen',
-        totalCost: 0,
-        oneShotActive: false,
-        oneShotDisabledReason,
-        forceChargeActive: false,
-        priceSource,
-        priceResolution,
-        usesHourlyExpandedPrices,
-        fetchLog,
-        currentSlot,
-        chargePlanWindow,
-        evaluation,
-        debug: {
-          todaySlots,
-          tomorrowSlots,
-          currentSlotKey: getSlotKey(currentSlot)
-        }
-      };
-    }
-  } else {
-    const forceChargeActive = isDayForceChargeActive(
-      deviceConfig.forceCharge,
-      chargePlanWindow,
-      currentSlot
-    );
-
-    if (forceChargeActive) {
-      evaluation.charge_now = true;
-      evaluation.forceChargeActive = true;
-    }
+  if (forceChargeActive) {
+    evaluation.charge_now = true;
+    evaluation.forceChargeActive = true;
   }
 
-  const scheduleSlots = oneShotActive ? evaluation.planSlots : evaluation.chargingSlots;
+  if (!isNightChargeAllowed(deviceConfig.nightChargeEnabled, chargePlanWindow)) {
+    evaluation.charge_now = false;
+    evaluation.nightChargeDisabled = true;
+  }
+
+  const scheduleSlots = evaluation.chargingSlots;
   const scheduleSummary = formatChargeSchedule(scheduleSlots, timeZone);
   const scheduleDetailed = formatChargeSlotsDetailed(scheduleSlots);
-  const charge_message = buildChargeMessage(
-    chargePlanWindow,
-    evaluation,
-    currentSlot,
-    appConfig.spotThreshold
-  );
+  const charge_message = evaluation.nightChargeDisabled
+    ? `Natteopladning er deaktiveret. Plan: ${formatChargeSchedule(scheduleSlots, timeZone)}.${evaluation.dishwasherMessageSuffix || ''}`
+    : buildChargeMessage(
+      chargePlanWindow,
+      evaluation,
+      currentSlot,
+      appConfig.spotThreshold
+    );
   const totalSpotInclVatCost = evaluation.chargingSlots.reduce(
     (sum, slot) => sum + slot.spotPriceInclVat,
     0
@@ -245,7 +337,7 @@ async function evaluateChargePlanForDevice(deviceConfig, appConfig, options = {}
     totalCost: totalSpotInclVatCost,
     oneShotActive,
     oneShotDisabledReason,
-    forceChargeActive: Boolean(evaluation.forceChargeActive),
+    forceChargeActive,
     priceSource,
     priceResolution,
     usesHourlyExpandedPrices,

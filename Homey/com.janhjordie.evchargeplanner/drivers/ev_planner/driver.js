@@ -7,6 +7,9 @@ class EvPlannerDriver extends Homey.Driver {
   async onInit() {
     this.log('EV Planner driver initialized');
     this._registerFlowCards();
+
+    const devices = await this.getDevices();
+    this.log(`EV Planner driver: ${devices.length} enhed(er) indlæst`);
   }
 
   _getFlowCard(getterNames, cardId) {
@@ -34,8 +37,21 @@ class EvPlannerDriver extends Homey.Driver {
       this._getFlowCard(['getDeviceConditionCard', 'getConditionCard'], 'force_charge_active')
         .registerRunListener(async (args) => args.device.getCapabilityValue('force_charge'));
 
+      this._getFlowCard(['getDeviceConditionCard', 'getConditionCard'], 'night_charge_active')
+        .registerRunListener(async (args) => {
+          if (args.device.hasCapability('night_charge_enabled')) {
+            return Boolean(args.device.getCapabilityValue('night_charge_enabled'));
+          }
+          return args.device.getSetting('night_charge_enabled') !== false;
+        });
+
       this._getFlowCard(['getDeviceConditionCard', 'getConditionCard'], 'one_shot_active')
-        .registerRunListener(async (args) => Boolean(args.device.getSetting('one_shot_enabled')));
+        .registerRunListener(async (args) => {
+          if (args.device.hasCapability('one_shot_enabled')) {
+            return Boolean(args.device.getCapabilityValue('one_shot_enabled'));
+          }
+          return Boolean(args.device.getSetting('one_shot_enabled'));
+        });
 
       this._getFlowCard(['getDeviceActionCard', 'getActionCard'], 'force_charge_on')
         .registerRunListener(async (args) => {
@@ -51,17 +67,16 @@ class EvPlannerDriver extends Homey.Driver {
 
       this._getFlowCard(['getDeviceActionCard', 'getActionCard'], 'start_one_shot')
         .registerRunListener(async (args) => {
-          await args.device.setSettings({
-            one_shot_enabled: true,
-            one_shot_charge_hours: Number(args.hours) || 7,
-            one_shot_ready_by: args.ready_by || '09:30'
+          await args.device.enableOneShot({
+            chargeHours: Number(args.hours) || 7,
+            readyBy: args.ready_by || '09:30'
           });
           await args.device.evaluateNow('flow_one_shot_start');
         });
 
       this._getFlowCard(['getDeviceActionCard', 'getActionCard'], 'cancel_one_shot')
         .registerRunListener(async (args) => {
-          await args.device.setSettings({ one_shot_enabled: false });
+          await args.device.disableOneShot('flow_one_shot_cancel');
           await args.device.evaluateNow('flow_one_shot_cancel');
         });
 

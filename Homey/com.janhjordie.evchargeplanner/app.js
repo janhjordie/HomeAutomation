@@ -2,31 +2,56 @@
 
 // BacklogTrace: EVC-002, EVC-005, EVC-007, EVC-011, EVC-013
 const Homey = require('homey');
-const { EVALUATION_INTERVAL_MS } = require('./lib/constants');
+const { EVALUATION_INTERVAL_MS, DEFAULT_EASEE_DEVICE_ID, DEFAULT_EASEE_CIRCUIT_CURRENT } = require('./lib/constants');
 const { LogicCompat } = require('./lib/logicCompat');
 const { ValidationLogger } = require('./lib/validationLogger');
-const { ensureDefaultDevice } = require('./lib/deviceProvisioner');
+const { ensureDefaultDevice, getPlannerDeviceInstances } = require('./lib/deviceProvisioner');
 
 class EvChargePlannerApp extends Homey.App {
   async onInit() {
     this.log('EV Charge Planner app initialized');
+    this._plannerDevices = new Map();
     this._evaluationTimer = null;
+    this._evaluationBootTimer = null;
+
+    this._ensureDefaultSettings();
 
     try {
-      this._ensureDefaultSettings();
       await this._ensureStromligningApiKey();
-      await this._ensureLogicVariables();
-      await this._ensureDefaultDevice();
-      this._startScheduler();
     } catch (error) {
-      this.error('App init failed:', error.message);
+      this.error(`Stromligning API setup failed: ${error.message}`);
     }
+
+    try {
+      await this._ensureLogicVariables();
+    } catch (error) {
+      this.error(`Logic setup failed: ${error.message}`);
+    }
+
+    try {
+      await this._ensureDefaultDevice();
+    } catch (error) {
+      this.error(`Default device setup failed: ${error.message}`);
+    }
+
+    this._startScheduler();
 
     this.homey.on('unload', () => {
       if (this._evaluationTimer) {
         this.homey.clearInterval(this._evaluationTimer);
       }
+      if (this._evaluationBootTimer) {
+        this.homey.clearTimeout(this._evaluationBootTimer);
+      }
     });
+  }
+
+  registerPlannerDevice(device) {
+    this._plannerDevices.set(device.getId(), device);
+  }
+
+  unregisterPlannerDevice(device) {
+    this._plannerDevices.delete(device.getId());
   }
 
   _ensureDefaultSettings() {
@@ -41,7 +66,11 @@ class EvChargePlannerApp extends Homey.App {
       day_charge_end: 17,
       night_charge_start: 21,
       night_charge_end: 6,
-      default_charge_hours: 3
+      default_charge_hours: 3,
+      easee_control_enabled: true,
+      easee_device_id: DEFAULT_EASEE_DEVICE_ID,
+      easee_circuit_current: DEFAULT_EASEE_CIRCUIT_CURRENT,
+      easee_sync_power: true
     };
 
     for (const [key, value] of Object.entries(defaults)) {
@@ -98,22 +127,51 @@ class EvChargePlannerApp extends Homey.App {
   _startScheduler() {
     if (this._evaluationTimer) {
       this.homey.clearInterval(this._evaluationTimer);
+      this._evaluationTimer = null;
     }
 
-    this._evaluationTimer = this.homey.setInterval(async () => {
-      try {
-        await this.evaluateAllDevices('scheduler');
-      } catch (error) {
-        this.error('Scheduler evaluation failed:', error.message);
-      }
-    }, EVALUATION_INTERVAL_MS);
+    if (this._evaluationBootTimer) {
+      this.homey.clearTimeout(this._evaluationBootTimer);
+      this._evaluationBootTimer = null;
+    }
 
-    this.log(`Scheduler started (every ${EVALUATION_INTERVAL_MS / 60000} minutes)`);
+    const run = async (reason) => {
+      try {
+        const count = await this.evaluateAllDevices(reason);
+        if (count > 0) {
+          this.log(`Scheduler evaluated ${count} device(s) (${reason})`);
+        }
+      } catch (error) {
+        this.error(`Scheduler evaluation failed (${reason}):`, error.message);
+      }
+    };
+
+    run('scheduler_boot');
+
+    const delay = EVALUATION_INTERVAL_MS - (Date.now() % EVALUATION_INTERVAL_MS);
+    this._evaluationBootTimer = this.homey.setTimeout(() => {
+      run('scheduler');
+      this._evaluationTimer = this.homey.setInterval(() => run('scheduler'), EVALUATION_INTERVAL_MS);
+    }, delay);
+
+    this.log(`Scheduler started (every ${EVALUATION_INTERVAL_MS / 60000} minutes, aligned to quarter hours)`);
+  }
+
+  async _getPlannerDevices() {
+    const fromDriver = await getPlannerDeviceInstances(this.homey, this.log.bind(this));
+    if (fromDriver.length > 0) {
+      return fromDriver;
+    }
+
+    if (this._plannerDevices.size > 0) {
+      return [...this._plannerDevices.values()];
+    }
+
+    return [];
   }
 
   async evaluateAllDevices(reason = 'manual') {
-    const driver = this.homey.drivers.getDriver('ev_planner');
-    const devices = await driver.getDevices();
+    const devices = await this._getPlannerDevices();
 
     if (devices.length === 0) {
       this.log(`Ingen EV Planner devices parret endnu (${reason}).`);

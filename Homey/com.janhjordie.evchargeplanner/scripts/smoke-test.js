@@ -72,12 +72,60 @@ async function testLiveFetchOptional() {
   console.log(`Live fetch OK: charge_now=${result.charge_now}, source=${result.priceSource}`);
 }
 
+function testOneShotSessionFinish() {
+  const {
+    isOneShotSessionFinished,
+    buildOneShotSessionKey,
+    parseCachedPlanKeys,
+    serializeCachedPlanKeys
+  } = require('../lib/planner/oneShot');
+  const { SLOT_MS } = require('../lib/price/slotBuilder');
+
+  const deadline = { date: '2026-07-25', hour: 9, minute: 30 };
+  const slots = [
+    { date: '2026-07-25', hour: 3, minute: 0, timestamp: Date.parse('2026-07-25T01:00:00.000Z') },
+    { date: '2026-07-25', hour: 3, minute: 15, timestamp: Date.parse('2026-07-25T01:00:00.000Z') + SLOT_MS }
+  ];
+  const afterPlan = new Date(slots[1].timestamp + SLOT_MS + 1000);
+
+  assert.strictEqual(
+    isOneShotSessionFinished(afterPlan, deadline, slots, 'Europe/Copenhagen'),
+    true
+  );
+
+  const sessionKey = buildOneShotSessionKey(deadline, 7, '09:30');
+  assert.ok(sessionKey.includes('2026-07-25'));
+  assert.deepStrictEqual(
+    parseCachedPlanKeys(serializeCachedPlanKeys(['2026-07-25T03:00', '2026-07-25T03:15'])),
+    ['2026-07-25T03:00', '2026-07-25T03:15']
+  );
+}
+
+function testEaseeConfig() {
+  const { buildEaseeConfig, shouldStartEasee, shouldStopEasee } = require('../lib/easeeCharger');
+
+  const enabled = buildEaseeConfig({
+    easee_control_enabled: true,
+    easee_device_id: 'ecc2f7c6-b239-4281-9033-28c68272d8f2',
+    easee_circuit_current: 16
+  });
+  assert.strictEqual(enabled.enabled, true);
+  assert.strictEqual(enabled.circuitCurrent, 16);
+
+  assert.strictEqual(shouldStartEasee({ onoff: false, targetCircuitCurrent: 0 }, 16), true);
+  assert.strictEqual(shouldStartEasee({ onoff: true, targetCircuitCurrent: 16 }, 16), false);
+  assert.strictEqual(shouldStopEasee({ onoff: true, targetCircuitCurrent: 16 }), true);
+  assert.strictEqual(shouldStopEasee({ onoff: false, targetCircuitCurrent: 0 }), false);
+}
+
 async function main() {
   testBuildDeviceConfig();
   testEvaluateChargePlan();
   testDayWindow();
   testWindowConfig();
   testChargingCapabilities();
+  testOneShotSessionFinish();
+  testEaseeConfig();
   await testLiveFetchOptional();
   console.log('Smoke tests passed');
 }

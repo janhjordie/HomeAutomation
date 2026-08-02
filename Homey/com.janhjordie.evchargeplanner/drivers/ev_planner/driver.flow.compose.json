@@ -71,6 +71,13 @@
       }
     },
     {
+      "id": "night_charge_active",
+      "title": {
+        "en": "Night charging !{{is|is not}} enabled",
+        "da": "Natteopladning !{{er|er ikke}} aktiv"
+      }
+    },
+    {
       "id": "one_shot_active",
       "title": {
         "en": "One-shot charge !{{is|is not}} active",

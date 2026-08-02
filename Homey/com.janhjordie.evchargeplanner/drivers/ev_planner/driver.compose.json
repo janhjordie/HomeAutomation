@@ -5,13 +5,17 @@
   },
   "class": "evcharger",
   "capabilities": [
-    "measure_power",
+    "force_charge",
+    "night_charge_enabled",
+    "one_shot_enabled",
     "evcharger_charging",
+    "measure_power",
     "evcharger_charging_state",
     "charge_now",
     "charge_message",
     "charge_schedule",
-    "force_charge"
+    "charge_hours",
+    "one_shot_charge_hours"
   ],
   "capabilitiesOptions": {
     "measure_power": {
@@ -49,11 +53,20 @@
       },
       "value": 3,
       "min": 1,
-      "max": 24,
+      "max": 8,
       "units": {
         "en": "hours",
         "da": "timer"
       }
+    },
+    {
+      "id": "night_charge_enabled",
+      "type": "checkbox",
+      "label": {
+        "en": "Night charging enabled",
+        "da": "Natteopladning aktiv"
+      },
+      "value": true
     },
     {
       "id": "one_shot_enabled",
@@ -73,7 +86,7 @@
       },
       "value": 7,
       "min": 1,
-      "max": 24,
+      "max": 8,
       "units": {
         "en": "hours",
         "da": "timer"

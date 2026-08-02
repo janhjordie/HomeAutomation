@@ -71,8 +71,40 @@
 
     <div class="homey-form-group">
       <label class="homey-form-label" for="default_charge_hours" data-i18n="settings.default_charge_hours"></label>
-      <input class="homey-form-input" id="default_charge_hours" type="number" min="1" max="24" step="1" value="3" />
+      <input class="homey-form-input" id="default_charge_hours" type="number" min="1" max="8" step="1" value="3" />
       <p class="homey-form-help" data-i18n="settings.default_charge_hours_help"></p>
+    </div>
+  </fieldset>
+
+  <fieldset class="homey-form-fieldset">
+    <legend class="homey-form-legend" data-i18n="settings.easee_section"></legend>
+    <p class="homey-form-help" data-i18n="settings.easee_section_help"></p>
+
+    <div class="homey-form-group">
+      <label class="homey-form-label">
+        <input id="easee_control_enabled" type="checkbox" checked />
+        <span data-i18n="settings.easee_control_enabled"></span>
+      </label>
+    </div>
+
+    <div class="homey-form-group">
+      <label class="homey-form-label" for="easee_device_id" data-i18n="settings.easee_device_id"></label>
+      <input class="homey-form-input" id="easee_device_id" type="text" value="ecc2f7c6-b239-4281-9033-28c68272d8f2" />
+      <p class="homey-form-help" data-i18n="settings.easee_device_id_help"></p>
+    </div>
+
+    <div class="homey-form-group">
+      <label class="homey-form-label" for="easee_circuit_current" data-i18n="settings.easee_circuit_current"></label>
+      <input class="homey-form-input" id="easee_circuit_current" type="number" min="6" max="32" step="1" value="16" />
+      <p class="homey-form-help" data-i18n="settings.easee_circuit_current_help"></p>
+    </div>
+
+    <div class="homey-form-group">
+      <label class="homey-form-label">
+        <input id="easee_sync_power" type="checkbox" checked />
+        <span data-i18n="settings.easee_sync_power"></span>
+      </label>
+      <p class="homey-form-help" data-i18n="settings.easee_sync_power_help"></p>
     </div>
   </fieldset>
 
@@ -115,7 +147,9 @@
         'day_charge_end',
         'night_charge_start',
         'night_charge_end',
-        'default_charge_hours'
+        'default_charge_hours',
+        'easee_device_id',
+        'easee_circuit_current'
       ];
 
       fields.forEach((field) => {
@@ -127,7 +161,7 @@
         });
       });
 
-      ['mirror_logic_variables', 'validation_enabled'].forEach((field) => {
+      ['mirror_logic_variables', 'validation_enabled', 'easee_control_enabled', 'easee_sync_power'].forEach((field) => {
         Homey.get(field, (err, value) => {
           if (err) return Homey.alert(err);
           document.getElementById(field).checked = value !== false;
@@ -139,7 +173,7 @@
           Homey.set(name, value, callback);
         };
 
-        let pending = fields.length + 2;
+        let pending = fields.length + 4;
         const done = (err) => {
           if (err) return Homey.alert(err);
           pending -= 1;
@@ -148,7 +182,7 @@
 
         fields.forEach((field) => {
           const el = document.getElementById(field);
-          const value = ['spot_threshold', 'charger_kw', 'day_charge_start', 'day_charge_end', 'night_charge_start', 'night_charge_end', 'default_charge_hours'].includes(field)
+          const value = ['spot_threshold', 'charger_kw', 'day_charge_start', 'day_charge_end', 'night_charge_start', 'night_charge_end', 'default_charge_hours', 'easee_circuit_current'].includes(field)
             ? Number(el.value)
             : el.value;
           saveField(field, value, done);
@@ -156,6 +190,8 @@
 
         saveField('mirror_logic_variables', document.getElementById('mirror_logic_variables').checked, done);
         saveField('validation_enabled', document.getElementById('validation_enabled').checked, done);
+        saveField('easee_control_enabled', document.getElementById('easee_control_enabled').checked, done);
+        saveField('easee_sync_power', document.getElementById('easee_sync_power').checked, done);
       });
 
       document.getElementById('create_device').addEventListener('click', () => {

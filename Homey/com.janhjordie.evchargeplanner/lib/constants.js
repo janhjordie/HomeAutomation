@@ -20,9 +20,12 @@ module.exports = {
   STROMLIGNING_CUSTOMER_GROUP_ID: 'c',
   STROMLIGNING_AGGREGATION: '1h',
   DEFAULT_ONE_SHOT_CHARGE_HOURS: 7,
+  MAX_CHARGE_HOURS: 8,
   DEFAULT_ONE_SHOT_READY_BY: '09:30',
   DK_TIME_ZONE: 'Europe/Copenhagen',
   EVALUATION_INTERVAL_MS: 15 * 60 * 1000,
+  DEFAULT_EASEE_DEVICE_ID: 'ecc2f7c6-b239-4281-9033-28c68272d8f2',
+  DEFAULT_EASEE_CIRCUIT_CURRENT: 16,
   LOGIC_VARIABLES: {
     FORCE_CHARGE: 'forceCharge',
     CHARGE_HOURS: 'ChargeHours',
@@ -31,6 +34,7 @@ module.exports = {
     ONE_SHOT_CHARGE: 'oneShotCharge',
     ONE_SHOT_CHARGE_HOURS: 'oneShotChargeHours',
     ONE_SHOT_READY_BY: 'oneShotReadyBy',
+    NIGHT_CHARGE: 'nightCharge',
     STROMLIGNING_API_KEY: 'StromligningApiKey'
   }
 };

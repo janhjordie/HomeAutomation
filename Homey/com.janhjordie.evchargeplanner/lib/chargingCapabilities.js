@@ -29,13 +29,24 @@ async function ensureSystemChargingCapabilities(device) {
   }
 }
 
-async function syncChargingCapabilities(device, { chargeNow, chargerKw }) {
-  const charging = Boolean(chargeNow);
-  const powerW = getMeasurePowerW(charging, chargerKw);
+async function syncChargingCapabilities(device, {
+  chargeNow,
+  chargerKw,
+  powerW,
+  chargingState,
+  evchargerCharging
+}) {
+  const charging = typeof evchargerCharging === 'boolean'
+    ? evchargerCharging
+    : Boolean(chargeNow);
+  const resolvedPowerW = Number.isFinite(powerW)
+    ? Math.round(powerW)
+    : getMeasurePowerW(charging, chargerKw);
+  const resolvedState = chargingState || getChargingState(charging);
 
-  await device.setCapabilityValue('measure_power', powerW);
+  await device.setCapabilityValue('measure_power', resolvedPowerW);
   await device.setCapabilityValue('evcharger_charging', charging);
-  await device.setCapabilityValue('evcharger_charging_state', getChargingState(charging));
+  await device.setCapabilityValue('evcharger_charging_state', resolvedState);
 }
 
 module.exports = {

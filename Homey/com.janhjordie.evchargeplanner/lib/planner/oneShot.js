@@ -3,8 +3,7 @@
 // BacklogTrace: EVC-003
 const { DEFAULT_ONE_SHOT_READY_BY } = require('../constants');
 const { normalizeQuarterMinute, getDateTimePartsInTimeZone, formatHourNumber } = require('../timezone');
-const { SLOTS_PER_HOUR, SLOT_MS } = require('../price/slotBuilder');
-const { getSlotKey } = require('../price/slotBuilder');
+const { SLOTS_PER_HOUR, SLOT_MS, getSlotKey } = require('../price/slotBuilder');
 
 function parseReadyByTime(readyByText) {
   const match = String(readyByText || '').trim().match(/^(\d{1,2})[:.](\d{2})$/);
@@ -74,34 +73,58 @@ function getOneShotWindowSlots(allSlots, now, deadline, timeZone) {
     .sort((a, b) => a.timestamp - b.timestamp);
 }
 
-function isOneShotFinished(now, deadline, planSlots, currentSlot, timeZone) {
+function buildOneShotSessionKey(deadline, chargeHours, readyBy) {
+  return `${deadline.date}-${readyBy}-${chargeHours}`;
+}
+
+function parseCachedPlanKeys(raw) {
+  if (!raw) {
+    return [];
+  }
+
+  return String(raw).split('|').filter(Boolean);
+}
+
+function serializeCachedPlanKeys(keys) {
+  return keys.join('|');
+}
+
+function getSlotsByKeys(allSlots, keys) {
+  if (!keys.length) {
+    return [];
+  }
+
+  const keySet = new Set(keys);
+
+  return allSlots
+    .filter((slot) => keySet.has(getSlotKey(slot)))
+    .sort((a, b) => a.timestamp - b.timestamp);
+}
+
+function isPastOneShotDeadline(now, deadline, timeZone) {
   const nowParts = getDateTimePartsInTimeZone(now, timeZone);
-  const pastDeadline = !isSlotBeforeDeadline(
+
+  return !isSlotBeforeDeadline(
     { date: nowParts.date, hour: nowParts.hour, minute: nowParts.minute },
     deadline
   );
+}
 
-  if (pastDeadline) {
+function isOneShotSessionFinished(now, deadline, cachedPlanSlots, timeZone) {
+  if (isPastOneShotDeadline(now, deadline, timeZone)) {
     return true;
   }
 
-  if (!planSlots.length) {
-    return false;
+  if (!cachedPlanSlots.length) {
+    return true;
   }
 
-  const lastPlanSlot = [...planSlots].sort((a, b) => a.timestamp - b.timestamp).at(-1);
-  const currentIsAfterLastPlan = currentSlot
-    && (
-      currentSlot.date > lastPlanSlot.date
-      || (currentSlot.date === lastPlanSlot.date && currentSlot.hour > lastPlanSlot.hour)
-      || (
-        currentSlot.date === lastPlanSlot.date
-        && currentSlot.hour === lastPlanSlot.hour
-        && currentSlot.minute > lastPlanSlot.minute
-      )
-    );
+  const lastSlot = cachedPlanSlots.at(-1);
+  return now.getTime() >= lastSlot.timestamp + SLOT_MS;
+}
 
-  return Boolean(currentIsAfterLastPlan);
+function isOneShotFinished(now, deadline, planSlots, currentSlot, timeZone) {
+  return isOneShotSessionFinished(now, deadline, planSlots, timeZone);
 }
 
 function formatSlotLabel(slot) {
@@ -220,6 +243,12 @@ module.exports = {
   isSlotBeforeDeadline,
   isSlotAtOrAfterNow,
   getOneShotWindowSlots,
+  buildOneShotSessionKey,
+  parseCachedPlanKeys,
+  serializeCachedPlanKeys,
+  getSlotsByKeys,
+  isPastOneShotDeadline,
+  isOneShotSessionFinished,
   isOneShotFinished,
   formatChargeSchedule,
   formatChargeSlotsDetailed,

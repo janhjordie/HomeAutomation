@@ -1,0 +1,18 @@
+{
+  "type": "number",
+  "title": {
+    "en": "One-shot charge hours",
+    "da": "Engangsopladning timer"
+  },
+  "getable": true,
+  "setable": true,
+  "uiComponent": "slider",
+  "min": 1,
+  "max": 8,
+  "step": 1,
+  "decimals": 0,
+  "units": {
+    "en": "h",
+    "da": "t"
+  }
+}
