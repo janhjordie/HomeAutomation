@@ -3,9 +3,10 @@
 // BacklogTrace: EVC-002, EVC-005, EVC-007, EVC-011, EVC-013
 const Homey = require('homey');
 const { EVALUATION_INTERVAL_MS, DEFAULT_EASEE_DEVICE_ID, DEFAULT_EASEE_CIRCUIT_CURRENT } = require('./lib/constants');
+const { getMsUntilNextQuarterBoundary, QUARTER_MS } = require('./lib/quarterScheduler');
 const { LogicCompat } = require('./lib/logicCompat');
 const { ValidationLogger } = require('./lib/validationLogger');
-const { ensureDefaultDevice, getPlannerDeviceInstances } = require('./lib/deviceProvisioner');
+const { ensureDefaultDevice, getPlannerDeviceInstances, repairOrphanedPlannerDevices } = require('./lib/deviceProvisioner');
 
 class EvChargePlannerApp extends Homey.App {
   async onInit() {
@@ -35,6 +36,8 @@ class EvChargePlannerApp extends Homey.App {
     }
 
     this._startScheduler();
+    this._scheduleBootRepair();
+    this._scheduleDeviceQuarterSchedulers();
 
     this.homey.on('unload', () => {
       if (this._evaluationTimer) {
@@ -110,6 +113,24 @@ class EvChargePlannerApp extends Homey.App {
     return ensureDefaultDevice(this.homey, this.log.bind(this), this.error.bind(this));
   }
 
+  async repairPlannerDevices() {
+    return repairOrphanedPlannerDevices(this.homey, this.log.bind(this));
+  }
+
+  _scheduleBootRepair() {
+    this.homey.setTimeout(async () => {
+      try {
+        const repair = await repairOrphanedPlannerDevices(this.homey, this.log.bind(this));
+        if (!repair.repaired) {
+          await ensureDefaultDevice(this.homey, this.log.bind(this), this.error.bind(this));
+        }
+        await this.evaluateAllDevices('boot_repair');
+      } catch (error) {
+        this.error(`Boot repair failed: ${error.message}`);
+      }
+    }, 5000);
+  }
+
   async createPlannerDevice(name, dataId) {
     const { createPlannerDevice } = require('./lib/deviceProvisioner');
     return createPlannerDevice(this.homey, { name, dataId });
@@ -140,6 +161,8 @@ class EvChargePlannerApp extends Homey.App {
         const count = await this.evaluateAllDevices(reason);
         if (count > 0) {
           this.log(`Scheduler evaluated ${count} device(s) (${reason})`);
+        } else {
+          this.log(`Scheduler fandt ingen EV Planner-enheder (${reason})`);
         }
       } catch (error) {
         this.error(`Scheduler evaluation failed (${reason}):`, error.message);
@@ -148,13 +171,35 @@ class EvChargePlannerApp extends Homey.App {
 
     run('scheduler_boot');
 
-    const delay = EVALUATION_INTERVAL_MS - (Date.now() % EVALUATION_INTERVAL_MS);
+    const delay = getMsUntilNextQuarterBoundary();
     this._evaluationBootTimer = this.homey.setTimeout(() => {
       run('scheduler');
-      this._evaluationTimer = this.homey.setInterval(() => run('scheduler'), EVALUATION_INTERVAL_MS);
+      this._evaluationTimer = this.homey.setInterval(() => run('scheduler'), QUARTER_MS);
     }, delay);
 
-    this.log(`Scheduler started (every ${EVALUATION_INTERVAL_MS / 60000} minutes, aligned to quarter hours)`);
+    this.log(`Scheduler started (every ${EVALUATION_INTERVAL_MS / 60000} minutes, aligned to :00/:15/:30/:45)`);
+  }
+
+  _scheduleDeviceQuarterSchedulers() {
+    this.homey.setTimeout(async () => {
+      try {
+        const devices = await this._getPlannerDevices();
+        for (const device of devices) {
+          if (typeof device.refreshSpotPriceNow === 'function') {
+            await device.refreshSpotPriceNow('app_boot').catch(() => {});
+          }
+          if (typeof device._bindQuarterScheduler === 'function') {
+            device._bindQuarterScheduler();
+          }
+        }
+
+        if (devices.length > 0) {
+          this.log(`Quarter scheduler genstartet på ${devices.length} enhed(er)`);
+        }
+      } catch (error) {
+        this.error(`Quarter scheduler setup failed: ${error.message}`);
+      }
+    }, 8000);
   }
 
   async _getPlannerDevices() {

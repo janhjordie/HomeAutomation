@@ -4,6 +4,7 @@ const {
   DEFAULT_EASEE_DEVICE_ID,
   DEFAULT_EASEE_CIRCUIT_CURRENT
 } = require('./constants');
+const { managerApiRequest } = require('./homeyManagerApi');
 
 const CAP_TARGET_CIRCUIT_CURRENT = 'target_circuit_current';
 const CAP_ONOFF = 'onoff';
@@ -61,24 +62,47 @@ class EaseeChargerController {
   }
 
   async getEaseeDevice(deviceId) {
-    if (!deviceId || typeof this.homey?.devices?.getDevice !== 'function') {
+    if (!deviceId) {
       return null;
     }
 
     try {
-      return await this.homey.devices.getDevice({ id: deviceId });
+      return await managerApiRequest(
+        this.homey,
+        'GET',
+        `/manager/devices/device/${deviceId}`
+      );
     } catch (error) {
-      this.log(`Easee device ${deviceId} ikke fundet: ${error.message}`);
-      return null;
+      this.log(`Easee device ${deviceId} via Manager API: ${error.message}`);
     }
+
+    if (typeof this.homey?.devices?.getDevice === 'function') {
+      try {
+        return await this.homey.devices.getDevice({ id: deviceId });
+      } catch (error) {
+        this.log(`Easee device ${deviceId} ikke fundet: ${error.message}`);
+      }
+    }
+
+    return null;
+  }
+
+  async setEaseeCapability(deviceId, capabilityId, value) {
+    await managerApiRequest(
+      this.homey,
+      'PUT',
+      `/manager/devices/device/${deviceId}/capability/${capabilityId}`,
+      { value }
+    );
   }
 
   async readState(config) {
-    if (!config?.enabled) {
+    const deviceId = config?.deviceId;
+    if (!deviceId) {
       return null;
     }
 
-    const device = await this.getEaseeDevice(config.deviceId);
+    const device = await this.getEaseeDevice(deviceId);
     return readEaseeStateFromDevice(device);
   }
 
@@ -107,19 +131,19 @@ class EaseeChargerController {
         return {
           action: 'noop',
           chargeNow: true,
-          state: await this._refreshState(device)
+          state: await this._refreshState(config.deviceId)
         };
       }
 
-      await device.setCapabilityValue(CAP_TARGET_CIRCUIT_CURRENT, config.circuitCurrent);
-      await device.setCapabilityValue(CAP_ONOFF, true);
-      await device.setCapabilityValue(CAP_EVCHARGER_CHARGING, true);
+      await this.setEaseeCapability(config.deviceId, CAP_TARGET_CIRCUIT_CURRENT, config.circuitCurrent);
+      await this.setEaseeCapability(config.deviceId, CAP_ONOFF, true);
+      await this.setEaseeCapability(config.deviceId, CAP_EVCHARGER_CHARGING, true);
       this.log(`Easee start: ${config.circuitCurrent}A på ${device.name}`);
 
       return {
         action: 'start',
         chargeNow: true,
-        state: await this._refreshState(device)
+        state: await this._refreshState(config.deviceId)
       };
     }
 
@@ -127,29 +151,25 @@ class EaseeChargerController {
       return {
         action: 'noop',
         chargeNow: false,
-        state: await this._refreshState(device)
+        state: await this._refreshState(config.deviceId)
       };
     }
 
-    await device.setCapabilityValue(CAP_TARGET_CIRCUIT_CURRENT, 0);
-    await device.setCapabilityValue(CAP_ONOFF, false);
-    await device.setCapabilityValue(CAP_EVCHARGER_CHARGING, false);
+    await this.setEaseeCapability(config.deviceId, CAP_TARGET_CIRCUIT_CURRENT, 0);
+    await this.setEaseeCapability(config.deviceId, CAP_ONOFF, false);
+    await this.setEaseeCapability(config.deviceId, CAP_EVCHARGER_CHARGING, false);
     this.log(`Easee stop: ${device.name}`);
 
     return {
       action: 'stop',
       chargeNow: false,
-      state: await this._refreshState(device)
+      state: await this._refreshState(config.deviceId)
     };
   }
 
-  async _refreshState(device) {
-    try {
-      const refreshed = await this.getEaseeDevice(device.id);
-      return readEaseeStateFromDevice(refreshed || device);
-    } catch {
-      return readEaseeStateFromDevice(device);
-    }
+  async _refreshState(deviceId) {
+    const refreshed = await this.getEaseeDevice(deviceId);
+    return readEaseeStateFromDevice(refreshed);
   }
 }
 

@@ -9,7 +9,9 @@ const {
   DEFAULT_ONE_SHOT_READY_BY,
   DEFAULT_SPOT_CHARGE_THRESHOLD_KR_INCL_VAT,
   DEFAULT_CHARGER_KW,
-  SLOT_MINUTES
+  SLOT_MINUTES,
+  MIN_SPOT_THRESHOLD_KR_INCL_VAT,
+  MAX_SPOT_THRESHOLD_KR_INCL_VAT
 } = require('./constants');
 const { formatDateInTimeZone, addDays, getHourInTimeZone } = require('./timezone');
 const { fetchPrices } = require('./price/fetchPrices');
@@ -27,9 +29,22 @@ const {
   getSlotsByKeys,
   formatChargeSchedule,
   formatChargeSlotsDetailed,
-  buildChargeMessage
+  buildChargeMessage,
+  shouldChargeOneShotNow
 } = require('./planner/oneShot');
 const { aggregateSlotsToHours, findCheapestDishwasherSlot } = require('./planner/dishwasher');
+
+function clampSpotThreshold(value, fallback = DEFAULT_SPOT_CHARGE_THRESHOLD_KR_INCL_VAT) {
+  const threshold = Number(value);
+  if (!Number.isFinite(threshold)) {
+    return fallback;
+  }
+
+  return Math.min(
+    MAX_SPOT_THRESHOLD_KR_INCL_VAT,
+    Math.max(MIN_SPOT_THRESHOLD_KR_INCL_VAT, Number(threshold.toFixed(2)))
+  );
+}
 
 function buildDeviceConfig(settings = {}, appDefaults = {}) {
   const chargeHours = Number(settings.charge_hours);
@@ -49,7 +64,12 @@ function buildDeviceConfig(settings = {}, appDefaults = {}) {
     oneShotChargeHours: Number.isInteger(oneShotHours) && oneShotHours > 0
       ? Math.min(oneShotHours, MAX_CHARGE_HOURS)
       : DEFAULT_ONE_SHOT_CHARGE_HOURS,
-    oneShotReadyBy: String(settings.one_shot_ready_by || DEFAULT_ONE_SHOT_READY_BY).trim()
+    oneShotReadyBy: String(settings.one_shot_ready_by || DEFAULT_ONE_SHOT_READY_BY).trim(),
+    spotThreshold: clampSpotThreshold(
+      settings.spot_threshold,
+      clampSpotThreshold(appDefaults.spot_threshold, DEFAULT_SPOT_CHARGE_THRESHOLD_KR_INCL_VAT)
+    ),
+    cheapestPlanOnly: settings.cheapest_plan_only === true
   };
 }
 
@@ -184,7 +204,7 @@ async function evaluateChargePlanForDevice(deviceConfig, appConfig, options = {}
     const evaluation = evaluateChargePlan(
       cachedPlanSlots,
       chargeSlotsNeeded / SLOTS_PER_HOUR,
-      appConfig.spotThreshold,
+      deviceConfig.spotThreshold,
       currentSlot,
       { useSpotThreshold: false }
     );
@@ -194,6 +214,11 @@ async function evaluateChargePlanForDevice(deviceConfig, appConfig, options = {}
     evaluation.dishwasherMessageSuffix = cheapestDishwasherSlot
       ? ` ${cheapestDishwasherSlot.message}.`
       : '';
+    evaluation.charge_now = shouldChargeOneShotNow(
+      evaluation,
+      currentSlot,
+      deviceConfig.spotThreshold
+    );
 
     const scheduleSummary = formatChargeSchedule(cachedPlanSlots, timeZone);
     const scheduleDetailed = formatChargeSlotsDetailed(cachedPlanSlots);
@@ -201,9 +226,10 @@ async function evaluateChargePlanForDevice(deviceConfig, appConfig, options = {}
       chargePlanWindow,
       evaluation,
       currentSlot,
-      appConfig.spotThreshold
+      deviceConfig.spotThreshold,
+      timeZone
     );
-    const totalSpotInclVatCost = evaluation.chargingSlots.reduce(
+    const totalSpotInclVatCost = evaluation.planSlots.reduce(
       (sum, slot) => sum + slot.spotPriceInclVat,
       0
     ) * appConfig.chargerKw * (SLOT_MINUTES / 60);
@@ -289,9 +315,12 @@ async function evaluateChargePlanForDevice(deviceConfig, appConfig, options = {}
   const evaluation = evaluateChargePlan(
     chargeWindowSlots,
     activeChargeHoursNeeded,
-    appConfig.spotThreshold,
+    deviceConfig.spotThreshold,
     currentSlot,
-    { useSpotThreshold: !oneShotActive }
+    {
+      useSpotThreshold: !oneShotActive,
+      planOnly: deviceConfig.cheapestPlanOnly
+    }
   );
 
   evaluation.dishwasherMessageSuffix = cheapestDishwasherSlot
@@ -314,7 +343,7 @@ async function evaluateChargePlanForDevice(deviceConfig, appConfig, options = {}
     evaluation.nightChargeDisabled = true;
   }
 
-  const scheduleSlots = evaluation.chargingSlots;
+  const scheduleSlots = evaluation.planSlots;
   const scheduleSummary = formatChargeSchedule(scheduleSlots, timeZone);
   const scheduleDetailed = formatChargeSlotsDetailed(scheduleSlots);
   const charge_message = evaluation.nightChargeDisabled
@@ -323,9 +352,10 @@ async function evaluateChargePlanForDevice(deviceConfig, appConfig, options = {}
       chargePlanWindow,
       evaluation,
       currentSlot,
-      appConfig.spotThreshold
+      deviceConfig.spotThreshold,
+      timeZone
     );
-  const totalSpotInclVatCost = evaluation.chargingSlots.reduce(
+  const totalSpotInclVatCost = evaluation.planSlots.reduce(
     (sum, slot) => sum + slot.spotPriceInclVat,
     0
   ) * appConfig.chargerKw * (SLOT_MINUTES / 60);

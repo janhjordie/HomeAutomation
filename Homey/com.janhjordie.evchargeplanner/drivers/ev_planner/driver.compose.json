@@ -14,12 +14,31 @@
     "charge_now",
     "charge_message",
     "charge_schedule",
+    "spot_price",
+    "spot_price_quarter",
+    "cheapest_plan_only",
+    "spot_threshold",
     "charge_hours",
     "one_shot_charge_hours"
   ],
   "capabilitiesOptions": {
     "measure_power": {
       "approximated": true
+    },
+    "charge_hours": {
+      "min": 1,
+      "max": 8,
+      "step": 1
+    },
+    "one_shot_charge_hours": {
+      "min": 1,
+      "max": 8,
+      "step": 1
+    },
+    "spot_threshold": {
+      "min": 0.05,
+      "max": 2,
+      "step": 0.01
     }
   },
   "energy": {
@@ -58,6 +77,31 @@
         "en": "hours",
         "da": "timer"
       }
+    },
+    {
+      "id": "spot_threshold",
+      "type": "number",
+      "label": {
+        "en": "Spot threshold incl. VAT",
+        "da": "Spot-grænse inkl. moms"
+      },
+      "value": 0.30,
+      "min": 0.05,
+      "max": 2,
+      "step": 0.01,
+      "units": {
+        "en": "kr/kWh",
+        "da": "kr/kWh"
+      }
+    },
+    {
+      "id": "cheapest_plan_only",
+      "type": "checkbox",
+      "label": {
+        "en": "Cheapest plan only",
+        "da": "Kun billigste plan"
+      },
+      "value": false
     },
     {
       "id": "night_charge_enabled",

@@ -1,6 +1,6 @@
 {
   "name": "com.janhjordie.evchargeplanner",
-  "version": "1.0.15",
+  "version": "1.0.26",
   "private": true,
   "engines": {
     "node": ">=18"

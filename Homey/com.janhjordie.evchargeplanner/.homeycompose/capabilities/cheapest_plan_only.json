@@ -1,0 +1,14 @@
+{
+  "type": "boolean",
+  "title": {
+    "en": "Cheapest plan only",
+    "da": "Kun billigste plan"
+  },
+  "hint": {
+    "en": "When on, charging only happens in the cheapest planned slots. When off, charging also starts whenever spot is below the threshold.",
+    "da": "Når slået til, lades kun i de billigste planlagte kvarter. Når slået fra, startes opladning også når spot er under grænsen."
+  },
+  "getable": true,
+  "setable": true,
+  "uiComponent": "toggle"
+}

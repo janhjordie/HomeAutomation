@@ -7,9 +7,13 @@ const {
   STROMLIGNING_CUSTOMER_GROUP_ID,
   STROMLIGNING_AGGREGATION
 } = require('../constants');
+const { DEFAULT_PRICE_AREA } = require('../constants');
+const { normalizeQuarterMinute } = require('../timezone');
 const {
   buildQuarterPricesFromStromligning,
-  expandHourlySlotsToQuarters
+  expandHourlySlotsToQuarters,
+  getSpotPriceInclVat,
+  parseSlotDK
 } = require('./slotBuilder');
 
 async function fetchStromligningPriceData(apiKey, todayDate, tomorrowDate) {
@@ -59,6 +63,64 @@ async function fetchStromligningPriceData(apiKey, todayDate, tomorrowDate) {
   };
 }
 
+function buildSlotFromStromligningPriceEntry(entry) {
+  const parsed = parseSlotDK(entry.localDate || '');
+  const electricity = entry.details?.electricity || {};
+  const spotPriceExVat = electricity.value || 0;
+  const spotPriceInclVat = getSpotPriceInclVat(spotPriceExVat, electricity.total);
+
+  return {
+    date: parsed.date,
+    hour: parsed.hour,
+    minute: normalizeQuarterMinute(parsed.minute),
+    timestamp: new Date(entry.date || Date.now()).getTime(),
+    spotPrice: spotPriceExVat,
+    spotPriceInclVat
+  };
+}
+
+async function fetchStromligningNowPrice(apiKey, priceArea = DEFAULT_PRICE_AREA) {
+  if (!apiKey) {
+    throw new Error('Stromligning API-nøgle mangler');
+  }
+
+  const params = new URLSearchParams({
+    supplierId: STROMLIGNING_SUPPLIER_ID,
+    customerGroupId: STROMLIGNING_CUSTOMER_GROUP_ID,
+    priceArea
+  });
+  const url = `${STROMLIGNING_API_BASE_URL}/prices/now?${params.toString()}`;
+
+  const res = await fetch(url, {
+    headers: {
+      Accept: 'application/json',
+      'X-API-Key': apiKey
+    }
+  });
+
+  if (!res.ok) {
+    throw new Error(`Stromligning now API fejl (${res.status})`);
+  }
+
+  const json = await res.json();
+  const entry = json.price;
+
+  if (!entry) {
+    throw new Error('Ingen Stromligning now-pris fundet');
+  }
+
+  const currentSlot = buildSlotFromStromligningPriceEntry(entry);
+
+  return {
+    spotPriceInclVat: currentSlot.spotPriceInclVat,
+    currentSlot,
+    resolution: entry.resolution || '15m',
+    priceSource: 'stromligning_now'
+  };
+}
+
 module.exports = {
-  fetchStromligningPriceData
+  fetchStromligningPriceData,
+  fetchStromligningNowPrice,
+  buildSlotFromStromligningPriceEntry
 };

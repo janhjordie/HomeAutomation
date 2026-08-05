@@ -39,6 +39,9 @@ device_json="$(homey api raw \
 device_id="$(printf '%s' "$device_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
 echo "Oprettet EV Ladeplan: ${device_id}"
 
+echo "Lukker pair session ..."
+homey api drivers delete-pair-session --id "${session_id}" --json >/dev/null 2>&1 || true
+
 echo "Genstarter app ..."
 homey api apps restart-app --id com.janhjordie.evchargeplanner --json >/dev/null
 sleep 5

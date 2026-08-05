@@ -1,7 +1,7 @@
 {
   "_comment": "This file is generated. Please edit .homeycompose/app.json instead.",
   "id": "com.janhjordie.evchargeplanner",
-  "version": "1.0.15",
+  "version": "1.0.32",
   "compatibility": ">=13.0.0",
   "runtime": "nodejs",
   "platforms": [
@@ -116,6 +116,94 @@
             "title": {
               "en": "Error",
               "da": "Fejl"
+            }
+          }
+        ],
+        "args": [
+          {
+            "type": "device",
+            "name": "device",
+            "filter": "driver_id=ev_planner"
+          }
+        ]
+      },
+      {
+        "id": "charge_started",
+        "title": {
+          "en": "Charging started",
+          "da": "Opladning startet"
+        },
+        "titleFormatted": {
+          "en": "Charging started: [[charge_message]]",
+          "da": "Opladning startet: [[charge_message]]"
+        },
+        "tokens": [
+          {
+            "name": "charge_message",
+            "type": "string",
+            "title": {
+              "en": "Message",
+              "da": "Besked"
+            }
+          },
+          {
+            "name": "charge_schedule",
+            "type": "string",
+            "title": {
+              "en": "Schedule",
+              "da": "Plan"
+            }
+          },
+          {
+            "name": "spot_price",
+            "type": "number",
+            "title": {
+              "en": "Current spot price",
+              "da": "Aktuel spotpris"
+            }
+          }
+        ],
+        "args": [
+          {
+            "type": "device",
+            "name": "device",
+            "filter": "driver_id=ev_planner"
+          }
+        ]
+      },
+      {
+        "id": "charge_stopped",
+        "title": {
+          "en": "Charging stopped",
+          "da": "Opladning stoppet"
+        },
+        "titleFormatted": {
+          "en": "Charging stopped: [[charge_message]]",
+          "da": "Opladning stoppet: [[charge_message]]"
+        },
+        "tokens": [
+          {
+            "name": "charge_message",
+            "type": "string",
+            "title": {
+              "en": "Message",
+              "da": "Besked"
+            }
+          },
+          {
+            "name": "charge_schedule",
+            "type": "string",
+            "title": {
+              "en": "Schedule",
+              "da": "Plan"
+            }
+          },
+          {
+            "name": "spot_price",
+            "type": "number",
+            "title": {
+              "en": "Current spot price",
+              "da": "Aktuel spotpris"
             }
           }
         ],
@@ -298,12 +386,31 @@
         "charge_now",
         "charge_message",
         "charge_schedule",
+        "spot_price",
+        "spot_price_quarter",
+        "cheapest_plan_only",
+        "spot_threshold",
         "charge_hours",
         "one_shot_charge_hours"
       ],
       "capabilitiesOptions": {
         "measure_power": {
           "approximated": true
+        },
+        "charge_hours": {
+          "min": 1,
+          "max": 8,
+          "step": 1
+        },
+        "one_shot_charge_hours": {
+          "min": 1,
+          "max": 8,
+          "step": 1
+        },
+        "spot_threshold": {
+          "min": 0.05,
+          "max": 2,
+          "step": 0.01
         }
       },
       "energy": {
@@ -342,6 +449,31 @@
             "en": "hours",
             "da": "timer"
           }
+        },
+        {
+          "id": "spot_threshold",
+          "type": "number",
+          "label": {
+            "en": "Spot threshold incl. VAT",
+            "da": "Spot-grænse inkl. moms"
+          },
+          "value": 0.3,
+          "min": 0.05,
+          "max": 2,
+          "step": 0.01,
+          "units": {
+            "en": "kr/kWh",
+            "da": "kr/kWh"
+          }
+        },
+        {
+          "id": "cheapest_plan_only",
+          "type": "checkbox",
+          "label": {
+            "en": "Cheapest plan only",
+            "da": "Kun billigste plan"
+          },
+          "value": false
         },
         {
           "id": "night_charge_enabled",
@@ -439,6 +571,20 @@
       "setable": false,
       "uiComponent": "sensor"
     },
+    "cheapest_plan_only": {
+      "type": "boolean",
+      "title": {
+        "en": "Cheapest plan only",
+        "da": "Kun billigste plan"
+      },
+      "hint": {
+        "en": "When on, charging only happens in the cheapest planned slots. When off, charging also starts whenever spot is below the threshold.",
+        "da": "Når slået til, lades kun i de billigste planlagte kvarter. Når slået fra, startes opladning også når spot er under grænsen."
+      },
+      "getable": true,
+      "setable": true,
+      "uiComponent": "toggle"
+    },
     "force_charge": {
       "type": "boolean",
       "title": {
@@ -487,6 +633,61 @@
       "getable": true,
       "setable": true,
       "uiComponent": "toggle"
+    },
+    "spot_price": {
+      "type": "number",
+      "title": {
+        "en": "Spot price",
+        "da": "Spotpris"
+      },
+      "hint": {
+        "en": "Current 15-minute spot price including VAT.",
+        "da": "Aktuel 15-minutters spotpris inkl. moms."
+      },
+      "getable": true,
+      "setable": false,
+      "uiComponent": "sensor",
+      "decimals": 2,
+      "units": {
+        "en": "kr/kWh",
+        "da": "kr/kWh"
+      }
+    },
+    "spot_price_quarter": {
+      "type": "string",
+      "title": {
+        "en": "Spot price quarter",
+        "da": "Spotpris kvarter"
+      },
+      "hint": {
+        "en": "Current 15-minute price interval (HH:mm).",
+        "da": "Aktuelt 15-minutters prisinterval (TT:mm)."
+      },
+      "getable": true,
+      "setable": false,
+      "uiComponent": "sensor"
+    },
+    "spot_threshold": {
+      "type": "number",
+      "title": {
+        "en": "Spot threshold",
+        "da": "Spot-grænse"
+      },
+      "hint": {
+        "en": "Charge immediately when spot price is below this limit (only when cheapest plan only is off).",
+        "da": "Lad med det samme når spotprisen er under denne grænse (kun når kun billigste plan er slået fra)."
+      },
+      "getable": true,
+      "setable": true,
+      "uiComponent": "slider",
+      "min": 0.05,
+      "max": 2,
+      "step": 0.01,
+      "decimals": 2,
+      "units": {
+        "en": "kr/kWh",
+        "da": "kr/kWh"
+      }
     }
   }
 }

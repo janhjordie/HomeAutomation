@@ -1,0 +1,19 @@
+{
+  "type": "number",
+  "title": {
+    "en": "Spot price",
+    "da": "Spotpris"
+  },
+  "hint": {
+    "en": "Current 15-minute spot price including VAT.",
+    "da": "Aktuel 15-minutters spotpris inkl. moms."
+  },
+  "getable": true,
+  "setable": false,
+  "uiComponent": "sensor",
+  "decimals": 2,
+  "units": {
+    "en": "kr/kWh",
+    "da": "kr/kWh"
+  }
+}

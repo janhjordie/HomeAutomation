@@ -1,4 +1,36 @@
 {
+  "1.0.32": {
+    "en": "Fix cheapest-plan-only being reset each evaluation; charge schedule shows total span from first to last selected slot.",
+    "da": "Ret at kun-billigste-plan blev nulstillet ved hver evaluering; ladeplan viser samlet tidsspænd fra første til sidste valgte kvarter."
+  },
+  "1.0.31": {
+    "en": "Removed Home Assistant webhook integration; app focuses on spot prices and direct Easee control only.",
+    "da": "Fjernet Home Assistant webhook — appen fokuserer kun på spotpriser og direkte Easee-styring."
+  },
+  "1.0.30": {
+    "en": "Integrated Easee start/stop and Home Assistant EV webhook on charge_now changes, replacing the 15-minute Logic Flow.",
+    "da": "Integreret Easee start/stop og Home Assistant EV-webhook ved charge_now-skift, så det gamle 15-minutters Logic-Flow kan slås fra."
+  },
+  "1.0.29": {
+    "en": "Add per-device spot threshold slider and cheapest-plan-only toggle (default: spot charging under threshold).",
+    "da": "Tilføj spot-grænse slider og toggle for kun billigste plan (standard: spot-opladning under grænsen)."
+  },
+  "1.0.28": {
+    "en": "charge_now is only true during planned charge slots, not whenever spot is below the threshold.",
+    "da": "charge_now er kun true i planlagte ladekvarter, ikke bare fordi spotprisen er under graensen."
+  },
+  "1.0.27": {
+    "en": "Spot price tile now uses Stromligning live 15-minute prices instead of repeating the hourly value four times.",
+    "da": "Spotpris-flisen bruger nu Stromlignings live 15-minutters priser i stedet for at gentage timeprisen fire gange."
+  },
+  "1.0.17": {
+    "en": "Fix Logic mirroring by preferring homey.logic and logging sync failures instead of failing silently.",
+    "da": "Ret Logic-spejling ved at foretraekke homey.logic og logge sync-fejl i stedet for at fejle stille."
+  },
+  "1.0.16": {
+    "en": "Fix device Unavailable state: keep device available after evaluation errors and close pair sessions properly.",
+    "da": "Ret Unavailable-tilstand: enheden forbliver tilgængelig ved evalueringsfejl, og pair sessions lukkes korrekt."
+  },
   "1.0.15": {
     "en": "Fix Logic variable mirroring via Manager API so charge_now and other variables stay in sync with the device.",
     "da": "Ret Logic-variabel spejling via Manager API, så charge_now og andre variabler følger enheden."

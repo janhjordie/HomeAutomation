@@ -132,7 +132,7 @@ function formatSlotLabel(slot) {
   return `${slot.date} ${formatSlotTime(slot)}`;
 }
 
-function formatChargeSchedule(slots, timeZone) {
+function formatChargeScheduleRanges(slots, timeZone) {
   if (!slots.length) {
     return 'ingen';
   }
@@ -158,18 +158,49 @@ function formatChargeSchedule(slots, timeZone) {
 
   ranges.push({ start: rangeStart, end: rangeEnd });
 
-  return ranges.map(({ start, end }) => {
-    const endTime = new Date(end.timestamp + SLOT_MS);
-    const endParts = getDateTimePartsInTimeZone(endTime, timeZone);
-    const { formatSlotTime, formatHourNumber } = require('../timezone');
-    const endLabel = `${formatHourNumber(endParts.hour)}:${String(endParts.minute).padStart(2, '0')}`;
+  return ranges.map(({ start, end }) => formatScheduleRange(start, end, timeZone)).join(', ');
+}
 
-    if (start.date === endParts.date) {
-      return `${formatSlotTime(start)}-${endLabel}`;
-    }
+function getSlotEndParts(slot) {
+  const { addDays } = require('../timezone');
+  let minute = Number(slot.minute) + 15;
+  let hour = Number(slot.hour);
+  let date = slot.date;
 
-    return `${formatSlotLabel(start)} -> ${endParts.date} ${endLabel}`;
-  }).join(', ');
+  if (minute >= 60) {
+    minute -= 60;
+    hour += 1;
+  }
+
+  if (hour >= 24) {
+    hour -= 24;
+    date = addDays(date, 1);
+  }
+
+  return { date, hour, minute };
+}
+
+function formatScheduleRange(start, end, timeZone) {
+  const endParts = getSlotEndParts(end);
+  const { formatSlotTime, formatHourNumber } = require('../timezone');
+  const endLabel = `${formatHourNumber(endParts.hour)}:${String(endParts.minute).padStart(2, '0')}`;
+
+  if (start.date === endParts.date) {
+    return `${formatSlotTime(start)}-${endLabel}`;
+  }
+
+  return `${formatSlotLabel(start)} -> ${endParts.date} ${endLabel}`;
+}
+
+function formatChargeSchedule(slots, timeZone) {
+  if (!slots.length) {
+    return 'ingen';
+  }
+
+  // Total wall-clock span from first to last selected slot (gaps included).
+  // With 3 charge hours the span is often longer than 3h when cheapest slots are split.
+  const ordered = [...slots].sort((a, b) => a.timestamp - b.timestamp);
+  return formatScheduleRange(ordered[0], ordered[ordered.length - 1], timeZone);
 }
 
 function formatChargeSlotsDetailed(slots) {
@@ -179,13 +210,29 @@ function formatChargeSlotsDetailed(slots) {
     .join(', ');
 }
 
-function buildChargeMessage(chargePlanWindow, evaluation, currentSlot, spotThreshold) {
+function shouldChargeOneShotNow(evaluation, currentSlot, spotThreshold) {
+  if (!currentSlot || !evaluation?.planSlotKeys?.has(getSlotKey(currentSlot))) {
+    return false;
+  }
+
+  const price = Number(currentSlot.spotPriceInclVat);
+  if (Number.isFinite(price) && price < spotThreshold) {
+    return true;
+  }
+
+  const futurePlanSlots = (evaluation.planSlots || [])
+    .filter((slot) => slot.timestamp >= currentSlot.timestamp);
+
+  return futurePlanSlots.length <= 1;
+}
+
+function buildChargeMessage(chargePlanWindow, evaluation, currentSlot, spotThreshold, timeZone) {
   const {
     chargingSlots,
     thresholdSlots,
     planSlots,
     charge_now,
-    nextChargingSlot,
+    nextPlanSlot,
     chargeSlotsNeeded,
     forceChargeActive,
     oneShotActive,
@@ -196,18 +243,22 @@ function buildChargeMessage(chargePlanWindow, evaluation, currentSlot, spotThres
   const currentSpotText = Number.isFinite(currentSlot.spotPriceInclVat)
     ? currentSlot.spotPriceInclVat.toFixed(2)
     : '?';
-  const scheduleSlots = oneShotActive ? planSlots : chargingSlots;
-  const scheduleText = formatChargeSchedule(scheduleSlots);
+  const scheduleText = formatChargeSchedule(planSlots, timeZone);
+  const nextSlot = nextPlanSlot;
 
   if (charge_now && oneShotActive) {
     return `Engangsopladning: lader nu (spot ${currentSpotText}), klar ${oneShotDeadlineLabel}. Plan: ${scheduleText}.${dishwasherMessageSuffix}`;
   }
 
   if (oneShotActive) {
-    const nextText = nextChargingSlot
-      ? `naeste kl. ${formatSlotTime(nextChargingSlot)} (spot ${nextChargingSlot.spotPriceInclVat.toFixed(2)})`
+    const nextText = nextSlot
+      ? `naeste kl. ${formatSlotTime(nextSlot)} (spot ${nextSlot.spotPriceInclVat.toFixed(2)})`
       : 'ingen flere kvarter foer deadline';
     const planHours = (planSlots.length / SLOTS_PER_HOUR).toFixed(1);
+
+    if (!charge_now) {
+      return `Engangsopladning: venter (spot ${currentSpotText}, graense ${spotThreshold.toFixed(2)}). ${planHours}t planlagt, klar ${oneShotDeadlineLabel}. Plan: ${scheduleText}. ${nextText}.${dishwasherMessageSuffix}`;
+    }
 
     return `Engangsopladning: ${planHours}t planlagt, klar ${oneShotDeadlineLabel}. Plan: ${scheduleText}. ${nextText}.${dishwasherMessageSuffix}`;
   }
@@ -217,9 +268,13 @@ function buildChargeMessage(chargePlanWindow, evaluation, currentSlot, spotThres
   }
 
   if (charge_now) {
-    const reason = currentSlot.spotPriceInclVat < spotThreshold
+    const { getSlotKey } = require('../price/slotBuilder');
+    const inPlan = evaluation.planSlotKeys?.has(getSlotKey(currentSlot));
+    const reason = !evaluation.cheapestPlanOnly && !inPlan
       ? `spot ${currentSpotText}`
-      : `plan (${currentSpotText})`;
+      : evaluation.cheapestPlanOnly || inPlan
+        ? `plan (${currentSpotText})`
+        : `spot ${currentSpotText}`;
 
     return `${chargePlanWindow.messagePrefix}: lader nu (${reason}). Plan: ${scheduleText}.${dishwasherMessageSuffix}`;
   }
@@ -228,8 +283,8 @@ function buildChargeMessage(chargePlanWindow, evaluation, currentSlot, spotThres
     return `Ingen ${chargePlanWindow.messagePrefix.toLowerCase()} endnu.${dishwasherMessageSuffix}`;
   }
 
-  const nextText = nextChargingSlot
-    ? `naeste kl. ${formatSlotTime(nextChargingSlot)} (spot ${nextChargingSlot.spotPriceInclVat.toFixed(2)})`
+  const nextText = nextSlot
+    ? `naeste kl. ${formatSlotTime(nextSlot)} (spot ${nextSlot.spotPriceInclVat.toFixed(2)})`
     : 'ingen flere kvarter i vinduet';
   const thresholdHours = (thresholdSlots.length / SLOTS_PER_HOUR).toFixed(1);
   const planHours = (planSlots.length / SLOTS_PER_HOUR).toFixed(1);
@@ -251,6 +306,8 @@ module.exports = {
   isOneShotSessionFinished,
   isOneShotFinished,
   formatChargeSchedule,
+  formatChargeScheduleRanges,
   formatChargeSlotsDetailed,
-  buildChargeMessage
+  buildChargeMessage,
+  shouldChargeOneShotNow
 };

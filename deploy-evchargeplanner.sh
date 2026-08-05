@@ -54,8 +54,10 @@ if ! homey app validate --level debug -p "${APP_DIR}"; then
   exit 1
 fi
 
-echo "Installerer EV Charge Planner på Homey (lokal API, uden Athom cloud) ..."
-if ! node "${ROOT}/scripts/homey-local-install.mjs" "${APP_DIR}"; then
-  echo "Fejl: Lokal install fejlede. Tjek Homey/.homey-address eller HOMEY_ADDRESS." >&2
+echo "Installerer EV Charge Planner på Homey ..."
+if homey app install -p "${APP_DIR}" 2>/dev/null; then
+  echo "Installeret via homey app install."
+elif ! node "${ROOT}/scripts/homey-local-install.mjs" "${APP_DIR}"; then
+  echo "Fejl: Install fejlede. Tjek Homey/.homey-address eller HOMEY_ADDRESS." >&2
   exit 1
 fi

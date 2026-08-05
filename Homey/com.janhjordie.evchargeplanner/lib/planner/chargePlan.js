@@ -16,8 +16,20 @@ function selectCheapestPlanSlots(windowSlots, chargeSlotsNeeded) {
     .slice(0, chargeSlotsNeeded);
 }
 
+function findNextPlanSlot(planSlots, currentSlot) {
+  if (!planSlots?.length) {
+    return null;
+  }
+
+  const nowTimestamp = currentSlot?.timestamp || 0;
+
+  return [...planSlots]
+    .filter((slot) => slot.timestamp > nowTimestamp)
+    .sort((a, b) => a.timestamp - b.timestamp)[0] || null;
+}
+
 function evaluateChargePlan(windowSlots, chargeHoursNeeded, spotThresholdInclVat, currentSlot, options = {}) {
-  const { useSpotThreshold = true } = options;
+  const { useSpotThreshold = true, planOnly = false } = options;
   const chargeSlotsNeeded = chargeHoursNeeded * SLOTS_PER_HOUR;
   const planSlots = selectCheapestPlanSlots(windowSlots, chargeSlotsNeeded);
   const planSlotKeys = new Set(planSlots.map(getSlotKey));
@@ -29,10 +41,14 @@ function evaluateChargePlan(windowSlots, chargeHoursNeeded, spotThresholdInclVat
   const currentSlotInWindow = Boolean(
     currentSlot && windowSlots.some((slot) => getSlotKey(slot) === currentSlotKey)
   );
-  const charge_now = currentSlotInWindow && isChargingSlot(currentSlot);
+  const currentSlotInPlan = Boolean(currentSlotKey && planSlotKeys.has(currentSlotKey));
+  const charge_now = planOnly
+    ? currentSlotInWindow && currentSlotInPlan
+    : currentSlotInWindow && isChargingSlot(currentSlot);
   const nextChargingSlot = windowSlots.find((slot) =>
     slot.timestamp > (currentSlot?.timestamp || 0) && isChargingSlot(slot)
   );
+  const nextPlanSlot = findNextPlanSlot(planSlots, currentSlot);
 
   return {
     planSlots,
@@ -40,12 +56,15 @@ function evaluateChargePlan(windowSlots, chargeHoursNeeded, spotThresholdInclVat
     thresholdSlots,
     charge_now,
     nextChargingSlot,
+    nextPlanSlot,
     chargeSlotsNeeded,
-    planSlotKeys
+    planSlotKeys,
+    cheapestPlanOnly: planOnly
   };
 }
 
 module.exports = {
   selectCheapestPlanSlots,
+  findNextPlanSlot,
   evaluateChargePlan
 };

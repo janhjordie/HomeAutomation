@@ -8,11 +8,12 @@ const {
   evaluateChargePlanForDevice
 } = require('../../lib/evaluator');
 const { LogicCompat } = require('../../lib/logicCompat');
-const { LOGIC_VARIABLES, DEFAULT_ONE_SHOT_CHARGE_HOURS, MAX_CHARGE_HOURS } = require('../../lib/constants');
+const { LOGIC_VARIABLES, MAX_CHARGE_HOURS, DEFAULT_CHARGER_KW, MIN_SPOT_THRESHOLD_KR_INCL_VAT, MAX_SPOT_THRESHOLD_KR_INCL_VAT } = require('../../lib/constants');
 const { ValidationLogger } = require('../../lib/validationLogger');
 const {
   ensureSystemChargingCapabilities,
-  syncChargingCapabilities
+  syncChargingCapabilities,
+  buildEaseeChargingSync
 } = require('../../lib/chargingCapabilities');
 const { buildEaseeConfig, EaseeChargerController } = require('../../lib/easeeCharger');
 const { ensureDeviceFavorite } = require('../../lib/deviceFavorites');
@@ -20,9 +21,22 @@ const {
   ensureUiCapabilities,
   syncUiCapabilitiesFromSettings
 } = require('../../lib/deviceUiCapabilities');
+const { getMsUntilNextQuarterBoundary, QUARTER_MS } = require('../../lib/quarterScheduler');
+const { updateDeviceSpotPrice } = require('../../lib/spotPriceRefresh');
+const { orchestrateChargeTransition } = require('../../lib/chargeOrchestrator');
 
 class EvPlannerDevice extends Homey.Device {
   async onInit() {
+    try {
+      await this._initializeDevice();
+      await this.setAvailable();
+    } catch (error) {
+      this.error(`onInit failed: ${error.message}`);
+      await this.setAvailable();
+    }
+  }
+
+  async _initializeDevice() {
     this.log(`EV Planner device initialized: ${this.getName()}`);
     if (this.homey.app?.registerPlannerDevice) {
       this.homey.app.registerPlannerDevice(this);
@@ -32,16 +46,25 @@ class EvPlannerDevice extends Homey.Device {
 
     await ensureSystemChargingCapabilities(this);
     await ensureUiCapabilities(this);
+    if (!this.hasCapability('spot_price')) {
+      await this.addCapability('spot_price');
+    }
+    if (!this.hasCapability('spot_price_quarter')) {
+      await this.addCapability('spot_price_quarter');
+    }
     const initialSettings = await this._refreshOneShotHoursFromLogic({
       charge_hours: this.getSetting('charge_hours'),
       one_shot_enabled: this.getSetting('one_shot_enabled'),
       one_shot_charge_hours: this.getSetting('one_shot_charge_hours'),
-      night_charge_enabled: this.getSetting('night_charge_enabled')
+      night_charge_enabled: this.getSetting('night_charge_enabled'),
+      spot_threshold: this.getSetting('spot_threshold'),
+      cheapest_plan_only: this.getSetting('cheapest_plan_only')
     });
     await syncUiCapabilitiesFromSettings(this, initialSettings);
 
     this._updatingChargingState = false;
     this._updatingUiCapabilities = false;
+    this._evaluating = false;
 
     this.registerCapabilityListener('force_charge', async (value) => {
       if (this._updatingChargingState) {
@@ -94,6 +117,35 @@ class EvPlannerDevice extends Homey.Device {
       await this.evaluateNow('one_shot_toggle');
     });
 
+    this.registerCapabilityListener('cheapest_plan_only', async (value) => {
+      if (this._updatingUiCapabilities) {
+        return;
+      }
+
+      await this.setSettings({ cheapest_plan_only: Boolean(value) });
+      await this.evaluateNow('cheapest_plan_only_toggle');
+    });
+
+    this.registerCapabilityListener('spot_threshold', async (value) => {
+      if (this._updatingUiCapabilities) {
+        return;
+      }
+
+      const threshold = Number(value);
+      if (!Number.isFinite(threshold)
+        || threshold < MIN_SPOT_THRESHOLD_KR_INCL_VAT
+        || threshold > MAX_SPOT_THRESHOLD_KR_INCL_VAT) {
+        throw new Error(`Spot-graense skal vaere mellem ${MIN_SPOT_THRESHOLD_KR_INCL_VAT} og ${MAX_SPOT_THRESHOLD_KR_INCL_VAT}`);
+      }
+
+      const rounded = Number(threshold.toFixed(2));
+      await this.setSettings({ spot_threshold: rounded });
+      if (this.hasCapability('spot_threshold')) {
+        await this.setCapabilityValue('spot_threshold', rounded);
+      }
+      await this.evaluateNow('spot_threshold_changed');
+    });
+
     this.registerCapabilityListener('charge_hours', async (value) => {
       if (this._updatingUiCapabilities) {
         return;
@@ -105,6 +157,9 @@ class EvPlannerDevice extends Homey.Device {
       }
 
       await this.setSettings({ charge_hours: hours });
+      if (this.hasCapability('charge_hours')) {
+        await this.setCapabilityValue('charge_hours', hours);
+      }
       await this.evaluateNow('charge_hours_changed');
     });
 
@@ -119,22 +174,22 @@ class EvPlannerDevice extends Homey.Device {
       }
 
       await this.setSettings({ one_shot_charge_hours: hours });
-      const logicCompat = new LogicCompat(this.homey, this.log.bind(this));
-      await logicCompat.setLogicVariable(
-        LOGIC_VARIABLES.ONE_SHOT_CHARGE_HOURS,
-        hours,
-        'number',
-        DEFAULT_ONE_SHOT_CHARGE_HOURS
-      );
+      if (this.hasCapability('one_shot_charge_hours')) {
+        await this.setCapabilityValue('one_shot_charge_hours', hours);
+      }
       if (this.getCapabilityValue('one_shot_enabled')) {
         await this.evaluateNow('one_shot_hours_changed');
       }
     });
 
     await this.evaluateNow('device_init');
+    this._bindEaseeDisplaySync();
+    this._bindQuarterScheduler();
   }
 
   async onDeleted() {
+    this._teardownQuarterScheduler();
+    this._teardownEaseeDisplaySync();
     if (this.homey.app?.unregisterPlannerDevice) {
       this.homey.app.unregisterPlannerDevice(this);
     }
@@ -145,24 +200,27 @@ class EvPlannerDevice extends Homey.Device {
       charge_hours: this.getSetting('charge_hours'),
       one_shot_enabled: this.getSetting('one_shot_enabled'),
       one_shot_charge_hours: this.getSetting('one_shot_charge_hours'),
-      night_charge_enabled: this.getSetting('night_charge_enabled')
+      night_charge_enabled: this.getSetting('night_charge_enabled'),
+      spot_threshold: this.getSetting('spot_threshold'),
+      cheapest_plan_only: this.getSetting('cheapest_plan_only')
     });
     await this.evaluateNow('settings_changed');
   }
 
   _getDeviceSettings() {
-    const chargeHours = this.hasCapability('charge_hours')
-      ? this.getCapabilityValue('charge_hours')
-      : this.getSetting('charge_hours');
-    const oneShotEnabled = this.hasCapability('one_shot_enabled')
-      ? this.getCapabilityValue('one_shot_enabled')
-      : this.getSetting('one_shot_enabled');
-    const oneShotChargeHours = this.hasCapability('one_shot_charge_hours')
-      ? this.getCapabilityValue('one_shot_charge_hours')
-      : this.getSetting('one_shot_charge_hours');
+    const chargeHours = Number(this.getSetting('charge_hours'));
+    const oneShotEnabled = this.getSetting('one_shot_enabled') === true;
+    const oneShotChargeHours = Number(this.getSetting('one_shot_charge_hours'));
     const nightChargeEnabled = this.hasCapability('night_charge_enabled')
       ? this.getCapabilityValue('night_charge_enabled')
       : this.getSetting('night_charge_enabled');
+    const spotThresholdSetting = this.getSetting('spot_threshold');
+    const spotThresholdCapability = this.hasCapability('spot_threshold')
+      ? this.getCapabilityValue('spot_threshold')
+      : null;
+    const spotThreshold = Number.isFinite(Number(spotThresholdCapability))
+      ? spotThresholdCapability
+      : spotThresholdSetting;
 
     return {
       charge_hours: chargeHours,
@@ -170,7 +228,10 @@ class EvPlannerDevice extends Homey.Device {
       night_charge_enabled: nightChargeEnabled,
       one_shot_enabled: oneShotEnabled,
       one_shot_charge_hours: oneShotChargeHours,
-      one_shot_ready_by: this.getSetting('one_shot_ready_by')
+      one_shot_ready_by: this.getSetting('one_shot_ready_by'),
+      // Settings are source of truth — capability was being reset to false each evaluate.
+      cheapest_plan_only: this.getSetting('cheapest_plan_only') === true,
+      spot_threshold: spotThreshold
     };
   }
 
@@ -341,68 +402,147 @@ class EvPlannerDevice extends Homey.Device {
     this.log(`Engangsopladning deaktiveret: ${result.oneShotDisabledReason}`);
   }
 
-  async _syncEaseeCharger(chargeNow, appSettings) {
+  async _readEaseeChargingState(appSettings) {
     const easeeConfig = buildEaseeConfig(appSettings);
-    if (!easeeConfig.enabled) {
+    if (!easeeConfig.syncPower || !easeeConfig.deviceId) {
       return null;
     }
 
     const controller = new EaseeChargerController(this.homey, this.log.bind(this));
+    return controller.readState({ deviceId: easeeConfig.deviceId });
+  }
 
+  async syncEaseeDisplayFromCharger() {
+    const appSettings = this._getAppSettings();
+    const easeeState = await this._readEaseeChargingState(appSettings);
+    if (!easeeState) {
+      return;
+    }
+
+    const chargerKw = Number(appSettings.charger_kw) || DEFAULT_CHARGER_KW;
+    this._updatingChargingState = true;
     try {
-      return await controller.applyChargeNow(easeeConfig, Boolean(chargeNow));
-    } catch (error) {
-      this.error(`Easee sync fejlede: ${error.message}`);
-      return {
-        skipped: true,
-        reason: 'easee_sync_error',
-        error: error.message,
-        chargeNow: Boolean(chargeNow)
-      };
-    }
-  }
-
-  _getEaseeCapabilitySync(easeeConfig, easeeResult, chargeNow, chargerKw) {
-    if (!easeeConfig.enabled || !easeeConfig.syncPower || !easeeResult?.state) {
-      return {
-        chargeNow,
+      await syncChargingCapabilities(this, buildEaseeChargingSync(
+        easeeState,
+        this.getCapabilityValue('charge_now'),
         chargerKw
-      };
+      ));
+    } finally {
+      this._updatingChargingState = false;
     }
-
-    const { state } = easeeResult;
-    const chargingState = state.chargingState
-      || (state.measurePower > 0 ? 'plugged_in_charging' : 'plugged_in');
-
-    return {
-      chargeNow,
-      chargerKw,
-      powerW: state.measurePower,
-      chargingState,
-      evchargerCharging: state.evchargerCharging
-    };
   }
 
-  async _triggerFlowCards(result) {
+  _bindEaseeDisplaySync() {
+    const easeeConfig = buildEaseeConfig(this._getAppSettings());
+    if (!easeeConfig.syncPower || !easeeConfig.deviceId) {
+      return;
+    }
+
+    this._teardownEaseeDisplaySync();
+
+    this._easeeDisplayTimer = this.homey.setInterval(() => {
+      this.syncEaseeDisplayFromCharger().catch((error) => {
+        this.error(`Easee display sync fejlede: ${error.message}`);
+      });
+    }, 60 * 1000);
+
+    if (typeof this.homey.devices?.on === 'function') {
+      this._easeeDeviceUpdateHandler = (device) => {
+        if (device?.id !== easeeConfig.deviceId) {
+          return;
+        }
+
+        this.syncEaseeDisplayFromCharger().catch((error) => {
+          this.error(`Easee display sync fejlede: ${error.message}`);
+        });
+      };
+      this.homey.devices.on('device.update', this._easeeDeviceUpdateHandler);
+    }
+  }
+
+  _teardownEaseeDisplaySync() {
+    if (this._easeeDisplayTimer) {
+      this.homey.clearInterval(this._easeeDisplayTimer);
+      this._easeeDisplayTimer = null;
+    }
+
+    if (this._easeeDeviceUpdateHandler && typeof this.homey.devices?.off === 'function') {
+      this.homey.devices.off('device.update', this._easeeDeviceUpdateHandler);
+      this._easeeDeviceUpdateHandler = null;
+    }
+  }
+
+  _bindQuarterScheduler() {
+    this._teardownQuarterScheduler();
+
+    const run = async () => {
+      await this.evaluateNow('quarter_scheduler');
+    };
+
+    const delay = getMsUntilNextQuarterBoundary();
+    this.log(`Quarter scheduler starter om ${Math.round(delay / 1000)}s`);
+
+    this._quarterBootTimer = this.homey.setTimeout(() => {
+      run().catch((error) => {
+        this.error(`Quarter scheduler fejlede: ${error.message}`);
+      });
+      this._quarterTimer = this.homey.setInterval(() => {
+        run().catch((error) => {
+          this.error(`Quarter scheduler fejlede: ${error.message}`);
+        });
+      }, QUARTER_MS);
+    }, delay);
+  }
+
+  _teardownQuarterScheduler() {
+    if (this._quarterBootTimer) {
+      this.homey.clearTimeout(this._quarterBootTimer);
+      this._quarterBootTimer = null;
+    }
+
+    if (this._quarterTimer) {
+      this.homey.clearInterval(this._quarterTimer);
+      this._quarterTimer = null;
+    }
+  }
+
+  async refreshSpotPriceNow(reason = 'spot_refresh') {
+    return updateDeviceSpotPrice(this, {
+      getAppSettings: () => this._getAppSettings(),
+      env: Homey.env,
+      log: (message) => this.log(`[${reason}] ${message}`),
+      reason
+    });
+  }
+
+  async _triggerFlowCards(result, orchestration = {}) {
     const planUpdated = this.homey.flow.getDeviceTriggerCard('plan_updated');
     const spotPrice = Number.isFinite(result.currentSlot?.spotPriceInclVat)
       ? result.currentSlot.spotPriceInclVat
       : 0;
-
-    await planUpdated.trigger(this, {
+    const tokens = {
       charge_message: result.charge_message || '',
       charge_schedule: result.charge_schedule || 'ingen',
       spot_price: spotPrice
-    }, {
-      charge_message: result.charge_message || '',
-      charge_schedule: result.charge_schedule || 'ingen',
-      spot_price: spotPrice
-    });
+    };
 
-    const chargeNow = Boolean(result.charge_now);
-    if (chargeNow !== this._previousChargeNow) {
-      this._previousChargeNow = chargeNow;
+    await planUpdated.trigger(this, tokens, tokens);
+
+    if (orchestration.shouldTriggerStarted) {
+      const chargeStarted = this.homey.flow.getDeviceTriggerCard('charge_started');
+      await chargeStarted.trigger(this, tokens, tokens).catch((error) => {
+        this.log(`charge_started trigger fejlede: ${error.message}`);
+      });
     }
+
+    if (orchestration.shouldTriggerStopped) {
+      const chargeStopped = this.homey.flow.getDeviceTriggerCard('charge_stopped');
+      await chargeStopped.trigger(this, tokens, tokens).catch((error) => {
+        this.log(`charge_stopped trigger fejlede: ${error.message}`);
+      });
+    }
+
+    this._previousChargeNow = Boolean(result.charge_now);
   }
 
   async _recordValidation(result) {
@@ -416,8 +556,12 @@ class EvPlannerDevice extends Homey.Device {
   }
 
   async evaluateNow(reason = 'manual') {
+    if (this._evaluating) {
+      return null;
+    }
+
+    this._evaluating = true;
     let deviceSettings = this._getDeviceSettings();
-    deviceSettings = await this._refreshOneShotHoursFromLogic(deviceSettings);
 
     try {
       deviceSettings = await this._maybeSyncFromLogic(deviceSettings);
@@ -430,19 +574,33 @@ class EvPlannerDevice extends Homey.Device {
       }
 
       const deviceConfig = buildDeviceConfig(deviceSettings, {
-        default_charge_hours: appConfig.defaultChargeHours
+        default_charge_hours: appConfig.defaultChargeHours,
+        spot_threshold: appConfig.spotThreshold
       });
       const oneShotCache = await this._getOneShotCache();
       const result = await evaluateChargePlanForDevice(deviceConfig, appConfig, { oneShotCache });
 
       await this._applyOneShotState(result, deviceSettings);
       await this._applyOneShotCache(result);
+      const previousChargeNow = Boolean(this._previousChargeNow);
       await this.setCapabilityValue('charge_now', Boolean(result.charge_now));
       await this.setCapabilityValue('charge_message', result.charge_message || '');
       await this.setCapabilityValue('charge_schedule', result.charge_schedule || 'ingen');
+      await this.refreshSpotPriceNow(`${reason}_evaluate`);
 
-      const easeeConfig = buildEaseeConfig(appSettings);
-      const easeeResult = await this._syncEaseeCharger(result.charge_now, appSettings);
+      const orchestration = await orchestrateChargeTransition({
+        homey: this.homey,
+        appSettings,
+        chargeNow: result.charge_now,
+        previousChargeNow,
+        log: this.log.bind(this)
+      });
+
+      const easeeConfig = orchestration.easeeConfig;
+      const easeeResult = orchestration.easeeResult;
+      const easeeState = easeeConfig?.syncPower && easeeConfig?.deviceId
+        ? (orchestration.easeeState || await this._readEaseeChargingState(appSettings))
+        : null;
 
       this._updatingChargingState = true;
       this._updatingUiCapabilities = true;
@@ -452,11 +610,12 @@ class EvPlannerDevice extends Homey.Device {
           charge_hours: deviceConfig.chargeHours,
           one_shot_enabled: result.oneShotDisabledReason ? false : deviceConfig.oneShotEnabled,
           one_shot_charge_hours: deviceConfig.oneShotChargeHours,
-          night_charge_enabled: deviceConfig.nightChargeEnabled
+          night_charge_enabled: deviceConfig.nightChargeEnabled,
+          cheapest_plan_only: deviceConfig.cheapestPlanOnly,
+          spot_threshold: deviceConfig.spotThreshold
         });
-        await syncChargingCapabilities(this, this._getEaseeCapabilitySync(
-          easeeConfig,
-          easeeResult,
+        await syncChargingCapabilities(this, buildEaseeChargingSync(
+          easeeState,
           result.charge_now,
           appConfig.chargerKw
         ));
@@ -476,7 +635,7 @@ class EvPlannerDevice extends Homey.Device {
         one_shot_enabled: result.oneShotDisabledReason ? false : deviceConfig.oneShotEnabled
       });
 
-      await this._triggerFlowCards(result);
+      await this._triggerFlowCards(result, orchestration);
       await this._recordValidation(result);
 
       this.log(`[${reason}] charge_now=${result.charge_now} | ${result.charge_message}`);
@@ -490,16 +649,20 @@ class EvPlannerDevice extends Homey.Device {
       return result;
     } catch (error) {
       this.error(`Evaluation failed (${reason}):`, error.message);
+      await this.setAvailable();
+      await this.refreshSpotPriceNow(`${reason}_spot_fallback`).catch(() => {});
 
       const priceApiError = this.homey.flow.getDeviceTriggerCard('price_api_error');
       await priceApiError.trigger(this, {
         error_message: error.message
       }, {
         error_message: error.message
-      });
+      }).catch(() => {});
 
-      await this.homey.app.sendApiFailureNotification(error);
-      throw error;
+      await this.homey.app.sendApiFailureNotification(error).catch(() => {});
+      return null;
+    } finally {
+      this._evaluating = false;
     }
   }
 }

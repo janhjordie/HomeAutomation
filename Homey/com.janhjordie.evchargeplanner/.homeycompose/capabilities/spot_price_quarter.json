@@ -1,0 +1,14 @@
+{
+  "type": "string",
+  "title": {
+    "en": "Spot price quarter",
+    "da": "Spotpris kvarter"
+  },
+  "hint": {
+    "en": "Current 15-minute price interval (HH:mm).",
+    "da": "Aktuelt 15-minutters prisinterval (TT:mm)."
+  },
+  "getable": true,
+  "setable": false,
+  "uiComponent": "sensor"
+}

@@ -53,6 +53,80 @@
           }
         }
       ]
+    },
+    {
+      "id": "charge_started",
+      "title": {
+        "en": "Charging started",
+        "da": "Opladning startet"
+      },
+      "titleFormatted": {
+        "en": "Charging started: [[charge_message]]",
+        "da": "Opladning startet: [[charge_message]]"
+      },
+      "tokens": [
+        {
+          "name": "charge_message",
+          "type": "string",
+          "title": {
+            "en": "Message",
+            "da": "Besked"
+          }
+        },
+        {
+          "name": "charge_schedule",
+          "type": "string",
+          "title": {
+            "en": "Schedule",
+            "da": "Plan"
+          }
+        },
+        {
+          "name": "spot_price",
+          "type": "number",
+          "title": {
+            "en": "Current spot price",
+            "da": "Aktuel spotpris"
+          }
+        }
+      ]
+    },
+    {
+      "id": "charge_stopped",
+      "title": {
+        "en": "Charging stopped",
+        "da": "Opladning stoppet"
+      },
+      "titleFormatted": {
+        "en": "Charging stopped: [[charge_message]]",
+        "da": "Opladning stoppet: [[charge_message]]"
+      },
+      "tokens": [
+        {
+          "name": "charge_message",
+          "type": "string",
+          "title": {
+            "en": "Message",
+            "da": "Besked"
+          }
+        },
+        {
+          "name": "charge_schedule",
+          "type": "string",
+          "title": {
+            "en": "Schedule",
+            "da": "Plan"
+          }
+        },
+        {
+          "name": "spot_price",
+          "type": "number",
+          "title": {
+            "en": "Current spot price",
+            "da": "Aktuel spotpris"
+          }
+        }
+      ]
     }
   ],
   "conditions": [

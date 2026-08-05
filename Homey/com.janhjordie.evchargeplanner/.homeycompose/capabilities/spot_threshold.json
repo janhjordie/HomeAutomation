@@ -1,0 +1,22 @@
+{
+  "type": "number",
+  "title": {
+    "en": "Spot threshold",
+    "da": "Spot-grænse"
+  },
+  "hint": {
+    "en": "Charge immediately when spot price is below this limit (only when cheapest plan only is off).",
+    "da": "Lad med det samme når spotprisen er under denne grænse (kun når kun billigste plan er slået fra)."
+  },
+  "getable": true,
+  "setable": true,
+  "uiComponent": "slider",
+  "min": 0.05,
+  "max": 2,
+  "step": 0.01,
+  "decimals": 2,
+  "units": {
+    "en": "kr/kWh",
+    "da": "kr/kWh"
+  }
+}
