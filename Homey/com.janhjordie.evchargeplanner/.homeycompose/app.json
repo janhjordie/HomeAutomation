@@ -1,6 +1,6 @@
 {
   "id": "com.janhjordie.evchargeplanner",
-  "version": "1.0.32",
+  "version": "1.0.35",
   "compatibility": ">=13.0.0",
   "runtime": "nodejs",
   "platforms": [

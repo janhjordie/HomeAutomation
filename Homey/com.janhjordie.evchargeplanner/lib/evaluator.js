@@ -277,7 +277,7 @@ async function evaluateChargePlanForDevice(deviceConfig, appConfig, options = {}
     }
 
     const forceChargeActive = !oneShotActive
-      && isDayForceChargeActive(deviceConfig.forceCharge, chargePlanWindow, currentSlot);
+      && isDayForceChargeActive(deviceConfig.forceCharge, chargePlanWindow);
 
     const charge_message = oneShotActive
       ? `Engangsopladning afsluttet (ingen kvarter foer ${oneShotDeadline.label}).`
@@ -329,8 +329,7 @@ async function evaluateChargePlanForDevice(deviceConfig, appConfig, options = {}
 
   const forceChargeActive = isDayForceChargeActive(
     deviceConfig.forceCharge,
-    chargePlanWindow,
-    currentSlot
+    chargePlanWindow
   );
 
   if (forceChargeActive) {

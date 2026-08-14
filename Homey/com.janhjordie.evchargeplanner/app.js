@@ -230,10 +230,7 @@ class EvChargePlannerApp extends Homey.App {
     return devices.length;
   }
 
-  async sendApiFailureNotification(error) {
-    const userName = this.homey.settings.get('notification_user') || 'Homey';
-    const message = `${userName}: EV-opladning kunne ikke hente prisdata. Fejl: ${error.message}`;
-
+  async _sendPushNotification(message) {
     if (typeof this.homey.flow?.runFlowCardAction === 'function') {
       try {
         await this.homey.flow.runFlowCardAction({
@@ -257,6 +254,33 @@ class EvChargePlannerApp extends Homey.App {
     }
 
     this.log(`NOTIFIKATION (kun log): ${message}`);
+  }
+
+  async sendPlanUpdatedNotification(result, options = {}) {
+    const userName = this.homey.settings.get('notification_user') || 'Homey';
+    const schedule = result.charge_schedule || 'ingen';
+    const message = String(result.charge_message || '').trim();
+    const chargeHours = Number(options.chargeHours);
+
+    let text = `${userName}: Ny ladeplan`;
+    if (Number.isInteger(chargeHours) && chargeHours > 0) {
+      text += ` (${chargeHours} timer): ${schedule}`;
+    } else {
+      text += `: ${schedule}`;
+    }
+
+    if (message) {
+      text += `. ${message}`;
+    }
+
+    await this._sendPushNotification(text);
+  }
+
+  async sendApiFailureNotification(error) {
+    const userName = this.homey.settings.get('notification_user') || 'Homey';
+    const message = `${userName}: EV-opladning kunne ikke hente prisdata. Fejl: ${error.message}`;
+
+    await this._sendPushNotification(message);
   }
 
   async getValidationSummary() {

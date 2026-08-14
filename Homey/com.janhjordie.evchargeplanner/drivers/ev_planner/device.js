@@ -65,14 +65,20 @@ class EvPlannerDevice extends Homey.Device {
     this._updatingChargingState = false;
     this._updatingUiCapabilities = false;
     this._evaluating = false;
+    this._pendingEvaluate = null;
 
     this.registerCapabilityListener('force_charge', async (value) => {
       if (this._updatingChargingState) {
         return;
       }
 
-      await this.setSettings({ force_charge: value });
-      await this.evaluateNow('force_charge_toggle');
+      const forceCharge = Boolean(value);
+      await this.setSettings({ force_charge: forceCharge });
+      await this.evaluateNow(
+        'force_charge_toggle',
+        { force_charge: forceCharge },
+        { forceEaseeSync: true }
+      );
     });
 
     this.registerCapabilityListener('night_charge_enabled', async (value) => {
@@ -160,7 +166,7 @@ class EvPlannerDevice extends Homey.Device {
       if (this.hasCapability('charge_hours')) {
         await this.setCapabilityValue('charge_hours', hours);
       }
-      await this.evaluateNow('charge_hours_changed');
+      await this.evaluateNow('charge_hours_changed', { charge_hours: hours }, { notify: true, chargeHours: hours });
     });
 
     this.registerCapabilityListener('one_shot_charge_hours', async (value) => {
@@ -178,7 +184,7 @@ class EvPlannerDevice extends Homey.Device {
         await this.setCapabilityValue('one_shot_charge_hours', hours);
       }
       if (this.getCapabilityValue('one_shot_enabled')) {
-        await this.evaluateNow('one_shot_hours_changed');
+        await this.evaluateNow('one_shot_hours_changed', { one_shot_charge_hours: hours });
       }
     });
 
@@ -196,21 +202,49 @@ class EvPlannerDevice extends Homey.Device {
   }
 
   async onSettings() {
-    await syncUiCapabilitiesFromSettings(this, {
-      charge_hours: this.getSetting('charge_hours'),
-      one_shot_enabled: this.getSetting('one_shot_enabled'),
-      one_shot_charge_hours: this.getSetting('one_shot_charge_hours'),
-      night_charge_enabled: this.getSetting('night_charge_enabled'),
-      spot_threshold: this.getSetting('spot_threshold'),
-      cheapest_plan_only: this.getSetting('cheapest_plan_only')
-    });
-    await this.evaluateNow('settings_changed');
+    const hoursBefore = this._resolveIntegerHours(this.getSetting('charge_hours'), 'charge_hours');
+    this._updatingUiCapabilities = true;
+    try {
+      await syncUiCapabilitiesFromSettings(this, {
+        charge_hours: this.getSetting('charge_hours'),
+        one_shot_enabled: this.getSetting('one_shot_enabled'),
+        one_shot_charge_hours: this.getSetting('one_shot_charge_hours'),
+        night_charge_enabled: this.getSetting('night_charge_enabled'),
+        spot_threshold: this.getSetting('spot_threshold'),
+        cheapest_plan_only: this.getSetting('cheapest_plan_only')
+      });
+    } finally {
+      this._updatingUiCapabilities = false;
+    }
+
+    const hoursAfter = Number(this.getSetting('charge_hours'));
+    const hoursChanged = Number.isInteger(hoursAfter) && hoursAfter > 0 && hoursAfter !== hoursBefore;
+    await this.evaluateNow(
+      'settings_changed',
+      hoursChanged ? { charge_hours: hoursAfter } : {},
+      hoursChanged ? { notify: true, chargeHours: hoursAfter } : {}
+    );
   }
 
-  _getDeviceSettings() {
-    const chargeHours = Number(this.getSetting('charge_hours'));
+  _resolveIntegerHours(settingValue, capabilityId) {
+    const fromSetting = Number(settingValue);
+    if (this.hasCapability(capabilityId)) {
+      const fromCapability = Number(this.getCapabilityValue(capabilityId));
+      if (Number.isInteger(fromCapability) && fromCapability > 0) {
+        return fromCapability;
+      }
+    }
+
+    return fromSetting;
+  }
+
+  _getDeviceSettings(overrides = {}) {
+    let chargeHours = this._resolveIntegerHours(this.getSetting('charge_hours'), 'charge_hours');
     const oneShotEnabled = this.getSetting('one_shot_enabled') === true;
-    const oneShotChargeHours = Number(this.getSetting('one_shot_charge_hours'));
+    let oneShotChargeHours = this._resolveIntegerHours(
+      this.getSetting('one_shot_charge_hours'),
+      'one_shot_charge_hours'
+    );
     const nightChargeEnabled = this.hasCapability('night_charge_enabled')
       ? this.getCapabilityValue('night_charge_enabled')
       : this.getSetting('night_charge_enabled');
@@ -222,9 +256,25 @@ class EvPlannerDevice extends Homey.Device {
       ? spotThresholdCapability
       : spotThresholdSetting;
 
+    if (overrides.charge_hours != null) {
+      const hours = Math.round(Number(overrides.charge_hours));
+      if (Number.isInteger(hours) && hours > 0) {
+        chargeHours = hours;
+      }
+    }
+
+    if (overrides.one_shot_charge_hours != null) {
+      const hours = Math.round(Number(overrides.one_shot_charge_hours));
+      if (Number.isInteger(hours) && hours > 0) {
+        oneShotChargeHours = hours;
+      }
+    }
+
     return {
       charge_hours: chargeHours,
-      force_charge: this.getCapabilityValue('force_charge'),
+      force_charge: overrides.force_charge != null
+        ? Boolean(overrides.force_charge)
+        : this.getCapabilityValue('force_charge'),
       night_charge_enabled: nightChargeEnabled,
       one_shot_enabled: oneShotEnabled,
       one_shot_charge_hours: oneShotChargeHours,
@@ -414,7 +464,13 @@ class EvPlannerDevice extends Homey.Device {
 
   async syncEaseeDisplayFromCharger() {
     const appSettings = this._getAppSettings();
-    const easeeState = await this._readEaseeChargingState(appSettings);
+    const easeeConfig = buildEaseeConfig(appSettings);
+    if (!easeeConfig.syncPower || !easeeConfig.deviceId) {
+      return;
+    }
+
+    const controller = new EaseeChargerController(this.homey, this.log.bind(this));
+    const easeeState = await controller.readState({ deviceId: easeeConfig.deviceId });
     if (!easeeState) {
       return;
     }
@@ -444,7 +500,7 @@ class EvPlannerDevice extends Homey.Device {
       this.syncEaseeDisplayFromCharger().catch((error) => {
         this.error(`Easee display sync fejlede: ${error.message}`);
       });
-    }, 60 * 1000);
+    }, 5 * 60 * 1000);
 
     if (typeof this.homey.devices?.on === 'function') {
       this._easeeDeviceUpdateHandler = (device) => {
@@ -555,13 +611,22 @@ class EvPlannerDevice extends Homey.Device {
     await validationLogger.recordComparison(this.getName(), result, null);
   }
 
-  async evaluateNow(reason = 'manual') {
+  async evaluateNow(reason = 'manual', overrides = {}, options = {}) {
     if (this._evaluating) {
+      const pendingOverrides = this._pendingEvaluate?.overrides || {};
+      this._pendingEvaluate = {
+        reason,
+        overrides: { ...pendingOverrides, ...overrides },
+        notify: Boolean(options.notify || this._pendingEvaluate?.notify),
+        chargeHours: options.chargeHours ?? this._pendingEvaluate?.chargeHours,
+        forceEaseeSync: Boolean(options.forceEaseeSync || this._pendingEvaluate?.forceEaseeSync)
+      };
       return null;
     }
 
     this._evaluating = true;
-    let deviceSettings = this._getDeviceSettings();
+    let deviceSettings = this._getDeviceSettings(overrides);
+    let deviceConfig = null;
 
     try {
       deviceSettings = await this._maybeSyncFromLogic(deviceSettings);
@@ -573,7 +638,7 @@ class EvPlannerDevice extends Homey.Device {
         appConfig.stromligningApiKey = await logicCompat.getStromligningApiKeyFromLogic();
       }
 
-      const deviceConfig = buildDeviceConfig(deviceSettings, {
+      deviceConfig = buildDeviceConfig(deviceSettings, {
         default_charge_hours: appConfig.defaultChargeHours,
         spot_threshold: appConfig.spotThreshold
       });
@@ -593,13 +658,14 @@ class EvPlannerDevice extends Homey.Device {
         appSettings,
         chargeNow: result.charge_now,
         previousChargeNow,
-        log: this.log.bind(this)
+        log: this.log.bind(this),
+        forceEaseeSync: options.forceEaseeSync === true
       });
 
       const easeeConfig = orchestration.easeeConfig;
       const easeeResult = orchestration.easeeResult;
       const easeeState = easeeConfig?.syncPower && easeeConfig?.deviceId
-        ? (orchestration.easeeState || await this._readEaseeChargingState(appSettings))
+        ? orchestration.easeeState
         : null;
 
       this._updatingChargingState = true;
@@ -646,6 +712,15 @@ class EvPlannerDevice extends Homey.Device {
         this.log('Bemaerk: Priser er timebaserede (4 ens kvarter/time).');
       }
 
+      if (options.notify && this.homey.app?.sendPlanUpdatedNotification) {
+        const notifyHours = Number.isInteger(options.chargeHours) && options.chargeHours > 0
+          ? options.chargeHours
+          : deviceConfig.chargeHours;
+        await this.homey.app.sendPlanUpdatedNotification(result, { chargeHours: notifyHours }).catch((error) => {
+          this.log(`Plan-notifikation fejlede: ${error.message}`);
+        });
+      }
+
       return result;
     } catch (error) {
       this.error(`Evaluation failed (${reason}):`, error.message);
@@ -663,6 +738,19 @@ class EvPlannerDevice extends Homey.Device {
       return null;
     } finally {
       this._evaluating = false;
+      if (this._pendingEvaluate) {
+        const pending = this._pendingEvaluate;
+        this._pendingEvaluate = null;
+        await this.evaluateNow(
+          pending.reason,
+          pending.overrides,
+          {
+            notify: pending.notify,
+            chargeHours: pending.chargeHours,
+            forceEaseeSync: pending.forceEaseeSync
+          }
+        );
+      }
     }
   }
 }

@@ -13,6 +13,9 @@ const CAP_MEASURE_POWER = 'measure_power';
 const CAP_CHARGING_STATE = 'evcharger_charging_state';
 const CAP_CHARGER_STATUS = 'charger_status';
 
+const DEFAULT_STATE_CACHE_MS = 45 * 1000;
+const RATE_LIMIT_PATTERN = /429|rate limit|too many requests/i;
+
 function buildEaseeConfig(appSettings = {}) {
   const deviceId = String(appSettings.easee_device_id || '').trim();
   const circuitCurrent = Number(appSettings.easee_circuit_current);
@@ -55,10 +58,25 @@ function shouldStopEasee(state) {
   return Boolean(state?.onoff) || (state?.targetCircuitCurrent || 0) > 0;
 }
 
+function isRateLimitError(error) {
+  return Boolean(error?.message && RATE_LIMIT_PATTERN.test(error.message));
+}
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 class EaseeChargerController {
   constructor(homey, log = console.log) {
     this.homey = homey;
     this.log = log;
+    this._stateCache = new Map();
+  }
+
+  invalidateCache(deviceId) {
+    if (deviceId) {
+      this._stateCache.delete(deviceId);
+    }
   }
 
   async getEaseeDevice(deviceId) {
@@ -87,26 +105,53 @@ class EaseeChargerController {
     return null;
   }
 
-  async setEaseeCapability(deviceId, capabilityId, value) {
-    await managerApiRequest(
-      this.homey,
-      'PUT',
-      `/manager/devices/device/${deviceId}/capability/${capabilityId}`,
-      { value }
-    );
+  async setEaseeCapability(deviceId, capabilityId, value, options = {}) {
+    const maxAttempts = options.maxAttempts ?? 3;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        await managerApiRequest(
+          this.homey,
+          'PUT',
+          `/manager/devices/device/${deviceId}/capability/${capabilityId}`,
+          { value }
+        );
+        this.invalidateCache(deviceId);
+        return;
+      } catch (error) {
+        if (!isRateLimitError(error) || attempt === maxAttempts) {
+          throw error;
+        }
+
+        const waitMs = Math.min(2000 * attempt, 10000);
+        this.log(`Easee rate limit på ${capabilityId}, venter ${waitMs}ms (forsøg ${attempt}/${maxAttempts})`);
+        await delay(waitMs);
+      }
+    }
   }
 
-  async readState(config) {
+  async readState(config, options = {}) {
     const deviceId = config?.deviceId;
     if (!deviceId) {
       return null;
     }
 
+    const cacheMs = Number(options.cacheMs) ?? DEFAULT_STATE_CACHE_MS;
+    const cached = this._stateCache.get(deviceId);
+    if (!options.forceRefresh && cached && Date.now() - cached.at < cacheMs) {
+      return cached.state;
+    }
+
     const device = await this.getEaseeDevice(deviceId);
-    return readEaseeStateFromDevice(device);
+    const state = readEaseeStateFromDevice(device);
+    if (state) {
+      this._stateCache.set(deviceId, { state, at: Date.now() });
+    }
+
+    return state;
   }
 
-  async applyChargeNow(config, chargeNow) {
+  async applyChargeNow(config, chargeNow, options = {}) {
     if (!config?.enabled) {
       return {
         skipped: true,
@@ -115,70 +160,86 @@ class EaseeChargerController {
       };
     }
 
-    const device = await this.getEaseeDevice(config.deviceId);
-    if (!device) {
-      return {
-        skipped: true,
-        reason: 'easee_device_not_found',
-        chargeNow: Boolean(chargeNow)
-      };
+    const state = options.knownState || await this.readState(config, { forceRefresh: options.forceRefresh });
+    if (!state) {
+      const device = await this.getEaseeDevice(config.deviceId);
+      if (!device) {
+        return {
+          skipped: true,
+          reason: 'easee_device_not_found',
+          chargeNow: Boolean(chargeNow)
+        };
+      }
     }
 
-    const state = readEaseeStateFromDevice(device);
+    const currentState = state || readEaseeStateFromDevice(await this.getEaseeDevice(config.deviceId));
 
     if (chargeNow) {
-      if (!shouldStartEasee(state, config.circuitCurrent)) {
+      if (!shouldStartEasee(currentState, config.circuitCurrent)) {
         return {
           action: 'noop',
           chargeNow: true,
-          state: await this._refreshState(config.deviceId)
+          state: currentState
         };
       }
 
-      await this.setEaseeCapability(config.deviceId, CAP_TARGET_CIRCUIT_CURRENT, config.circuitCurrent);
-      await this.setEaseeCapability(config.deviceId, CAP_ONOFF, true);
-      await this.setEaseeCapability(config.deviceId, CAP_EVCHARGER_CHARGING, true);
-      this.log(`Easee start: ${config.circuitCurrent}A på ${device.name}`);
+      if (currentState.targetCircuitCurrent < config.circuitCurrent) {
+        await this.setEaseeCapability(
+          config.deviceId,
+          CAP_TARGET_CIRCUIT_CURRENT,
+          config.circuitCurrent
+        );
+      }
+      if (!currentState.onoff) {
+        await this.setEaseeCapability(config.deviceId, CAP_ONOFF, true);
+      }
+      if (!currentState.evchargerCharging) {
+        await this.setEaseeCapability(config.deviceId, CAP_EVCHARGER_CHARGING, true);
+      }
+      this.log(`Easee start: ${config.circuitCurrent}A på ${currentState.name || config.deviceId}`);
 
       return {
         action: 'start',
         chargeNow: true,
-        state: await this._refreshState(config.deviceId)
+        state: await this.readState(config, { forceRefresh: true, cacheMs: 0 })
       };
     }
 
-    if (!shouldStopEasee(state)) {
+    if (!shouldStopEasee(currentState)) {
       return {
         action: 'noop',
         chargeNow: false,
-        state: await this._refreshState(config.deviceId)
+        state: currentState
       };
     }
 
-    await this.setEaseeCapability(config.deviceId, CAP_TARGET_CIRCUIT_CURRENT, 0);
-    await this.setEaseeCapability(config.deviceId, CAP_ONOFF, false);
-    await this.setEaseeCapability(config.deviceId, CAP_EVCHARGER_CHARGING, false);
-    this.log(`Easee stop: ${device.name}`);
+    if (currentState.targetCircuitCurrent > 0) {
+      await this.setEaseeCapability(config.deviceId, CAP_TARGET_CIRCUIT_CURRENT, 0);
+    }
+    if (currentState.onoff) {
+      await this.setEaseeCapability(config.deviceId, CAP_ONOFF, false);
+    }
+    if (currentState.evchargerCharging) {
+      await this.setEaseeCapability(config.deviceId, CAP_EVCHARGER_CHARGING, false);
+    }
+    this.log(`Easee stop: ${currentState.name || config.deviceId}`);
 
     return {
       action: 'stop',
       chargeNow: false,
-      state: await this._refreshState(config.deviceId)
+      state: await this.readState(config, { forceRefresh: true, cacheMs: 0 })
     };
-  }
-
-  async _refreshState(deviceId) {
-    const refreshed = await this.getEaseeDevice(deviceId);
-    return readEaseeStateFromDevice(refreshed);
   }
 }
 
 module.exports = {
   DEFAULT_EASEE_DEVICE_ID,
   DEFAULT_EASEE_CIRCUIT_CURRENT,
+  DEFAULT_STATE_CACHE_MS,
   buildEaseeConfig,
   readEaseeStateFromDevice,
   shouldStartEasee,
   shouldStopEasee,
+  isRateLimitError,
   EaseeChargerController
 };

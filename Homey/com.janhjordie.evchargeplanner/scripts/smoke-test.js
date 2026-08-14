@@ -256,6 +256,40 @@ function testOneShotSessionFinish() {
   );
 }
 
+function testDayForceChargeActive() {
+  const { getChargePlanWindow, isDayForceChargeActive } = require('../lib/planner/windows');
+
+  const dayWindow = getChargePlanWindow(8, '2026-08-13', '2026-08-12', '2026-08-14');
+  assert.strictEqual(dayWindow.planType, 'day');
+  assert.strictEqual(isDayForceChargeActive(true, dayWindow), true);
+  assert.strictEqual(isDayForceChargeActive(false, dayWindow), false);
+
+  const nightWindow = getChargePlanWindow(20, '2026-08-13', '2026-08-12', '2026-08-14');
+  assert.strictEqual(isDayForceChargeActive(true, nightWindow), false);
+}
+
+function testEaseeNeedsSync() {
+  const { easeeNeedsSync } = require('../lib/chargeOrchestrator');
+  const { shouldStartEasee } = require('../lib/easeeCharger');
+
+  const idleState = {
+    onoff: false,
+    targetCircuitCurrent: 0,
+    evchargerCharging: false
+  };
+  assert.strictEqual(easeeNeedsSync(true, idleState, 16), true);
+  assert.strictEqual(easeeNeedsSync(false, idleState, 16), false);
+
+  const chargingState = {
+    onoff: true,
+    targetCircuitCurrent: 16,
+    evchargerCharging: true
+  };
+  assert.strictEqual(easeeNeedsSync(true, chargingState, 16), false);
+  assert.strictEqual(easeeNeedsSync(false, chargingState, 16), true);
+  assert.strictEqual(shouldStartEasee(chargingState, 16), false);
+}
+
 function testEaseeConfig() {
   const { buildEaseeConfig, shouldStartEasee, shouldStopEasee } = require('../lib/easeeCharger');
 
@@ -271,6 +305,28 @@ function testEaseeConfig() {
   assert.strictEqual(shouldStartEasee({ onoff: true, targetCircuitCurrent: 16 }, 16), false);
   assert.strictEqual(shouldStopEasee({ onoff: true, targetCircuitCurrent: 16 }), true);
   assert.strictEqual(shouldStopEasee({ onoff: false, targetCircuitCurrent: 0 }), false);
+}
+
+function testChargeHoursAffectsPlanSlots() {
+  const slots = [];
+  for (let hour = 10; hour < 18; hour++) {
+    for (const minute of [0, 15, 30, 45]) {
+      slots.push({
+        date: '2026-08-05',
+        hour,
+        minute,
+        timestamp: hour * 100 + minute,
+        spotPriceInclVat: hour < 14 ? 0.40 : 0.10
+      });
+    }
+  }
+
+  const current = slots[0];
+  const threeHourPlan = evaluateChargePlan(slots, 3, 0.30, current, { planOnly: true });
+  const fiveHourPlan = evaluateChargePlan(slots, 5, 0.30, current, { planOnly: true });
+
+  assert.strictEqual(threeHourPlan.planSlots.length, 12);
+  assert.strictEqual(fiveHourPlan.planSlots.length, 20);
 }
 
 async function main() {
@@ -289,6 +345,9 @@ async function main() {
   testChargingCapabilities();
   testOneShotSessionFinish();
   testEaseeConfig();
+  testDayForceChargeActive();
+  testEaseeNeedsSync();
+  testChargeHoursAffectsPlanSlots();
   await testLiveFetchOptional();
   console.log('Smoke tests passed');
 }

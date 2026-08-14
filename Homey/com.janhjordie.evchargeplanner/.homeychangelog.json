@@ -1,4 +1,16 @@
 {
+  "1.0.35": {
+    "en": "Fix force charge during day plan; reduce Easee API calls with caching, retries on rate limit, and sync only when state differs.",
+    "da": "Ret tvungen dagopladning; færre Easee API-kald med cache, retry ved rate limit, og sync kun når tilstand afviger."
+  },
+  "1.0.34": {
+    "en": "Push notification with new charge plan when charge hours are changed.",
+    "da": "Push-notifikation med ny ladeplan når ladetimer ændres."
+  },
+  "1.0.33": {
+    "en": "Fix charge schedule not updating when charge hours change; read hours from capability and queue overlapping evaluations.",
+    "da": "Ret at ladeplan ikke opdateres ved ændring af ladetimer; læser timer fra capability og kører udsatte evalueringer."
+  },
   "1.0.32": {
     "en": "Fix cheapest-plan-only being reset each evaluation; charge schedule shows total span from first to last selected slot.",
     "da": "Ret at kun-billigste-plan blev nulstillet ved hver evaluering; ladeplan viser samlet tidsspænd fra første til sidste valgte kvarter."
