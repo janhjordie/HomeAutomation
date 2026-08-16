@@ -196,20 +196,60 @@ function testChargingCapabilities() {
     {
       chargeNow: true,
       chargerKw: 11,
-      powerW: 0,
+      powerW: 11000,
       chargingState: 'plugged_out',
-      evchargerCharging: false
+      evchargerCharging: true
     }
+  );
+  assert.strictEqual(
+    buildEaseeChargingSync({
+      measurePower: 10715,
+      evchargerCharging: false,
+      chargingState: 'plugged_in_charging'
+    }, false, 11).powerW,
+    10715
   );
 }
 
 function testWindowConfig() {
-  const { buildWindowConfig } = require('../lib/planner/windowConfig');
-  const config = buildWindowConfig({ day_charge_start: 10, day_charge_end: 18 });
+  const { buildWindowConfig, parseNightChargeEnd, partsToDecimalHour } = require('../lib/planner/windowConfig');
+  const config = buildWindowConfig({ day_charge_start: 10, day_charge_end: 18, night_charge_end: 7.5 });
   assert.strictEqual(config.dayChargeStart, 10);
   assert.strictEqual(config.dayChargeEnd, 18);
   assert.strictEqual(config.dayPlanSwitchHour, 8);
   assert.strictEqual(config.nightPlanSwitchHour, 18);
+  assert.strictEqual(config.nightChargeEnd, 7);
+  assert.strictEqual(config.nightChargeEndMinute, 30);
+
+  const parsed = parseNightChargeEnd(6.5);
+  assert.strictEqual(partsToDecimalHour(parsed.hour, parsed.minute), 6.5);
+}
+
+function testNightWindowHalfHourEnd() {
+  const { buildTonightChargeWindow, getSlotsForWindow } = require('../lib/planner/windows');
+  const { buildWindowConfig } = require('../lib/planner/windowConfig');
+  const windowConfig = buildWindowConfig({ night_charge_end: 6.5 });
+  const window = buildTonightChargeWindow('2026-08-16', '2026-08-17', windowConfig);
+  const slots = [
+    { date: '2026-08-17', hour: 6, minute: 15, timestamp: 1 },
+    { date: '2026-08-17', hour: 6, minute: 30, timestamp: 2 }
+  ];
+
+  const inWindow = getSlotsForWindow(slots, window);
+  assert.strictEqual(inWindow.length, 1);
+  assert.strictEqual(inWindow[0].minute, 15);
+}
+
+function testCrossMidnightScheduleFormat() {
+  const { formatChargeSchedule } = require('../lib/planner/oneShot');
+  const { SLOT_MS } = require('../lib/price/slotBuilder');
+  const base = Date.parse('2026-08-16T21:45:00.000+02:00');
+  const slots = [
+    { date: '2026-08-16', hour: 23, minute: 45, timestamp: base, spotPriceInclVat: 0.10 },
+    { date: '2026-08-17', hour: 5, minute: 30, timestamp: base + (24 * SLOT_MS), spotPriceInclVat: 0.08 }
+  ];
+
+  assert.strictEqual(formatChargeSchedule(slots, 'Europe/Copenhagen'), '23:45-05:45');
 }
 
 async function testLiveFetchOptional() {
@@ -256,16 +296,68 @@ function testOneShotSessionFinish() {
   );
 }
 
+function testForceChargeOverridesNightDisabled() {
+  const { buildDeviceConfig, buildAppConfig, evaluateChargePlanForDevice } = require('../lib/evaluator');
+  const { getChargePlanWindow } = require('../lib/planner/windows');
+
+  const nightWindow = getChargePlanWindow(20, '2026-08-16', '2026-08-15', '2026-08-17');
+  assert.strictEqual(nightWindow.planType, 'night');
+
+  const slots = [];
+  for (let hour = 21; hour < 24; hour++) {
+    for (const minute of [0, 15, 30, 45]) {
+      slots.push({
+        date: '2026-08-16',
+        hour,
+        minute,
+        timestamp: Date.parse(`2026-08-16T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00.000Z`),
+        spotPriceInclVat: 0.40
+      });
+    }
+  }
+
+  const currentSlot = slots[0];
+  const deviceConfig = buildDeviceConfig({
+    force_charge: true,
+    night_charge_enabled: false,
+    charge_hours: 3
+  });
+  const appConfig = buildAppConfig({ price_area: 'DK2', spot_threshold: 0.30, charger_kw: 11 });
+
+  const priceData = {
+    allSlots: slots,
+    todaySlots: slots,
+    tomorrowSlots: [],
+    priceSource: 'test',
+    priceResolution: '15min',
+    usesHourlyExpandedPrices: false,
+    fetchLog: 'test'
+  };
+
+  const originalFetch = require('../lib/price/fetchPrices').fetchPrices;
+  require('../lib/price/fetchPrices').fetchPrices = async () => priceData;
+
+  return evaluateChargePlanForDevice(deviceConfig, appConfig, {
+    now: new Date(currentSlot.timestamp),
+    oneShotCache: {}
+  }).then((result) => {
+    require('../lib/price/fetchPrices').fetchPrices = originalFetch;
+    assert.strictEqual(result.charge_now, true);
+    assert.strictEqual(result.forceChargeActive, true);
+    assert.ok(result.charge_message.includes('Natteplan') || result.charge_message.includes('Dagsplan'));
+    assert.ok(!result.charge_message.includes('Opvask'));
+  });
+}
+
 function testDayForceChargeActive() {
   const { getChargePlanWindow, isDayForceChargeActive } = require('../lib/planner/windows');
 
   const dayWindow = getChargePlanWindow(8, '2026-08-13', '2026-08-12', '2026-08-14');
   assert.strictEqual(dayWindow.planType, 'day');
   assert.strictEqual(isDayForceChargeActive(true, dayWindow), true);
-  assert.strictEqual(isDayForceChargeActive(false, dayWindow), false);
 
   const nightWindow = getChargePlanWindow(20, '2026-08-13', '2026-08-12', '2026-08-14');
-  assert.strictEqual(isDayForceChargeActive(true, nightWindow), false);
+  assert.strictEqual(isDayForceChargeActive(true, nightWindow), true);
 }
 
 function testEaseeNeedsSync() {
@@ -329,6 +421,113 @@ function testChargeHoursAffectsPlanSlots() {
   assert.strictEqual(fiveHourPlan.planSlots.length, 20);
 }
 
+function testEaseePowerFollowUp() {
+  const { EaseePowerFollowUp, STABLE_STOP_MS } = require('../lib/easeePowerFollowUp');
+
+  const followUp = new EaseePowerFollowUp({
+    scheduleTimeout: () => 1,
+    clearTimeout: () => {},
+    pollFn: async () => 0,
+    log: () => {}
+  });
+
+  followUp.start('test');
+  followUp._handlePollResult(5000);
+  assert.strictEqual(followUp._session.lastPowerW, 5000);
+
+  const nearEnd = Date.now() + 2000;
+  followUp._session.endAt = nearEnd;
+  followUp._handlePollResult(11000);
+  assert.ok(followUp._session.endAt > nearEnd);
+
+  followUp._session.lastChangeAt = Date.now() - STABLE_STOP_MS - 1;
+  followUp._session.pollCount = 3;
+  followUp._handlePollResult(11000);
+  assert.strictEqual(followUp._session, null);
+}
+
+function testPlanNotificationFormat() {
+  const {
+    describeChargeMode,
+    formatPlanNotificationText,
+    buildPlanNotificationMessage
+  } = require('../lib/planNotification');
+  const { buildDeviceConfig } = require('../lib/evaluator');
+
+  const cheapestText = formatPlanNotificationText([
+    {
+      planLabel: 'Dagsplan',
+      schedule: '11:00-16:00',
+      windowHours: '09:00-17:00'
+    },
+    {
+      planLabel: 'Natteplan',
+      schedule: '23:45-05:45',
+      windowHours: '21:00-06:00'
+    }
+  ], {
+    chargeHours: 5,
+    modeLabel: describeChargeMode({ cheapestPlanOnly: true, chargeHours: 5 })
+  });
+
+  assert.strictEqual(
+    cheapestText,
+    '5 timer · kun billigste tider\n'
+      + 'Dagsplan: 11:00-16:00 (09:00-17:00)\n'
+      + 'Natteplan: 23:45-05:45 (21:00-06:00)'
+  );
+
+  const spotText = formatPlanNotificationText([
+    {
+      planLabel: 'Dagsplan',
+      schedule: '11:00-16:00',
+      windowHours: '09:00-17:00'
+    }
+  ], {
+    chargeHours: 5,
+    modeLabel: describeChargeMode({ cheapestPlanOnly: false, spotThreshold: 0.2 })
+  });
+
+  assert.ok(spotText.includes('spot under 0,20 kr + plan'));
+  assert.ok(spotText.includes('Dagsplan: 11:00-16:00 (09:00-17:00)'));
+  assert.strictEqual(
+    describeChargeMode({ oneShotReadyBy: '09:30' }, { oneShotActive: true }),
+    'engangsopladning til 09:30'
+  );
+
+  const oneShotText = formatPlanNotificationText([
+    { planLabel: 'Plan', schedule: '23:00-06:00', windowHours: null }
+  ], {
+    chargeHours: 7,
+    modeLabel: 'engangsopladning til 09:30'
+  });
+
+  assert.strictEqual(oneShotText, '7 timer · engangsopladning til 09:30\nPlan: 23:00-06:00');
+
+  const deviceConfig = buildDeviceConfig({ charge_hours: 5, cheapest_plan_only: true });
+  const flowMessage = buildPlanNotificationMessage(deviceConfig, [
+    {
+      planLabel: 'Dagsplan',
+      schedule: '11:00-16:00',
+      windowHours: '09:00-17:00'
+    },
+    {
+      planLabel: 'Natteplan',
+      schedule: '23:45-05:45',
+      windowHours: '21:00-06:00'
+    }
+  ], { oneShotActive: false });
+
+  assert.strictEqual(
+    flowMessage,
+    '5 timer · kun billigste tider\n'
+      + 'Dagsplan: 11:00-16:00 (09:00-17:00)\n'
+      + 'Natteplan: 23:45-05:45 (21:00-06:00)'
+  );
+  assert.ok(!flowMessage.includes('Opvask'));
+  assert.ok(!flowMessage.includes('engangsopladning'));
+}
+
 async function main() {
   testBuildDeviceConfig();
   testBuildDeviceConfigSpotThreshold();
@@ -338,6 +537,8 @@ async function main() {
   testChargeScheduleShowsTotalSpan();
   testDayWindow();
   testWindowConfig();
+  testNightWindowHalfHourEnd();
+  testCrossMidnightScheduleFormat();
   testQuarterSchedulerAlignment();
   testPlanScheduleUsesPlanSlotsOnly();
   testOneShotChargeGate();
@@ -347,6 +548,9 @@ async function main() {
   testEaseeConfig();
   testDayForceChargeActive();
   testEaseeNeedsSync();
+  testEaseePowerFollowUp();
+  testPlanNotificationFormat();
+  await testForceChargeOverridesNightDisabled();
   testChargeHoursAffectsPlanSlots();
   await testLiveFetchOptional();
   console.log('Smoke tests passed');

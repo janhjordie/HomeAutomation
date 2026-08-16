@@ -1,7 +1,7 @@
 {
   "_comment": "This file is generated. Please edit .homeycompose/app.json instead.",
   "id": "com.janhjordie.evchargeplanner",
-  "version": "1.0.35",
+  "version": "1.0.45",
   "compatibility": ">=13.0.0",
   "runtime": "nodejs",
   "platforms": [
@@ -391,7 +391,8 @@
         "cheapest_plan_only",
         "spot_threshold",
         "charge_hours",
-        "one_shot_charge_hours"
+        "one_shot_charge_hours",
+        "night_charge_end"
       ],
       "capabilitiesOptions": {
         "measure_power": {
@@ -406,6 +407,11 @@
           "min": 1,
           "max": 8,
           "step": 1
+        },
+        "night_charge_end": {
+          "min": 4,
+          "max": 10,
+          "step": 0.5
         },
         "spot_threshold": {
           "min": 0.05,
@@ -483,6 +489,22 @@
             "da": "Natteopladning aktiv"
           },
           "value": true
+        },
+        {
+          "id": "night_charge_end",
+          "type": "number",
+          "label": {
+            "en": "Night window end",
+            "da": "Nat-sluttid"
+          },
+          "value": 6,
+          "min": 4,
+          "max": 10,
+          "step": 0.5,
+          "units": {
+            "en": "h",
+            "da": "t"
+          }
         },
         {
           "id": "one_shot_enabled",
@@ -605,6 +627,24 @@
       "getable": true,
       "setable": true,
       "uiComponent": "toggle"
+    },
+    "night_charge_end": {
+      "type": "number",
+      "title": {
+        "en": "Night end time",
+        "da": "Nat-sluttid"
+      },
+      "getable": true,
+      "setable": true,
+      "uiComponent": "slider",
+      "min": 4,
+      "max": 10,
+      "step": 0.5,
+      "decimals": 1,
+      "units": {
+        "en": "h",
+        "da": "t"
+      }
     },
     "one_shot_charge_hours": {
       "type": "number",

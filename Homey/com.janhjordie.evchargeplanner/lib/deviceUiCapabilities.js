@@ -6,10 +6,20 @@ const UI_CAPABILITIES = [
   'cheapest_plan_only',
   'charge_hours',
   'one_shot_charge_hours',
+  'night_charge_end',
   'spot_threshold'
 ];
 
 const { DEFAULT_SPOT_CHARGE_THRESHOLD_KR_INCL_VAT } = require('./constants');
+const {
+  parseNightChargeEnd,
+  partsToDecimalHour
+} = require('./planner/windowConfig');
+
+function resolveNightChargeEndDecimal(settings = {}) {
+  const parsed = parseNightChargeEnd(settings.night_charge_end);
+  return partsToDecimalHour(parsed.hour, parsed.minute);
+}
 
 async function ensureUiCapabilities(device) {
   for (const capability of UI_CAPABILITIES) {
@@ -49,6 +59,10 @@ async function syncUiCapabilitiesFromSettings(device, settings = {}) {
     }
   }
 
+  if (device.hasCapability('night_charge_end') && has('night_charge_end')) {
+    updates.push(device.setCapabilityValue('night_charge_end', resolveNightChargeEndDecimal(settings)));
+  }
+
   if (device.hasCapability('spot_threshold') && has('spot_threshold')) {
     const spotThreshold = Number(settings.spot_threshold);
     if (Number.isFinite(spotThreshold) && spotThreshold > 0) {
@@ -64,5 +78,6 @@ async function syncUiCapabilitiesFromSettings(device, settings = {}) {
 module.exports = {
   UI_CAPABILITIES,
   ensureUiCapabilities,
-  syncUiCapabilitiesFromSettings
+  syncUiCapabilitiesFromSettings,
+  resolveNightChargeEndDecimal
 };

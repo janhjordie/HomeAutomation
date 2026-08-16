@@ -16,8 +16,9 @@ const {
 const { formatDateInTimeZone, addDays, getHourInTimeZone } = require('./timezone');
 const { fetchPrices } = require('./price/fetchPrices');
 const { findCurrentSlot, getSlotKey, SLOTS_PER_HOUR } = require('./price/slotBuilder');
-const { getChargePlanWindow, getSlotsForWindow, isDayForceChargeActive, isNightChargeAllowed } = require('./planner/windows');
-const { buildWindowConfig } = require('./planner/windowConfig');
+const { getChargePlanWindow, getSlotsForWindow, isNightChargeAllowed } = require('./planner/windows');
+const { buildPlanSummaries, buildPlanNotificationMessage } = require('./planNotification');
+const { buildWindowConfig, mergeDeviceWindowConfig, parseNightChargeEnd, partsToDecimalHour } = require('./planner/windowConfig');
 const { evaluateChargePlan, selectCheapestPlanSlots } = require('./planner/chargePlan');
 const {
   resolveOneShotDeadline,
@@ -29,10 +30,8 @@ const {
   getSlotsByKeys,
   formatChargeSchedule,
   formatChargeSlotsDetailed,
-  buildChargeMessage,
   shouldChargeOneShotNow
 } = require('./planner/oneShot');
-const { aggregateSlotsToHours, findCheapestDishwasherSlot } = require('./planner/dishwasher');
 
 function clampSpotThreshold(value, fallback = DEFAULT_SPOT_CHARGE_THRESHOLD_KR_INCL_VAT) {
   const threshold = Number(value);
@@ -53,6 +52,7 @@ function buildDeviceConfig(settings = {}, appDefaults = {}) {
     ? defaultChargeHours
     : DEFAULT_CHARGE_HOURS;
   const oneShotHours = Number(settings.one_shot_charge_hours);
+  const appNightEnd = parseNightChargeEnd(appDefaults.night_charge_end);
 
   return {
     chargeHours: Number.isInteger(chargeHours) && chargeHours > 0
@@ -69,7 +69,11 @@ function buildDeviceConfig(settings = {}, appDefaults = {}) {
       settings.spot_threshold,
       clampSpotThreshold(appDefaults.spot_threshold, DEFAULT_SPOT_CHARGE_THRESHOLD_KR_INCL_VAT)
     ),
-    cheapestPlanOnly: settings.cheapest_plan_only === true
+    cheapestPlanOnly: settings.cheapest_plan_only === true,
+    nightChargeEnd: parseNightChargeEnd(
+      settings.night_charge_end,
+      partsToDecimalHour(appNightEnd.hour, appNightEnd.minute)
+    )
   };
 }
 
@@ -93,6 +97,8 @@ function buildAppConfig(appSettings = {}, env = {}) {
 async function evaluateChargePlanForDevice(deviceConfig, appConfig, options = {}) {
   const now = options.now || new Date();
   const timeZone = appConfig.timeZone || DK_TIME_ZONE;
+  const windowConfig = mergeDeviceWindowConfig(appConfig.windowConfig, deviceConfig);
+  const planAppConfig = { ...appConfig, windowConfig };
   const today = formatDateInTimeZone(now, timeZone);
   const yesterday = addDays(today, -1);
   const tomorrow = addDays(today, 1);
@@ -121,7 +127,7 @@ async function evaluateChargePlanForDevice(deviceConfig, appConfig, options = {}
     today,
     yesterday,
     tomorrow,
-    appConfig.windowConfig
+    windowConfig
   );
   let chargeWindowSlots = getSlotsForWindow(allSlots, chargePlanWindow);
   let activeChargeHoursNeeded = deviceConfig.chargeHours;
@@ -146,10 +152,6 @@ async function evaluateChargePlanForDevice(deviceConfig, appConfig, options = {}
       label: `nu -> ${oneShotDeadline.label}`,
       messagePrefix: 'Engangsopladning'
     };
-    const cheapestDishwasherSlot = findCheapestDishwasherSlot(
-      aggregateSlotsToHours(chargeWindowSlots),
-      timeZone
-    );
 
     const sessionKey = buildOneShotSessionKey(
       oneShotDeadline,
@@ -174,16 +176,21 @@ async function evaluateChargePlanForDevice(deviceConfig, appConfig, options = {}
 
     if (isOneShotSessionFinished(now, oneShotDeadline, cachedPlanSlots, timeZone)) {
       oneShotDisabledReason = `engangsopladning afsluttet (${oneShotDeadline.label})`;
+      const planSummaries = buildPlanSummaries(allSlots, deviceConfig, planAppConfig, { now, currentSlot });
 
       return {
         charge_now: false,
-        charge_message: `Engangsopladning afsluttet (klar ${oneShotDeadline.label}).`,
+        charge_message: buildPlanNotificationMessage(deviceConfig, planSummaries, {
+          oneShotActive: false,
+          fallback: `Engangsopladning afsluttet (klar ${oneShotDeadline.label}).`
+        }),
         charge_schedule: 'ingen',
         totalCost: 0,
         oneShotActive: false,
         oneShotDisabledReason,
         oneShotCacheUpdate: { clear: true },
         forceChargeActive: false,
+        planSummaries,
         priceSource,
         priceResolution,
         usesHourlyExpandedPrices,
@@ -211,9 +218,6 @@ async function evaluateChargePlanForDevice(deviceConfig, appConfig, options = {}
 
     evaluation.oneShotActive = true;
     evaluation.oneShotDeadlineLabel = oneShotDeadline.label;
-    evaluation.dishwasherMessageSuffix = cheapestDishwasherSlot
-      ? ` ${cheapestDishwasherSlot.message}.`
-      : '';
     evaluation.charge_now = shouldChargeOneShotNow(
       evaluation,
       currentSlot,
@@ -222,13 +226,16 @@ async function evaluateChargePlanForDevice(deviceConfig, appConfig, options = {}
 
     const scheduleSummary = formatChargeSchedule(cachedPlanSlots, timeZone);
     const scheduleDetailed = formatChargeSlotsDetailed(cachedPlanSlots);
-    const charge_message = buildChargeMessage(
-      chargePlanWindow,
-      evaluation,
+    const planSummaries = buildPlanSummaries(allSlots, deviceConfig, planAppConfig, {
+      now,
       currentSlot,
-      deviceConfig.spotThreshold,
-      timeZone
-    );
+      oneShotActive: true,
+      oneShotLabel: chargePlanWindow.label,
+      oneShotSchedule: scheduleSummary
+    });
+    const charge_message = buildPlanNotificationMessage(deviceConfig, planSummaries, {
+      oneShotActive: true
+    });
     const totalSpotInclVatCost = evaluation.planSlots.reduce(
       (sum, slot) => sum + slot.spotPriceInclVat,
       0
@@ -243,6 +250,7 @@ async function evaluateChargePlanForDevice(deviceConfig, appConfig, options = {}
       oneShotDisabledReason,
       oneShotCacheUpdate,
       forceChargeActive: false,
+      planSummaries,
       priceSource,
       priceResolution,
       usesHourlyExpandedPrices,
@@ -262,11 +270,6 @@ async function evaluateChargePlanForDevice(deviceConfig, appConfig, options = {}
     };
   }
 
-  const cheapestDishwasherSlot = findCheapestDishwasherSlot(
-    aggregateSlotsToHours(chargeWindowSlots),
-    timeZone
-  );
-
   if (chargeWindowSlots.length === 0) {
     const waitingForTomorrowPrices = !oneShotActive
       && chargePlanWindow.endDate === tomorrow
@@ -276,18 +279,18 @@ async function evaluateChargePlanForDevice(deviceConfig, appConfig, options = {}
       oneShotDisabledReason = `ingen kvarter tilbage foer deadline ${oneShotDeadline.label}`;
     }
 
-    const forceChargeActive = !oneShotActive
-      && isDayForceChargeActive(deviceConfig.forceCharge, chargePlanWindow);
-
-    const charge_message = oneShotActive
-      ? `Engangsopladning afsluttet (ingen kvarter foer ${oneShotDeadline.label}).`
-      : forceChargeActive
-        ? `Dagopladning: tvungen opladning aktiv.${cheapestDishwasherSlot ? ` ${cheapestDishwasherSlot.message}.` : ''}`
-        : cheapestDishwasherSlot
-          ? `Ingen ${chargePlanWindow.messagePrefix.toLowerCase()} endnu. ${cheapestDishwasherSlot.message}.`
+    const forceChargeActive = !oneShotActive && Boolean(deviceConfig.forceCharge);
+    const planSummaries = buildPlanSummaries(allSlots, deviceConfig, planAppConfig, { now, currentSlot });
+    const charge_message = buildPlanNotificationMessage(deviceConfig, planSummaries, {
+      oneShotActive: false,
+      fallback: oneShotActive
+        ? `Engangsopladning afsluttet (ingen kvarter foer ${oneShotDeadline.label}).`
+        : forceChargeActive
+          ? `${chargePlanWindow.messagePrefix}: tvungen opladning aktiv.`
           : waitingForTomorrowPrices
             ? `Ingen beregning endnu: priser for i morgen (${tomorrow}) er ikke tilgaengelige.`
-            : `Ingen ${chargePlanWindow.messagePrefix.toLowerCase()} endnu`;
+            : `Ingen ${chargePlanWindow.messagePrefix.toLowerCase()} endnu`
+    });
 
     return {
       charge_now: forceChargeActive,
@@ -297,6 +300,7 @@ async function evaluateChargePlanForDevice(deviceConfig, appConfig, options = {}
       oneShotActive: false,
       oneShotDisabledReason,
       forceChargeActive,
+      planSummaries,
       priceSource,
       priceResolution,
       usesHourlyExpandedPrices,
@@ -323,21 +327,13 @@ async function evaluateChargePlanForDevice(deviceConfig, appConfig, options = {}
     }
   );
 
-  evaluation.dishwasherMessageSuffix = cheapestDishwasherSlot
-    ? ` ${cheapestDishwasherSlot.message}.`
-    : '';
-
-  const forceChargeActive = isDayForceChargeActive(
-    deviceConfig.forceCharge,
-    chargePlanWindow
-  );
-
-  if (forceChargeActive) {
+  if (deviceConfig.forceCharge && !oneShotActive) {
     evaluation.charge_now = true;
     evaluation.forceChargeActive = true;
   }
 
-  if (!isNightChargeAllowed(deviceConfig.nightChargeEnabled, chargePlanWindow)) {
+  if (!isNightChargeAllowed(deviceConfig.nightChargeEnabled, chargePlanWindow)
+    && !deviceConfig.forceCharge) {
     evaluation.charge_now = false;
     evaluation.nightChargeDisabled = true;
   }
@@ -345,15 +341,10 @@ async function evaluateChargePlanForDevice(deviceConfig, appConfig, options = {}
   const scheduleSlots = evaluation.planSlots;
   const scheduleSummary = formatChargeSchedule(scheduleSlots, timeZone);
   const scheduleDetailed = formatChargeSlotsDetailed(scheduleSlots);
-  const charge_message = evaluation.nightChargeDisabled
-    ? `Natteopladning er deaktiveret. Plan: ${formatChargeSchedule(scheduleSlots, timeZone)}.${evaluation.dishwasherMessageSuffix || ''}`
-    : buildChargeMessage(
-      chargePlanWindow,
-      evaluation,
-      currentSlot,
-      deviceConfig.spotThreshold,
-      timeZone
-    );
+  const planSummaries = buildPlanSummaries(allSlots, deviceConfig, planAppConfig, { now, currentSlot });
+  const charge_message = buildPlanNotificationMessage(deviceConfig, planSummaries, {
+    oneShotActive: false
+  });
   const totalSpotInclVatCost = evaluation.planSlots.reduce(
     (sum, slot) => sum + slot.spotPriceInclVat,
     0
@@ -366,7 +357,8 @@ async function evaluateChargePlanForDevice(deviceConfig, appConfig, options = {}
     totalCost: totalSpotInclVatCost,
     oneShotActive,
     oneShotDisabledReason,
-    forceChargeActive,
+    forceChargeActive: evaluation.forceChargeActive,
+    planSummaries,
     priceSource,
     priceResolution,
     usesHourlyExpandedPrices,

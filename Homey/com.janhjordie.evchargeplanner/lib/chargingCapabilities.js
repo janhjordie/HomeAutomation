@@ -57,17 +57,25 @@ function buildEaseeChargingSync(easeeState, chargeNow, chargerKw) {
     };
   }
 
-  const powerW = Number(easeeState.measurePower) || 0;
-  const evchargerCharging = Boolean(easeeState.evchargerCharging) || powerW > 0;
-  const chargingState = easeeState.chargingState
-    || (powerW > 0 ? 'plugged_in_charging' : 'plugged_in');
+  const rawPowerW = Number(easeeState.measurePower);
+  const powerW = Number.isFinite(rawPowerW) ? rawPowerW : 0;
+  const chargingState = easeeState.chargingState || null;
+  const evchargerCharging = Boolean(easeeState.evchargerCharging)
+    || powerW > 0
+    || chargingState === 'plugged_in_charging';
+  const isCharging = evchargerCharging || Boolean(chargeNow);
+  const resolvedPowerW = isCharging && powerW <= 0
+    ? getMeasurePowerW(true, chargerKw)
+    : powerW;
+  const resolvedState = chargingState
+    || (isCharging ? 'plugged_in_charging' : 'plugged_in');
 
   return {
     chargeNow,
     chargerKw,
-    powerW,
-    chargingState,
-    evchargerCharging
+    powerW: resolvedPowerW,
+    chargingState: resolvedState,
+    evchargerCharging: isCharging
   };
 }
 

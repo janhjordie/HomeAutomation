@@ -185,11 +185,7 @@ function formatScheduleRange(start, end, timeZone) {
   const { formatSlotTime, formatHourNumber } = require('../timezone');
   const endLabel = `${formatHourNumber(endParts.hour)}:${String(endParts.minute).padStart(2, '0')}`;
 
-  if (start.date === endParts.date) {
-    return `${formatSlotTime(start)}-${endLabel}`;
-  }
-
-  return `${formatSlotLabel(start)} -> ${endParts.date} ${endLabel}`;
+  return `${formatSlotTime(start)}-${endLabel}`;
 }
 
 function formatChargeSchedule(slots, timeZone) {
@@ -238,7 +234,6 @@ function buildChargeMessage(chargePlanWindow, evaluation, currentSlot, spotThres
     oneShotActive,
     oneShotDeadlineLabel
   } = evaluation;
-  const dishwasherMessageSuffix = evaluation.dishwasherMessageSuffix || '';
   const { formatSlotTime } = require('../timezone');
   const currentSpotText = Number.isFinite(currentSlot.spotPriceInclVat)
     ? currentSlot.spotPriceInclVat.toFixed(2)
@@ -247,7 +242,7 @@ function buildChargeMessage(chargePlanWindow, evaluation, currentSlot, spotThres
   const nextSlot = nextPlanSlot;
 
   if (charge_now && oneShotActive) {
-    return `Engangsopladning: lader nu (spot ${currentSpotText}), klar ${oneShotDeadlineLabel}. Plan: ${scheduleText}.${dishwasherMessageSuffix}`;
+    return `Engangsopladning: lader nu (spot ${currentSpotText}), klar ${oneShotDeadlineLabel}. Plan: ${scheduleText}.`;
   }
 
   if (oneShotActive) {
@@ -257,14 +252,14 @@ function buildChargeMessage(chargePlanWindow, evaluation, currentSlot, spotThres
     const planHours = (planSlots.length / SLOTS_PER_HOUR).toFixed(1);
 
     if (!charge_now) {
-      return `Engangsopladning: venter (spot ${currentSpotText}, graense ${spotThreshold.toFixed(2)}). ${planHours}t planlagt, klar ${oneShotDeadlineLabel}. Plan: ${scheduleText}. ${nextText}.${dishwasherMessageSuffix}`;
+      return `Engangsopladning: venter (spot ${currentSpotText}, graense ${spotThreshold.toFixed(2)}). ${planHours}t planlagt, klar ${oneShotDeadlineLabel}. Plan: ${scheduleText}. ${nextText}.`;
     }
 
-    return `Engangsopladning: ${planHours}t planlagt, klar ${oneShotDeadlineLabel}. Plan: ${scheduleText}. ${nextText}.${dishwasherMessageSuffix}`;
+    return `Engangsopladning: ${planHours}t planlagt, klar ${oneShotDeadlineLabel}. Plan: ${scheduleText}. ${nextText}.`;
   }
 
   if (charge_now && forceChargeActive) {
-    return `Dagopladning: tvungen opladning aktiv (spot ${currentSpotText}).${dishwasherMessageSuffix}`;
+    return `${chargePlanWindow.messagePrefix}: tvungen opladning aktiv (spot ${currentSpotText}).`;
   }
 
   if (charge_now) {
@@ -276,11 +271,11 @@ function buildChargeMessage(chargePlanWindow, evaluation, currentSlot, spotThres
         ? `plan (${currentSpotText})`
         : `spot ${currentSpotText}`;
 
-    return `${chargePlanWindow.messagePrefix}: lader nu (${reason}). Plan: ${scheduleText}.${dishwasherMessageSuffix}`;
+    return `${chargePlanWindow.messagePrefix}: lader nu (${reason}). Plan: ${scheduleText}.`;
   }
 
   if (chargingSlots.length === 0) {
-    return `Ingen ${chargePlanWindow.messagePrefix.toLowerCase()} endnu.${dishwasherMessageSuffix}`;
+    return `Ingen ${chargePlanWindow.messagePrefix.toLowerCase()} endnu.`;
   }
 
   const nextText = nextSlot
@@ -289,7 +284,7 @@ function buildChargeMessage(chargePlanWindow, evaluation, currentSlot, spotThres
   const thresholdHours = (thresholdSlots.length / SLOTS_PER_HOUR).toFixed(1);
   const planHours = (planSlots.length / SLOTS_PER_HOUR).toFixed(1);
 
-  return `${chargePlanWindow.messagePrefix}: ${thresholdHours}t under ${spotThreshold.toFixed(2)}, ${planHours}t i ${chargeSlotsNeeded}-kvarters plan. Plan: ${scheduleText}. ${nextText}.${dishwasherMessageSuffix}`;
+  return `${chargePlanWindow.messagePrefix}: ${thresholdHours}t under ${spotThreshold.toFixed(2)}, ${planHours}t i ${chargeSlotsNeeded}-kvarters plan. Plan: ${scheduleText}. ${nextText}.`;
 }
 
 module.exports = {

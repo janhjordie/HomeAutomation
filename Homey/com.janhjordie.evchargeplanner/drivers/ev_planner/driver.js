@@ -56,13 +56,11 @@ class EvPlannerDriver extends Homey.Driver {
       this._getFlowCard(['getDeviceActionCard', 'getActionCard'], 'force_charge_on')
         .registerRunListener(async (args) => {
           await args.device.setCapabilityValue('force_charge', true);
-          await args.device.evaluateNow('flow_force_on');
         });
 
       this._getFlowCard(['getDeviceActionCard', 'getActionCard'], 'force_charge_off')
         .registerRunListener(async (args) => {
           await args.device.setCapabilityValue('force_charge', false);
-          await args.device.evaluateNow('flow_force_off');
         });
 
       this._getFlowCard(['getDeviceActionCard', 'getActionCard'], 'start_one_shot')

@@ -1,4 +1,44 @@
 {
+  "1.0.45": {
+    "en": "Evening plan message (flows + charge_message) uses same format as push notifications.",
+    "da": "Aftenplan-besked (flows + charge_message) bruger samme format som push-notifikationer."
+  },
+  "1.0.44": {
+    "en": "Night end slider on device tile (half hours 04:00-10:00). Plan notifications show times only.",
+    "da": "Nat-sluttid på flisen (halve timer 04:00-10:00). Plan-notifikationer viser kun klokkeslæt."
+  },
+  "1.0.43": {
+    "en": "Plan notifications: Dagsplan/Natteplan lines with schedule and window hours, no dates.",
+    "da": "Plan-notifikationer: Dagsplan/Natteplan med plan og vindue-tider, uden dato."
+  },
+  "1.0.42": {
+    "en": "Simpler plan notifications: plans only with mode line (cheapest vs spot threshold).",
+    "da": "Enklere plan-notifikationer: kun planer med modus (billigste vs spot-grænse)."
+  },
+  "1.0.41": {
+    "en": "Cleaner plan push notifications with line breaks; day and night plans; no dishwasher hint.",
+    "da": "Renere plan-notifikationer med linjeskift; dag- og natplan; uden opvask-hint."
+  },
+  "1.0.40": {
+    "en": "Push notification with updated charge plan when toggling night charge, cheapest-only, and one-shot.",
+    "da": "Push-notifikation med ny ladeplan ved skift af natteopladning, kun-billigste-plan og engangsopladning."
+  },
+  "1.0.39": {
+    "en": "Trailing settlement poll for Easee power: every 5s up to 60s, extend 10s on change until stable.",
+    "da": "Trailing poll af Easee-effekt: hvert 5s i op til 60s, +10s ved ændring indtil stabil."
+  },
+  "1.0.38": {
+    "en": "Sync measure_power from Easee with fallback estimate while ramping; poll faster when charging.",
+    "da": "Synkroniser measure_power fra Easee med estimat under opstart; hurtigere polling ved opladning."
+  },
+  "1.0.37": {
+    "en": "Force charge toggle returns immediately; Easee and full plan evaluation run in background.",
+    "da": "Tvungen opladning svarer med det samme; Easee og fuld evaluering kører i baggrunden."
+  },
+  "1.0.36": {
+    "en": "Force charge now overrides night-disabled and day-window limits; skip Logic overwrite on toggle.",
+    "da": "Tvungen opladning ignorerer nu natte-deaktivering og dagvindue; Logic ikke læst ved toggle."
+  },
   "1.0.35": {
     "en": "Fix force charge during day plan; reduce Easee API calls with caching, retries on rate limit, and sync only when state differs.",
     "da": "Ret tvungen dagopladning; færre Easee API-kald med cache, retry ved rate limit, og sync kun når tilstand afviger."

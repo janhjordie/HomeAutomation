@@ -1,0 +1,18 @@
+{
+  "type": "number",
+  "title": {
+    "en": "Night end time",
+    "da": "Nat-sluttid"
+  },
+  "getable": true,
+  "setable": true,
+  "uiComponent": "slider",
+  "min": 4,
+  "max": 10,
+  "step": 0.5,
+  "decimals": 1,
+  "units": {
+    "en": "h",
+    "da": "t"
+  }
+}

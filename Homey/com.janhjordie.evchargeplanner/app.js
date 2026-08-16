@@ -257,23 +257,37 @@ class EvChargePlannerApp extends Homey.App {
   }
 
   async sendPlanUpdatedNotification(result, options = {}) {
-    const userName = this.homey.settings.get('notification_user') || 'Homey';
-    const schedule = result.charge_schedule || 'ingen';
     const message = String(result.charge_message || '').trim();
-    const chargeHours = Number(options.chargeHours);
-
-    let text = `${userName}: Ny ladeplan`;
-    if (Number.isInteger(chargeHours) && chargeHours > 0) {
-      text += ` (${chargeHours} timer): ${schedule}`;
-    } else {
-      text += `: ${schedule}`;
-    }
-
     if (message) {
-      text += `. ${message}`;
+      await this._sendPushNotification(message);
+      return;
     }
 
-    await this._sendPushNotification(text);
+    const chargeHours = Number(options.chargeHours);
+    const hours = Number.isInteger(chargeHours) && chargeHours > 0 ? chargeHours : null;
+    const { describeChargeMode, formatPlanNotificationText } = require('./lib/planNotification');
+    const modeLabel = describeChargeMode(options.deviceConfig || {}, {
+      oneShotActive: Boolean(result.oneShotActive)
+    });
+
+    if (result.planSummaries?.length) {
+      await this._sendPushNotification(formatPlanNotificationText(
+        result.planSummaries,
+        { chargeHours: hours, modeLabel }
+      ));
+      return;
+    }
+
+    const schedule = result.charge_schedule || 'ingen';
+    const lines = [];
+
+    if (hours && modeLabel) {
+      lines.push(`${hours} timer · ${modeLabel}`);
+      lines.push('');
+    }
+
+    lines.push(`Plan: ${schedule}`);
+    await this._sendPushNotification(lines.join('\n').trim());
   }
 
   async sendApiFailureNotification(error) {

@@ -414,13 +414,11 @@ class LogicCompat {
       return deviceSettings;
     }
 
-    const forceChargeVar = await this.getLogicVarByName(LOGIC_VARIABLES.FORCE_CHARGE);
     const oneShotReadyVar = await this.getLogicVarByName(LOGIC_VARIABLES.ONE_SHOT_READY_BY);
     const nightChargeVar = await this.getLogicVarByName(LOGIC_VARIABLES.NIGHT_CHARGE);
 
     return {
       ...deviceSettings,
-      force_charge: forceChargeVar ? parseLogicBoolean(forceChargeVar.value) : deviceSettings.force_charge,
       night_charge_enabled: nightChargeVar
         ? parseLogicBoolean(nightChargeVar.value)
         : deviceSettings.night_charge_enabled,
