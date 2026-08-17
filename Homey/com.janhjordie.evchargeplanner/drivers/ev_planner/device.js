@@ -27,6 +27,18 @@ const { updateDeviceSpotPrice } = require('../../lib/spotPriceRefresh');
 const { orchestrateChargeTransition } = require('../../lib/chargeOrchestrator');
 const { EaseePowerFollowUp } = require('../../lib/easeePowerFollowUp');
 
+const PLAN_SETTING_KEYS = [
+  'charge_hours',
+  'spot_threshold',
+  'cheapest_plan_only',
+  'night_charge_enabled',
+  'night_charge_end',
+  'one_shot_enabled',
+  'one_shot_charge_hours',
+  'one_shot_ready_by',
+  'force_charge'
+];
+
 class EvPlannerDevice extends Homey.Device {
   async onInit() {
     try {
@@ -153,7 +165,7 @@ class EvPlannerDevice extends Homey.Device {
       if (this.hasCapability('spot_threshold')) {
         await this.setCapabilityValue('spot_threshold', rounded);
       }
-      await this.evaluateNow('spot_threshold_changed');
+      await this.evaluateNow('spot_threshold_changed', { spot_threshold: rounded });
     });
 
     this.registerCapabilityListener('charge_hours', async (value) => {
@@ -205,9 +217,7 @@ class EvPlannerDevice extends Homey.Device {
       if (this.hasCapability('one_shot_charge_hours')) {
         await this.setCapabilityValue('one_shot_charge_hours', hours);
       }
-      if (this.getCapabilityValue('one_shot_enabled')) {
-        await this.evaluateNow('one_shot_hours_changed', { one_shot_charge_hours: hours });
-      }
+      await this.evaluateNow('one_shot_hours_changed', { one_shot_charge_hours: hours });
     });
 
     await this.evaluateNow('device_init');
@@ -223,50 +233,85 @@ class EvPlannerDevice extends Homey.Device {
     }
   }
 
-  async onSettings() {
-    const hoursBefore = this._resolveIntegerHours(this.getSetting('charge_hours'), 'charge_hours');
-    const nightBefore = this.hasCapability('night_charge_enabled')
-      ? Boolean(this.getCapabilityValue('night_charge_enabled'))
-      : this.getSetting('night_charge_enabled') !== false;
-    const cheapestBefore = this.hasCapability('cheapest_plan_only')
-      ? Boolean(this.getCapabilityValue('cheapest_plan_only'))
-      : this.getSetting('cheapest_plan_only') === true;
-    const nightEndBefore = this._resolveNightChargeEndDecimal();
+  async onSettings({ newSettings = {}, changedKeys = [] } = {}) {
+    const changed = Array.isArray(changedKeys) ? changedKeys : [];
+    const planChanged = changed.some((key) => PLAN_SETTING_KEYS.includes(key));
+
     this._updatingUiCapabilities = true;
     try {
       await syncUiCapabilitiesFromSettings(this, {
-        charge_hours: this.getSetting('charge_hours'),
-        one_shot_enabled: this.getSetting('one_shot_enabled'),
-        one_shot_charge_hours: this.getSetting('one_shot_charge_hours'),
-        night_charge_enabled: this.getSetting('night_charge_enabled'),
-        night_charge_end: this.getSetting('night_charge_end'),
-        spot_threshold: this.getSetting('spot_threshold'),
-        cheapest_plan_only: this.getSetting('cheapest_plan_only')
+        charge_hours: newSettings.charge_hours,
+        one_shot_enabled: newSettings.one_shot_enabled,
+        one_shot_charge_hours: newSettings.one_shot_charge_hours,
+        night_charge_enabled: newSettings.night_charge_enabled,
+        night_charge_end: newSettings.night_charge_end,
+        spot_threshold: newSettings.spot_threshold,
+        cheapest_plan_only: newSettings.cheapest_plan_only
       });
     } finally {
       this._updatingUiCapabilities = false;
     }
 
-    const hoursAfter = Number(this.getSetting('charge_hours'));
-    const hoursChanged = Number.isInteger(hoursAfter) && hoursAfter > 0 && hoursAfter !== hoursBefore;
-    const nightAfter = this.getSetting('night_charge_enabled') !== false;
-    const nightChanged = nightBefore !== nightAfter;
-    const cheapestAfter = this.getSetting('cheapest_plan_only') === true;
-    const cheapestChanged = cheapestBefore !== cheapestAfter;
-    const nightEndAfter = this._resolveNightChargeEndDecimal();
-    const nightEndChanged = nightEndBefore !== nightEndAfter;
-    const shouldNotify = hoursChanged || nightChanged || cheapestChanged || nightEndChanged;
+    const overrides = this._buildEvaluateOverridesFromSettings(newSettings);
+    const hoursChanged = changed.includes('charge_hours')
+      && Number.isInteger(Number(newSettings.charge_hours))
+      && Number(newSettings.charge_hours) > 0;
 
     await this.evaluateNow(
       'settings_changed',
-      hoursChanged ? { charge_hours: hoursAfter } : {},
-      shouldNotify
+      overrides,
+      planChanged
         ? {
-          notify: true,
-          chargeHours: hoursChanged ? hoursAfter : undefined
+          notify: changed.includes('charge_hours')
+            || changed.includes('night_charge_enabled')
+            || changed.includes('cheapest_plan_only')
+            || changed.includes('night_charge_end'),
+          chargeHours: hoursChanged ? Number(newSettings.charge_hours) : undefined
         }
         : {}
     );
+  }
+
+  _buildEvaluateOverridesFromSettings(settings = {}) {
+    const overrides = {};
+
+    if (settings.charge_hours != null) {
+      overrides.charge_hours = settings.charge_hours;
+    }
+
+    if (settings.one_shot_charge_hours != null) {
+      overrides.one_shot_charge_hours = settings.one_shot_charge_hours;
+    }
+
+    if (settings.night_charge_end != null) {
+      overrides.night_charge_end = settings.night_charge_end;
+    }
+
+    if (settings.night_charge_enabled != null) {
+      overrides.night_charge_enabled = settings.night_charge_enabled !== false;
+    }
+
+    if (settings.cheapest_plan_only != null) {
+      overrides.cheapest_plan_only = settings.cheapest_plan_only === true;
+    }
+
+    if (settings.one_shot_enabled != null) {
+      overrides.one_shot_enabled = settings.one_shot_enabled === true;
+    }
+
+    if (settings.one_shot_ready_by != null) {
+      overrides.one_shot_ready_by = String(settings.one_shot_ready_by);
+    }
+
+    if (settings.spot_threshold != null) {
+      overrides.spot_threshold = settings.spot_threshold;
+    }
+
+    if (settings.force_charge != null) {
+      overrides.force_charge = Boolean(settings.force_charge);
+    }
+
+    return overrides;
   }
 
   _resolveIntegerHours(settingValue, capabilityId) {
@@ -317,19 +362,10 @@ class EvPlannerDevice extends Homey.Device {
       this.getSetting('one_shot_charge_hours'),
       'one_shot_charge_hours'
     );
-    const oneShotEnabled = this.hasCapability('one_shot_enabled')
-      ? Boolean(this.getCapabilityValue('one_shot_enabled'))
-      : this.getSetting('one_shot_enabled') === true;
-    const nightChargeEnabled = this.hasCapability('night_charge_enabled')
-      ? this.getCapabilityValue('night_charge_enabled')
-      : this.getSetting('night_charge_enabled');
     const spotThresholdSetting = this.getSetting('spot_threshold');
     const spotThresholdCapability = this.hasCapability('spot_threshold')
       ? this.getCapabilityValue('spot_threshold')
       : null;
-    const spotThreshold = Number.isFinite(Number(spotThresholdCapability))
-      ? spotThresholdCapability
-      : spotThresholdSetting;
 
     if (overrides.charge_hours != null) {
       const hours = Math.round(Number(overrides.charge_hours));
@@ -351,6 +387,24 @@ class EvPlannerDevice extends Homey.Device {
       nightChargeEnd = partsToDecimalHour(parsed.hour, parsed.minute);
     }
 
+    const nightChargeEnabled = overrides.night_charge_enabled != null
+      ? overrides.night_charge_enabled
+      : this.hasCapability('night_charge_enabled')
+        ? this.getCapabilityValue('night_charge_enabled')
+        : this.getSetting('night_charge_enabled');
+
+    const oneShotEnabled = overrides.one_shot_enabled != null
+      ? overrides.one_shot_enabled
+      : this.hasCapability('one_shot_enabled')
+        ? Boolean(this.getCapabilityValue('one_shot_enabled'))
+        : this.getSetting('one_shot_enabled') === true;
+
+    const spotThreshold = overrides.spot_threshold != null
+      ? Number(overrides.spot_threshold)
+      : Number.isFinite(Number(spotThresholdCapability))
+        ? spotThresholdCapability
+        : spotThresholdSetting;
+
     return {
       charge_hours: chargeHours,
       force_charge: overrides.force_charge != null
@@ -360,9 +414,12 @@ class EvPlannerDevice extends Homey.Device {
       night_charge_end: nightChargeEnd,
       one_shot_enabled: oneShotEnabled,
       one_shot_charge_hours: oneShotChargeHours,
-      one_shot_ready_by: this.getSetting('one_shot_ready_by'),
-      // Settings are source of truth — capability was being reset to false each evaluate.
-      cheapest_plan_only: this.getSetting('cheapest_plan_only') === true,
+      one_shot_ready_by: overrides.one_shot_ready_by != null
+        ? String(overrides.one_shot_ready_by)
+        : this.getSetting('one_shot_ready_by'),
+      cheapest_plan_only: overrides.cheapest_plan_only != null
+        ? overrides.cheapest_plan_only
+        : this.getSetting('cheapest_plan_only') === true,
       spot_threshold: spotThreshold
     };
   }

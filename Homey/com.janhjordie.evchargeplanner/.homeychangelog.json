@@ -1,4 +1,8 @@
 {
+  "1.0.46": {
+    "en": "Refresh charge_message on every device and app settings change.",
+    "da": "Opdater charge_message ved alle enheds- og app-indstillingsændringer."
+  },
   "1.0.45": {
     "en": "Evening plan message (flows + charge_message) uses same format as push notifications.",
     "da": "Aftenplan-besked (flows + charge_message) bruger samme format som push-notifikationer."

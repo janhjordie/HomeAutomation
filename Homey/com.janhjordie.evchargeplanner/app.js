@@ -8,6 +8,16 @@ const { LogicCompat } = require('./lib/logicCompat');
 const { ValidationLogger } = require('./lib/validationLogger');
 const { ensureDefaultDevice, getPlannerDeviceInstances, repairOrphanedPlannerDevices } = require('./lib/deviceProvisioner');
 
+const APP_PLAN_SETTING_KEYS = [
+  'price_area',
+  'spot_threshold',
+  'day_charge_start',
+  'day_charge_end',
+  'night_charge_start',
+  'night_charge_end',
+  'default_charge_hours'
+];
+
 class EvChargePlannerApp extends Homey.App {
   async onInit() {
     this.log('EV Charge Planner app initialized');
@@ -47,6 +57,22 @@ class EvChargePlannerApp extends Homey.App {
         this.homey.clearTimeout(this._evaluationBootTimer);
       }
     });
+  }
+
+  async onSettings({ changedKeys = [] } = {}) {
+    const changed = Array.isArray(changedKeys) ? changedKeys : [];
+    const planChanged = changed.some((key) => APP_PLAN_SETTING_KEYS.includes(key));
+
+    if (!planChanged) {
+      return;
+    }
+
+    try {
+      const count = await this.evaluateAllDevices('app_settings_changed');
+      this.log(`App-indstillinger opdateret — genberegnet ${count} enhed(er)`);
+    } catch (error) {
+      this.error(`App settings re-evaluate failed: ${error.message}`);
+    }
   }
 
   registerPlannerDevice(device) {
