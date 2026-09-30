@@ -1,6 +1,11 @@
 'use strict';
 
-const { DAY_CHARGE_WINDOW_END, DK_TIME_ZONE } = require('./constants');
+const {
+  DAY_CHARGE_WINDOW_END,
+  DAY_END_CHARGE_STOP_HOUR,
+  DAY_END_CHARGE_STOP_MINUTE,
+  DK_TIME_ZONE
+} = require('./constants');
 const { getClockPartsInTimeZone } = require('./quarterScheduler');
 
 const WATCH_BEFORE_MINUTES = 5;
@@ -20,40 +25,49 @@ function getMinuteOfDay(clock) {
   return clock.hour * 60 + clock.minute;
 }
 
-function getWatchWindowMinutes(dayEndHour) {
-  const end = resolveDayEndHour(dayEndHour);
+function getDayEndStopMinuteOfDay() {
+  return DAY_END_CHARGE_STOP_HOUR * 60 + DAY_END_CHARGE_STOP_MINUTE;
+}
+
+function formatDayEndStopTime() {
+  const hour = String(DAY_END_CHARGE_STOP_HOUR).padStart(2, '0');
+  const minute = String(DAY_END_CHARGE_STOP_MINUTE).padStart(2, '0');
+  return `${hour}:${minute}`;
+}
+
+function getWatchWindowMinutes() {
+  const stopMinute = getDayEndStopMinuteOfDay();
 
   return {
-    startMinute: end * 60 - WATCH_BEFORE_MINUTES,
-    endMinute: end * 60 + WATCH_AFTER_MINUTES
+    startMinute: stopMinute - WATCH_BEFORE_MINUTES,
+    endMinute: stopMinute + WATCH_AFTER_MINUTES
   };
 }
 
-function isInDayEndWatchWindow(now = new Date(), dayEndHour = DAY_CHARGE_WINDOW_END, timeZone = DK_TIME_ZONE) {
+function isInDayEndWatchWindow(now = new Date(), timeZone = DK_TIME_ZONE) {
   const clock = getClockPartsInTimeZone(now, timeZone);
   const minuteOfDay = getMinuteOfDay(clock);
-  const { startMinute, endMinute } = getWatchWindowMinutes(dayEndHour);
+  const { startMinute, endMinute } = getWatchWindowMinutes();
 
   return minuteOfDay >= startMinute && minuteOfDay <= endMinute;
 }
 
-function hasPassedDayEnd(now = new Date(), dayEndHour = DAY_CHARGE_WINDOW_END, timeZone = DK_TIME_ZONE) {
+function hasPassedDayEnd(now = new Date(), timeZone = DK_TIME_ZONE) {
   const clock = getClockPartsInTimeZone(now, timeZone);
   const minuteOfDay = getMinuteOfDay(clock);
-  const endMinute = resolveDayEndHour(dayEndHour) * 60;
 
-  return minuteOfDay >= endMinute;
+  return minuteOfDay >= getDayEndStopMinuteOfDay();
 }
 
-function getMsUntilDayEndWatchStart(now = new Date(), dayEndHour = DAY_CHARGE_WINDOW_END, timeZone = DK_TIME_ZONE) {
-  if (isInDayEndWatchWindow(now, dayEndHour, timeZone)) {
+function getMsUntilDayEndWatchStart(now = new Date(), timeZone = DK_TIME_ZONE) {
+  if (isInDayEndWatchWindow(now, timeZone)) {
     return 0;
   }
 
   const clock = getClockPartsInTimeZone(now, timeZone);
   const minuteOfDay = getMinuteOfDay(clock);
   const subMinuteMs = (clock.second * 1000) + clock.millisecond;
-  const { startMinute, endMinute } = getWatchWindowMinutes(dayEndHour);
+  const { startMinute, endMinute } = getWatchWindowMinutes();
 
   if (minuteOfDay < startMinute) {
     const minutesUntil = startMinute - minuteOfDay;
@@ -73,6 +87,8 @@ module.exports = {
   WATCH_AFTER_MINUTES,
   WATCH_TICK_MS,
   resolveDayEndHour,
+  getDayEndStopMinuteOfDay,
+  formatDayEndStopTime,
   isInDayEndWatchWindow,
   hasPassedDayEnd,
   getMsUntilDayEndWatchStart

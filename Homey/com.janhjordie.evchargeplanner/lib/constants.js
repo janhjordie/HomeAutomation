@@ -12,6 +12,9 @@ module.exports = {
   NIGHT_CHARGE_END_MAX: 10,
   DAY_CHARGE_WINDOW_START: 9,
   DAY_CHARGE_WINDOW_END: 17,
+  /** Fast stop before spot/fees rise at 17:00 — not tied to day_charge_end setting. */
+  DAY_END_CHARGE_STOP_HOUR: 16,
+  DAY_END_CHARGE_STOP_MINUTE: 59,
   DAY_PLAN_SWITCH_HOUR: 7,
   NIGHT_PLAN_SWITCH_HOUR: 17,
   DEFAULT_SPOT_CHARGE_THRESHOLD_KR_INCL_VAT: 0.30,

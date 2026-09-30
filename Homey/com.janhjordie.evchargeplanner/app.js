@@ -6,7 +6,7 @@ const { EVALUATION_INTERVAL_MS, DEFAULT_EASEE_DEVICE_ID, DEFAULT_EASEE_CIRCUIT_C
 const { getMsUntilNextQuarterBoundary, QUARTER_MS } = require('./lib/quarterScheduler');
 const {
   WATCH_TICK_MS,
-  resolveDayEndHour,
+  formatDayEndStopTime,
   hasPassedDayEnd,
   isInDayEndWatchWindow,
   getMsUntilDayEndWatchStart
@@ -277,18 +277,17 @@ class EvChargePlannerApp extends Homey.App {
 
   _scheduleDayEndWatchdog() {
     this._teardownDayEndWatchdog();
-    const dayEndHour = resolveDayEndHour(this.homey.settings.get('day_charge_end'));
     const now = new Date();
 
-    if (isInDayEndWatchWindow(now, dayEndHour)) {
+    if (isInDayEndWatchWindow(now)) {
       this._runDayEndWatchdogTick().catch((error) => {
         this.error(`Day-end watchdog failed: ${error.message}`);
       });
       return;
     }
 
-    const delay = getMsUntilDayEndWatchStart(now, dayEndHour);
-    this.log(`Day-end watchdog naeste koersel om ${Math.round(delay / 60000)} min (dag-slut ${dayEndHour}:00)`);
+    const delay = getMsUntilDayEndWatchStart(now);
+    this.log(`Day-end watchdog naeste koersel om ${Math.round(delay / 60000)} min (stop kl. ${formatDayEndStopTime()})`);
     this._dayEndWatchTimer = this.homey.setTimeout(() => {
       this._runDayEndWatchdogTick().catch((error) => {
         this.error(`Day-end watchdog failed: ${error.message}`);
@@ -297,10 +296,9 @@ class EvChargePlannerApp extends Homey.App {
   }
 
   async _runDayEndWatchdogTick() {
-    const dayEndHour = resolveDayEndHour(this.homey.settings.get('day_charge_end'));
     const now = new Date();
 
-    if (isInDayEndWatchWindow(now, dayEndHour) && hasPassedDayEnd(now, dayEndHour)) {
+    if (isInDayEndWatchWindow(now) && hasPassedDayEnd(now)) {
       try {
         const devices = await this._getPlannerDevices();
         for (const device of devices) {
@@ -315,7 +313,7 @@ class EvChargePlannerApp extends Homey.App {
 
     this._teardownDayEndWatchdog();
 
-    if (isInDayEndWatchWindow(now, dayEndHour)) {
+    if (isInDayEndWatchWindow(now)) {
       this._dayEndWatchTimer = this.homey.setTimeout(() => {
         this._runDayEndWatchdogTick().catch((error) => {
           this.error(`Day-end watchdog failed: ${error.message}`);
@@ -324,7 +322,7 @@ class EvChargePlannerApp extends Homey.App {
       return;
     }
 
-    const delay = getMsUntilDayEndWatchStart(now, dayEndHour);
+    const delay = getMsUntilDayEndWatchStart(now);
     this._dayEndWatchTimer = this.homey.setTimeout(() => {
       this._runDayEndWatchdogTick().catch((error) => {
         this.error(`Day-end watchdog failed: ${error.message}`);

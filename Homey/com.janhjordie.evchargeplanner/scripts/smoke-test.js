@@ -389,29 +389,36 @@ function testDayEndWatchdogWindow() {
     isInDayEndWatchWindow,
     hasPassedDayEnd,
     getMsUntilDayEndWatchStart,
-    resolveDayEndHour
+    formatDayEndStopTime,
+    getDayEndStopMinuteOfDay
   } = require('../lib/dayEndWatchdog');
 
-  assert.strictEqual(resolveDayEndHour(17), 17);
-  assert.strictEqual(resolveDayEndHour('bad'), 17);
+  assert.strictEqual(formatDayEndStopTime(), '16:59');
+  assert.strictEqual(getDayEndStopMinuteOfDay(), 16 * 60 + 59);
 
   const at1655 = new Date('2026-08-16T16:55:00.000+02:00');
+  const at1658 = new Date('2026-08-16T16:58:00.000+02:00');
+  const at1659 = new Date('2026-08-16T16:59:00.000+02:00');
   const at1700 = new Date('2026-08-16T17:00:00.000+02:00');
+  const at1704 = new Date('2026-08-16T17:04:00.000+02:00');
   const at1705 = new Date('2026-08-16T17:05:00.000+02:00');
   const at1710 = new Date('2026-08-16T17:10:00.000+02:00');
   const at1200 = new Date('2026-08-16T12:00:00.000+02:00');
 
-  assert.strictEqual(isInDayEndWatchWindow(at1655, 17, 'Europe/Copenhagen'), true);
-  assert.strictEqual(hasPassedDayEnd(at1655, 17, 'Europe/Copenhagen'), false);
-  assert.strictEqual(isInDayEndWatchWindow(at1700, 17, 'Europe/Copenhagen'), true);
-  assert.strictEqual(hasPassedDayEnd(at1700, 17, 'Europe/Copenhagen'), true);
-  assert.strictEqual(isInDayEndWatchWindow(at1705, 17, 'Europe/Copenhagen'), true);
-  assert.strictEqual(isInDayEndWatchWindow(at1710, 17, 'Europe/Copenhagen'), false);
-  assert.strictEqual(isInDayEndWatchWindow(at1200, 17, 'Europe/Copenhagen'), false);
+  assert.strictEqual(isInDayEndWatchWindow(at1655, 'Europe/Copenhagen'), true);
+  assert.strictEqual(hasPassedDayEnd(at1655, 'Europe/Copenhagen'), false);
+  assert.strictEqual(hasPassedDayEnd(at1658, 'Europe/Copenhagen'), false);
+  assert.strictEqual(hasPassedDayEnd(at1659, 'Europe/Copenhagen'), true);
+  assert.strictEqual(isInDayEndWatchWindow(at1700, 'Europe/Copenhagen'), true);
+  assert.strictEqual(hasPassedDayEnd(at1700, 'Europe/Copenhagen'), true);
+  assert.strictEqual(isInDayEndWatchWindow(at1704, 'Europe/Copenhagen'), true);
+  assert.strictEqual(isInDayEndWatchWindow(at1705, 'Europe/Copenhagen'), false);
+  assert.strictEqual(isInDayEndWatchWindow(at1710, 'Europe/Copenhagen'), false);
+  assert.strictEqual(isInDayEndWatchWindow(at1200, 'Europe/Copenhagen'), false);
 
-  assert.strictEqual(getMsUntilDayEndWatchStart(at1700, 17, 'Europe/Copenhagen'), 0);
-  assert.ok(getMsUntilDayEndWatchStart(at1200, 17, 'Europe/Copenhagen') > 0);
-  assert.ok(getMsUntilDayEndWatchStart(at1710, 17, 'Europe/Copenhagen') > 0);
+  assert.strictEqual(getMsUntilDayEndWatchStart(at1700, 'Europe/Copenhagen'), 0);
+  assert.ok(getMsUntilDayEndWatchStart(at1200, 'Europe/Copenhagen') > 0);
+  assert.ok(getMsUntilDayEndWatchStart(at1710, 'Europe/Copenhagen') > 0);
 }
 
 function testEaseeNeedsSync() {

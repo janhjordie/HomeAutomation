@@ -1,4 +1,12 @@
 {
+  "1.0.51": {
+    "en": "Fixed day-end charge stop at 16:59 (before tariff rise at 17:00), independent of app day-end setting.",
+    "da": "Fast stop af opladning kl. 16:59 (før takststigning kl. 17), uafhængigt af dag-slut i indstillinger."
+  },
+  "1.0.50": {
+    "en": "Day-end stop triggers at 16:59 (one minute before configured day end).",
+    "da": "Dag-slut stop kl. 16:59 (ét minut før konfigureret dag-slut)."
+  },
   "1.0.49": {
     "en": "Day-end watchdog only stops charging at 17:00 — no plan re-evaluation.",
     "da": "Dag-slut watchdog stopper kun opladning kl. 17 — ingen plan-genberegning."
