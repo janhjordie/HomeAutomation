@@ -22,6 +22,7 @@ const {
   syncUiCapabilitiesFromSettings
 } = require('../../lib/deviceUiCapabilities');
 const { parseNightChargeEnd, partsToDecimalHour } = require('../../lib/planner/windowConfig');
+const { isDayForceChargeActive } = require('../../lib/planner/windows');
 const { getMsUntilNextQuarterBoundary, QUARTER_MS } = require('../../lib/quarterScheduler');
 const { updateDeviceSpotPrice } = require('../../lib/spotPriceRefresh');
 const { orchestrateChargeTransition } = require('../../lib/chargeOrchestrator');
@@ -813,6 +814,63 @@ class EvPlannerDevice extends Homey.Device {
     await validationLogger.recordComparison(this.getName(), result, null);
   }
 
+  async stopChargingAtDayEnd(reason = 'day_end_stop') {
+    const previousChargeNow = Boolean(this.getCapabilityValue('charge_now'));
+    const forceOn = Boolean(this.getCapabilityValue('force_charge'));
+
+    if (!previousChargeNow && !forceOn) {
+      return false;
+    }
+
+    const appSettings = this._getAppSettings();
+    const appConfig = buildAppConfig(appSettings, Homey.env);
+    const chargerKw = appConfig.chargerKw || DEFAULT_CHARGER_KW;
+
+    this._updatingChargingState = true;
+    this._updatingUiCapabilities = true;
+    try {
+      await this.setSettings({ force_charge: false });
+      await this.setCapabilityValue('force_charge', false);
+      await this.setCapabilityValue('charge_now', false);
+    } finally {
+      this._updatingChargingState = false;
+      this._updatingUiCapabilities = false;
+    }
+
+    const orchestration = await orchestrateChargeTransition({
+      homey: this.homey,
+      appSettings,
+      chargeNow: false,
+      previousChargeNow,
+      log: this.log.bind(this),
+      forceEaseeSync: true
+    });
+
+    const easeeState = orchestration.easeeConfig?.syncPower && orchestration.easeeConfig?.deviceId
+      ? orchestration.easeeState
+      : null;
+
+    this._updatingChargingState = true;
+    try {
+      await syncChargingCapabilities(this, buildEaseeChargingSync(
+        easeeState,
+        false,
+        chargerKw
+      ));
+    } finally {
+      this._updatingChargingState = false;
+    }
+
+    this._previousChargeNow = false;
+
+    if (orchestration.easeeResult?.action && orchestration.easeeResult.action !== 'noop') {
+      this.log(`[${reason}] Easee ${orchestration.easeeResult.action}`);
+    }
+
+    this.log(`[${reason}] Dag-slut: opladning stoppet, tvungen opladning fra`);
+    return true;
+  }
+
   _scheduleEvaluateNow(reason, overrides = {}, options = {}) {
     this.homey.setTimeout(() => {
       this.evaluateNow(reason, overrides, options).catch((error) => {
@@ -941,7 +999,13 @@ class EvPlannerDevice extends Homey.Device {
       this._updatingChargingState = true;
       this._updatingUiCapabilities = true;
       try {
-        await this.setCapabilityValue('force_charge', Boolean(deviceConfig.forceCharge));
+        const nextForceCharge = isDayForceChargeActive(
+          deviceConfig.forceCharge,
+          result.chargePlanWindow,
+          result.currentSlot
+        );
+        await this.setSettings({ force_charge: nextForceCharge });
+        await this.setCapabilityValue('force_charge', nextForceCharge);
         await syncUiCapabilitiesFromSettings(this, {
           charge_hours: deviceConfig.chargeHours,
           one_shot_enabled: result.oneShotDisabledReason ? false : deviceConfig.oneShotEnabled,
@@ -977,7 +1041,11 @@ class EvPlannerDevice extends Homey.Device {
 
       await this._maybeMirrorToLogic(result, {
         ...deviceSettings,
-        force_charge: deviceConfig.forceCharge,
+        force_charge: isDayForceChargeActive(
+          deviceConfig.forceCharge,
+          result.chargePlanWindow,
+          result.currentSlot
+        ),
         night_charge_enabled: deviceConfig.nightChargeEnabled,
         one_shot_enabled: result.oneShotDisabledReason ? false : deviceConfig.oneShotEnabled
       });

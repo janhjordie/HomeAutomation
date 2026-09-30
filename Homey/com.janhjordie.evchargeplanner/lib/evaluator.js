@@ -16,7 +16,7 @@ const {
 const { formatDateInTimeZone, addDays, getHourInTimeZone } = require('./timezone');
 const { fetchPrices } = require('./price/fetchPrices');
 const { findCurrentSlot, getSlotKey, SLOTS_PER_HOUR } = require('./price/slotBuilder');
-const { getChargePlanWindow, getSlotsForWindow, isNightChargeAllowed } = require('./planner/windows');
+const { getChargePlanWindow, getSlotsForWindow, isNightChargeAllowed, isDayForceChargeActive } = require('./planner/windows');
 const { buildPlanSummaries, buildPlanNotificationMessage } = require('./planNotification');
 const { buildWindowConfig, mergeDeviceWindowConfig, parseNightChargeEnd, partsToDecimalHour } = require('./planner/windowConfig');
 const { evaluateChargePlan, selectCheapestPlanSlots } = require('./planner/chargePlan');
@@ -279,7 +279,11 @@ async function evaluateChargePlanForDevice(deviceConfig, appConfig, options = {}
       oneShotDisabledReason = `ingen kvarter tilbage foer deadline ${oneShotDeadline.label}`;
     }
 
-    const forceChargeActive = !oneShotActive && Boolean(deviceConfig.forceCharge);
+    const forceChargeActive = !oneShotActive && isDayForceChargeActive(
+      deviceConfig.forceCharge,
+      chargePlanWindow,
+      currentSlot
+    );
     const planSummaries = buildPlanSummaries(allSlots, deviceConfig, planAppConfig, { now, currentSlot });
     const charge_message = buildPlanNotificationMessage(deviceConfig, planSummaries, {
       oneShotActive: false,
@@ -327,13 +331,19 @@ async function evaluateChargePlanForDevice(deviceConfig, appConfig, options = {}
     }
   );
 
-  if (deviceConfig.forceCharge && !oneShotActive) {
+  const forceChargeActive = !oneShotActive && isDayForceChargeActive(
+    deviceConfig.forceCharge,
+    chargePlanWindow,
+    currentSlot
+  );
+
+  if (forceChargeActive) {
     evaluation.charge_now = true;
     evaluation.forceChargeActive = true;
   }
 
   if (!isNightChargeAllowed(deviceConfig.nightChargeEnabled, chargePlanWindow)
-    && !deviceConfig.forceCharge) {
+    && !forceChargeActive) {
     evaluation.charge_now = false;
     evaluation.nightChargeDisabled = true;
   }

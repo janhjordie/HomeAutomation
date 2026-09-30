@@ -296,37 +296,45 @@ function testOneShotSessionFinish() {
   );
 }
 
-function testForceChargeOverridesNightDisabled() {
+function testForceChargeOnlyDuringDayWindow() {
   const { buildDeviceConfig, buildAppConfig, evaluateChargePlanForDevice } = require('../lib/evaluator');
-  const { getChargePlanWindow } = require('../lib/planner/windows');
 
-  const nightWindow = getChargePlanWindow(20, '2026-08-16', '2026-08-15', '2026-08-17');
-  assert.strictEqual(nightWindow.planType, 'night');
-
-  const slots = [];
-  for (let hour = 21; hour < 24; hour++) {
+  const daySlots = [];
+  for (let hour = 9; hour < 17; hour++) {
     for (const minute of [0, 15, 30, 45]) {
-      slots.push({
+      daySlots.push({
         date: '2026-08-16',
         hour,
         minute,
-        timestamp: Date.parse(`2026-08-16T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00.000Z`),
+        timestamp: Date.parse(`2026-08-16T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00.000+02:00`),
         spotPriceInclVat: 0.40
       });
     }
   }
 
-  const currentSlot = slots[0];
+  const nightSlots = [];
+  for (let hour = 21; hour < 24; hour++) {
+    for (const minute of [0, 15, 30, 45]) {
+      nightSlots.push({
+        date: '2026-08-16',
+        hour,
+        minute,
+        timestamp: Date.parse(`2026-08-16T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00.000+02:00`),
+        spotPriceInclVat: 0.40
+      });
+    }
+  }
+
+  const appConfig = buildAppConfig({ price_area: 'DK2', spot_threshold: 0.30, charger_kw: 11 });
   const deviceConfig = buildDeviceConfig({
     force_charge: true,
     night_charge_enabled: false,
     charge_hours: 3
   });
-  const appConfig = buildAppConfig({ price_area: 'DK2', spot_threshold: 0.30, charger_kw: 11 });
 
   const priceData = {
-    allSlots: slots,
-    todaySlots: slots,
+    allSlots: [...daySlots, ...nightSlots],
+    todaySlots: [...daySlots, ...nightSlots],
     tomorrowSlots: [],
     priceSource: 'test',
     priceResolution: '15min',
@@ -337,27 +345,73 @@ function testForceChargeOverridesNightDisabled() {
   const originalFetch = require('../lib/price/fetchPrices').fetchPrices;
   require('../lib/price/fetchPrices').fetchPrices = async () => priceData;
 
-  return evaluateChargePlanForDevice(deviceConfig, appConfig, {
-    now: new Date(currentSlot.timestamp),
-    oneShotCache: {}
-  }).then((result) => {
+  const daySlot = daySlots.find((slot) => slot.hour === 11 && slot.minute === 0);
+  const nightSlot = nightSlots[0];
+
+  return Promise.all([
+    evaluateChargePlanForDevice(deviceConfig, appConfig, {
+      now: new Date(daySlot.timestamp),
+      oneShotCache: {}
+    }),
+    evaluateChargePlanForDevice(deviceConfig, appConfig, {
+      now: new Date(nightSlot.timestamp),
+      oneShotCache: {}
+    })
+  ]).then(([dayResult, nightResult]) => {
     require('../lib/price/fetchPrices').fetchPrices = originalFetch;
-    assert.strictEqual(result.charge_now, true);
-    assert.strictEqual(result.forceChargeActive, true);
-    assert.ok(result.charge_message.includes('Natteplan') || result.charge_message.includes('Dagsplan'));
-    assert.ok(!result.charge_message.includes('Opvask'));
+    assert.strictEqual(dayResult.charge_now, true);
+    assert.strictEqual(dayResult.forceChargeActive, true);
+    assert.strictEqual(nightResult.charge_now, false);
+    assert.strictEqual(nightResult.forceChargeActive, undefined);
   });
 }
 
 function testDayForceChargeActive() {
   const { getChargePlanWindow, isDayForceChargeActive } = require('../lib/planner/windows');
 
-  const dayWindow = getChargePlanWindow(8, '2026-08-13', '2026-08-12', '2026-08-14');
+  const dayWindow = getChargePlanWindow(11, '2026-08-13', '2026-08-12', '2026-08-14');
+  const daySlot = { date: '2026-08-13', hour: 11, minute: 0 };
   assert.strictEqual(dayWindow.planType, 'day');
-  assert.strictEqual(isDayForceChargeActive(true, dayWindow), true);
+  assert.strictEqual(isDayForceChargeActive(true, dayWindow, daySlot), true);
 
   const nightWindow = getChargePlanWindow(20, '2026-08-13', '2026-08-12', '2026-08-14');
-  assert.strictEqual(isDayForceChargeActive(true, nightWindow), true);
+  const nightSlot = { date: '2026-08-13', hour: 20, minute: 0 };
+  assert.strictEqual(isDayForceChargeActive(true, nightWindow, nightSlot), false);
+
+  const afterDayEndSlot = { date: '2026-08-13', hour: 17, minute: 0 };
+  const eveningWindow = getChargePlanWindow(17, '2026-08-13', '2026-08-12', '2026-08-14');
+  assert.strictEqual(eveningWindow.planType, 'night');
+  assert.strictEqual(isDayForceChargeActive(true, eveningWindow, afterDayEndSlot), false);
+}
+
+function testDayEndWatchdogWindow() {
+  const {
+    isInDayEndWatchWindow,
+    hasPassedDayEnd,
+    getMsUntilDayEndWatchStart,
+    resolveDayEndHour
+  } = require('../lib/dayEndWatchdog');
+
+  assert.strictEqual(resolveDayEndHour(17), 17);
+  assert.strictEqual(resolveDayEndHour('bad'), 17);
+
+  const at1655 = new Date('2026-08-16T16:55:00.000+02:00');
+  const at1700 = new Date('2026-08-16T17:00:00.000+02:00');
+  const at1705 = new Date('2026-08-16T17:05:00.000+02:00');
+  const at1710 = new Date('2026-08-16T17:10:00.000+02:00');
+  const at1200 = new Date('2026-08-16T12:00:00.000+02:00');
+
+  assert.strictEqual(isInDayEndWatchWindow(at1655, 17, 'Europe/Copenhagen'), true);
+  assert.strictEqual(hasPassedDayEnd(at1655, 17, 'Europe/Copenhagen'), false);
+  assert.strictEqual(isInDayEndWatchWindow(at1700, 17, 'Europe/Copenhagen'), true);
+  assert.strictEqual(hasPassedDayEnd(at1700, 17, 'Europe/Copenhagen'), true);
+  assert.strictEqual(isInDayEndWatchWindow(at1705, 17, 'Europe/Copenhagen'), true);
+  assert.strictEqual(isInDayEndWatchWindow(at1710, 17, 'Europe/Copenhagen'), false);
+  assert.strictEqual(isInDayEndWatchWindow(at1200, 17, 'Europe/Copenhagen'), false);
+
+  assert.strictEqual(getMsUntilDayEndWatchStart(at1700, 17, 'Europe/Copenhagen'), 0);
+  assert.ok(getMsUntilDayEndWatchStart(at1200, 17, 'Europe/Copenhagen') > 0);
+  assert.ok(getMsUntilDayEndWatchStart(at1710, 17, 'Europe/Copenhagen') > 0);
 }
 
 function testEaseeNeedsSync() {
@@ -547,10 +601,11 @@ async function main() {
   testOneShotSessionFinish();
   testEaseeConfig();
   testDayForceChargeActive();
+  testDayEndWatchdogWindow();
   testEaseeNeedsSync();
   testEaseePowerFollowUp();
   testPlanNotificationFormat();
-  await testForceChargeOverridesNightDisabled();
+  await testForceChargeOnlyDuringDayWindow();
   testChargeHoursAffectsPlanSlots();
   await testLiveFetchOptional();
   console.log('Smoke tests passed');

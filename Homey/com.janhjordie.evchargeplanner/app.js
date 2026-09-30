@@ -4,6 +4,13 @@
 const Homey = require('homey');
 const { EVALUATION_INTERVAL_MS, DEFAULT_EASEE_DEVICE_ID, DEFAULT_EASEE_CIRCUIT_CURRENT } = require('./lib/constants');
 const { getMsUntilNextQuarterBoundary, QUARTER_MS } = require('./lib/quarterScheduler');
+const {
+  WATCH_TICK_MS,
+  resolveDayEndHour,
+  hasPassedDayEnd,
+  isInDayEndWatchWindow,
+  getMsUntilDayEndWatchStart
+} = require('./lib/dayEndWatchdog');
 const { LogicCompat } = require('./lib/logicCompat');
 const { ValidationLogger } = require('./lib/validationLogger');
 const { ensureDefaultDevice, getPlannerDeviceInstances, repairOrphanedPlannerDevices } = require('./lib/deviceProvisioner');
@@ -24,6 +31,7 @@ class EvChargePlannerApp extends Homey.App {
     this._plannerDevices = new Map();
     this._evaluationTimer = null;
     this._evaluationBootTimer = null;
+    this._dayEndWatchTimer = null;
 
     this._ensureDefaultSettings();
 
@@ -46,6 +54,7 @@ class EvChargePlannerApp extends Homey.App {
     }
 
     this._startScheduler();
+    this._scheduleDayEndWatchdog();
     this._scheduleBootRepair();
     this._scheduleDeviceQuarterSchedulers();
 
@@ -56,10 +65,13 @@ class EvChargePlannerApp extends Homey.App {
       if (this._evaluationBootTimer) {
         this.homey.clearTimeout(this._evaluationBootTimer);
       }
+      this._teardownDayEndWatchdog();
     });
   }
 
   async onSettings({ changedKeys = [] } = {}) {
+    this._scheduleDayEndWatchdog();
+
     const changed = Array.isArray(changedKeys) ? changedKeys : [];
     const planChanged = changed.some((key) => APP_PLAN_SETTING_KEYS.includes(key));
 
@@ -241,7 +253,7 @@ class EvChargePlannerApp extends Homey.App {
     return [];
   }
 
-  async evaluateAllDevices(reason = 'manual') {
+  async evaluateAllDevices(reason = 'manual', options = {}) {
     const devices = await this._getPlannerDevices();
 
     if (devices.length === 0) {
@@ -250,10 +262,74 @@ class EvChargePlannerApp extends Homey.App {
     }
 
     for (const device of devices) {
-      await device.evaluateNow(reason);
+      await device.evaluateNow(reason, {}, options);
     }
 
     return devices.length;
+  }
+
+  _teardownDayEndWatchdog() {
+    if (this._dayEndWatchTimer) {
+      this.homey.clearTimeout(this._dayEndWatchTimer);
+      this._dayEndWatchTimer = null;
+    }
+  }
+
+  _scheduleDayEndWatchdog() {
+    this._teardownDayEndWatchdog();
+    const dayEndHour = resolveDayEndHour(this.homey.settings.get('day_charge_end'));
+    const now = new Date();
+
+    if (isInDayEndWatchWindow(now, dayEndHour)) {
+      this._runDayEndWatchdogTick().catch((error) => {
+        this.error(`Day-end watchdog failed: ${error.message}`);
+      });
+      return;
+    }
+
+    const delay = getMsUntilDayEndWatchStart(now, dayEndHour);
+    this.log(`Day-end watchdog naeste koersel om ${Math.round(delay / 60000)} min (dag-slut ${dayEndHour}:00)`);
+    this._dayEndWatchTimer = this.homey.setTimeout(() => {
+      this._runDayEndWatchdogTick().catch((error) => {
+        this.error(`Day-end watchdog failed: ${error.message}`);
+      });
+    }, Math.max(delay, 1000));
+  }
+
+  async _runDayEndWatchdogTick() {
+    const dayEndHour = resolveDayEndHour(this.homey.settings.get('day_charge_end'));
+    const now = new Date();
+
+    if (isInDayEndWatchWindow(now, dayEndHour) && hasPassedDayEnd(now, dayEndHour)) {
+      try {
+        const devices = await this._getPlannerDevices();
+        for (const device of devices) {
+          if (typeof device.stopChargingAtDayEnd === 'function') {
+            await device.stopChargingAtDayEnd('day_end_stop');
+          }
+        }
+      } catch (error) {
+        this.error(`Day-end stop failed: ${error.message}`);
+      }
+    }
+
+    this._teardownDayEndWatchdog();
+
+    if (isInDayEndWatchWindow(now, dayEndHour)) {
+      this._dayEndWatchTimer = this.homey.setTimeout(() => {
+        this._runDayEndWatchdogTick().catch((error) => {
+          this.error(`Day-end watchdog failed: ${error.message}`);
+        });
+      }, WATCH_TICK_MS);
+      return;
+    }
+
+    const delay = getMsUntilDayEndWatchStart(now, dayEndHour);
+    this._dayEndWatchTimer = this.homey.setTimeout(() => {
+      this._runDayEndWatchdogTick().catch((error) => {
+        this.error(`Day-end watchdog failed: ${error.message}`);
+      });
+    }, Math.max(delay, 1000));
   }
 
   async _sendPushNotification(message) {

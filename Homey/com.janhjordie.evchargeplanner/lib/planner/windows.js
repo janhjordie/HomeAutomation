@@ -102,8 +102,16 @@ function getSlotsForWindow(allSlots, window) {
     .sort((a, b) => a.timestamp - b.timestamp);
 }
 
-function isDayForceChargeActive(forceCharge, chargePlanWindow) {
-  return Boolean(forceCharge);
+function isDayForceChargeActive(forceCharge, chargePlanWindow, currentSlot) {
+  if (!forceCharge || !chargePlanWindow || !currentSlot) {
+    return false;
+  }
+
+  if (chargePlanWindow.planType !== 'day') {
+    return false;
+  }
+
+  return isSlotInWindow(currentSlot, chargePlanWindow);
 }
 
 function isNightChargeAllowed(nightChargeEnabled, chargePlanWindow) {
