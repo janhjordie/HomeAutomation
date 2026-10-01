@@ -16,7 +16,7 @@ const {
 const { formatDateInTimeZone, addDays, getHourInTimeZone } = require('./timezone');
 const { fetchPrices } = require('./price/fetchPrices');
 const { findCurrentSlot, getSlotKey, SLOTS_PER_HOUR } = require('./price/slotBuilder');
-const { getChargePlanWindow, getSlotsForWindow, isNightChargeAllowed, isDayForceChargeActive } = require('./planner/windows');
+const { getChargePlanWindow, getSlotsForWindow, isNightChargeAllowed, isForceChargeActive } = require('./planner/windows');
 const { buildPlanSummaries, buildPlanNotificationMessage } = require('./planNotification');
 const { buildWindowConfig, mergeDeviceWindowConfig, parseNightChargeEnd, partsToDecimalHour } = require('./planner/windowConfig');
 const { evaluateChargePlan, selectCheapestPlanSlots } = require('./planner/chargePlan');
@@ -279,11 +279,7 @@ async function evaluateChargePlanForDevice(deviceConfig, appConfig, options = {}
       oneShotDisabledReason = `ingen kvarter tilbage foer deadline ${oneShotDeadline.label}`;
     }
 
-    const forceChargeActive = !oneShotActive && isDayForceChargeActive(
-      deviceConfig.forceCharge,
-      chargePlanWindow,
-      currentSlot
-    );
+    const forceChargeActive = !oneShotActive && isForceChargeActive(deviceConfig.forceCharge);
     const planSummaries = buildPlanSummaries(allSlots, deviceConfig, planAppConfig, { now, currentSlot });
     const charge_message = buildPlanNotificationMessage(deviceConfig, planSummaries, {
       oneShotActive: false,
@@ -331,11 +327,7 @@ async function evaluateChargePlanForDevice(deviceConfig, appConfig, options = {}
     }
   );
 
-  const forceChargeActive = !oneShotActive && isDayForceChargeActive(
-    deviceConfig.forceCharge,
-    chargePlanWindow,
-    currentSlot
-  );
+  const forceChargeActive = !oneShotActive && isForceChargeActive(deviceConfig.forceCharge);
 
   if (forceChargeActive) {
     evaluation.charge_now = true;

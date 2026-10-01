@@ -361,27 +361,17 @@ function testForceChargeOnlyDuringDayWindow() {
     require('../lib/price/fetchPrices').fetchPrices = originalFetch;
     assert.strictEqual(dayResult.charge_now, true);
     assert.strictEqual(dayResult.forceChargeActive, true);
-    assert.strictEqual(nightResult.charge_now, false);
-    assert.strictEqual(nightResult.forceChargeActive, undefined);
+    assert.strictEqual(nightResult.charge_now, true);
+    assert.strictEqual(nightResult.forceChargeActive, true);
   });
 }
 
-function testDayForceChargeActive() {
-  const { getChargePlanWindow, isDayForceChargeActive } = require('../lib/planner/windows');
+function testForceChargeActive() {
+  const { isForceChargeActive } = require('../lib/planner/windows');
 
-  const dayWindow = getChargePlanWindow(11, '2026-08-13', '2026-08-12', '2026-08-14');
-  const daySlot = { date: '2026-08-13', hour: 11, minute: 0 };
-  assert.strictEqual(dayWindow.planType, 'day');
-  assert.strictEqual(isDayForceChargeActive(true, dayWindow, daySlot), true);
-
-  const nightWindow = getChargePlanWindow(20, '2026-08-13', '2026-08-12', '2026-08-14');
-  const nightSlot = { date: '2026-08-13', hour: 20, minute: 0 };
-  assert.strictEqual(isDayForceChargeActive(true, nightWindow, nightSlot), false);
-
-  const afterDayEndSlot = { date: '2026-08-13', hour: 17, minute: 0 };
-  const eveningWindow = getChargePlanWindow(17, '2026-08-13', '2026-08-12', '2026-08-14');
-  assert.strictEqual(eveningWindow.planType, 'night');
-  assert.strictEqual(isDayForceChargeActive(true, eveningWindow, afterDayEndSlot), false);
+  assert.strictEqual(isForceChargeActive(true), true);
+  assert.strictEqual(isForceChargeActive(false), false);
+  assert.strictEqual(isForceChargeActive(1), true);
 }
 
 function testDayEndWatchdogWindow() {
@@ -607,7 +597,7 @@ async function main() {
   testChargingCapabilities();
   testOneShotSessionFinish();
   testEaseeConfig();
-  testDayForceChargeActive();
+  testForceChargeActive();
   testDayEndWatchdogWindow();
   testEaseeNeedsSync();
   testEaseePowerFollowUp();

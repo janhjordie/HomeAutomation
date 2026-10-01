@@ -22,7 +22,7 @@ const {
   syncUiCapabilitiesFromSettings
 } = require('../../lib/deviceUiCapabilities');
 const { parseNightChargeEnd, partsToDecimalHour } = require('../../lib/planner/windowConfig');
-const { isDayForceChargeActive } = require('../../lib/planner/windows');
+const { isForceChargeActive } = require('../../lib/planner/windows');
 const { getMsUntilNextQuarterBoundary, QUARTER_MS } = require('../../lib/quarterScheduler');
 const { updateDeviceSpotPrice } = require('../../lib/spotPriceRefresh');
 const { orchestrateChargeTransition } = require('../../lib/chargeOrchestrator');
@@ -999,11 +999,7 @@ class EvPlannerDevice extends Homey.Device {
       this._updatingChargingState = true;
       this._updatingUiCapabilities = true;
       try {
-        const nextForceCharge = isDayForceChargeActive(
-          deviceConfig.forceCharge,
-          result.chargePlanWindow,
-          result.currentSlot
-        );
+        const nextForceCharge = isForceChargeActive(deviceConfig.forceCharge);
         await this.setSettings({ force_charge: nextForceCharge });
         await this.setCapabilityValue('force_charge', nextForceCharge);
         await syncUiCapabilitiesFromSettings(this, {
@@ -1041,11 +1037,7 @@ class EvPlannerDevice extends Homey.Device {
 
       await this._maybeMirrorToLogic(result, {
         ...deviceSettings,
-        force_charge: isDayForceChargeActive(
-          deviceConfig.forceCharge,
-          result.chargePlanWindow,
-          result.currentSlot
-        ),
+        force_charge: isForceChargeActive(deviceConfig.forceCharge),
         night_charge_enabled: deviceConfig.nightChargeEnabled,
         one_shot_enabled: result.oneShotDisabledReason ? false : deviceConfig.oneShotEnabled
       });

@@ -1,4 +1,8 @@
 {
+  "1.0.52": {
+    "en": "Force charge works any time of day (overrides spot/night plan); still auto-stops at 16:59 before tariff rise.",
+    "da": "Tvungen opladning virker døgnet rundt (overruler spot/natteplan); stopper stadig automatisk kl. 16:59 før takststigning."
+  },
   "1.0.51": {
     "en": "Fixed day-end charge stop at 16:59 (before tariff rise at 17:00), independent of app day-end setting.",
     "da": "Fast stop af opladning kl. 16:59 (før takststigning kl. 17), uafhængigt af dag-slut i indstillinger."

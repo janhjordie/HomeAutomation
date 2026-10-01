@@ -102,16 +102,8 @@ function getSlotsForWindow(allSlots, window) {
     .sort((a, b) => a.timestamp - b.timestamp);
 }
 
-function isDayForceChargeActive(forceCharge, chargePlanWindow, currentSlot) {
-  if (!forceCharge || !chargePlanWindow || !currentSlot) {
-    return false;
-  }
-
-  if (chargePlanWindow.planType !== 'day') {
-    return false;
-  }
-
-  return isSlotInWindow(currentSlot, chargePlanWindow);
+function isForceChargeActive(forceCharge) {
+  return Boolean(forceCharge);
 }
 
 function isNightChargeAllowed(nightChargeEnabled, chargePlanWindow) {
@@ -161,7 +153,7 @@ module.exports = {
   buildTonightChargeWindow,
   isSlotInWindow,
   getSlotsForWindow,
-  isDayForceChargeActive,
+  isForceChargeActive,
   isNightChargeAllowed,
   formatWindowTime
 };

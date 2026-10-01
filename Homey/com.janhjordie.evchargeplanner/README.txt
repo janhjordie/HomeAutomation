@@ -3,7 +3,7 @@ EV Charge Planner optimizes electric vehicle charging using Danish 15-minute spo
 Features:
 - Day window (09:00-17:00): charge when spot < threshold OR cheapest planned slots
 - Night window (21:00-06:00): same 15-minute logic
-- Force charge override during daytime
+- Force charge override any time (auto-stop at 16:59 before tariff rise)
 - One-shot charge mode with deadline
 - Virtual device per charger (pair twice for two EVs)
 - Optional Logic variable mirroring for parallel migration from HomeyScript

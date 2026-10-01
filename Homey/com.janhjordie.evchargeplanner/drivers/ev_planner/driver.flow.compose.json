@@ -163,8 +163,8 @@
     {
       "id": "force_charge_on",
       "title": {
-        "en": "Start force charge (daytime)",
-        "da": "Start tvungen opladning (dag)"
+        "en": "Start force charge",
+        "da": "Start tvungen opladning"
       },
       "highlight": true
     },
