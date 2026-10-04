@@ -28,6 +28,10 @@ const { getMsUntilNextQuarterBoundary, QUARTER_MS } = require('../../lib/quarter
 const { updateDeviceSpotPrice } = require('../../lib/spotPriceRefresh');
 const { orchestrateChargeTransition } = require('../../lib/chargeOrchestrator');
 const { EaseePowerFollowUp } = require('../../lib/easeePowerFollowUp');
+const {
+  getPlanChargeSkipKeysFromEvaluation,
+  prunePlanChargeSkipKeys
+} = require('../../lib/planner/planChargeSkip');
 
 const PLAN_SETTING_KEYS = [
   'charge_hours',
@@ -83,6 +87,8 @@ class EvPlannerDevice extends Homey.Device {
     this._updatingUiCapabilities = false;
     this._evaluating = false;
     this._pendingEvaluate = null;
+    this._lastEvaluateResult = null;
+    this._userDismissedPlanCharge = false;
 
     this.registerCapabilityListener('force_charge', async (value) => {
       if (this._updatingChargingState) {
@@ -91,6 +97,15 @@ class EvPlannerDevice extends Homey.Device {
 
       const forceCharge = Boolean(value);
       await this.setSettings({ force_charge: forceCharge });
+
+      if (!forceCharge) {
+        this._userDismissedPlanCharge = true;
+        await this._pausePlanChargeForCurrentPeriod();
+      } else {
+        this._userDismissedPlanCharge = false;
+        await this.setStoreValue('plan_charge_skip_slot_keys', []);
+      }
+
       await this._applyForceChargeQuickFeedback(forceCharge);
       await this.evaluateNow(
         'force_charge_toggle',
@@ -110,6 +125,10 @@ class EvPlannerDevice extends Homey.Device {
 
     this.registerCapabilityListener('evcharger_charging', async (value) => {
       if (this._updatingChargingState) {
+        return;
+      }
+
+      if (value && this._userDismissedPlanCharge) {
         return;
       }
 
@@ -868,6 +887,49 @@ class EvPlannerDevice extends Homey.Device {
     return true;
   }
 
+  async _pausePlanChargeForCurrentPeriod() {
+    const last = this._lastEvaluateResult;
+    const currentSlot = last?.currentSlot;
+    const skipKeys = getPlanChargeSkipKeysFromEvaluation(last?.evaluation, currentSlot);
+
+    if (skipKeys.length) {
+      await this.setStoreValue('plan_charge_skip_slot_keys', skipKeys);
+      this.log(`Plan-pause: springer ${skipKeys.length} kvarter over i denne ladeperiode`);
+    }
+
+    const previousChargeNow = Boolean(this._previousChargeNow);
+    if (!previousChargeNow && !Boolean(this.getCapabilityValue('charge_now'))) {
+      return;
+    }
+
+    const appSettings = this._getAppSettings();
+    await orchestrateChargeTransition({
+      homey: this.homey,
+      appSettings,
+      chargeNow: false,
+      previousChargeNow,
+      log: this.log.bind(this),
+      forceEaseeSync: true
+    });
+    this._previousChargeNow = false;
+
+    this._updatingChargingState = true;
+    try {
+      await this.setCapabilityValue('charge_now', false);
+      await syncChargingCapabilities(this, {
+        chargeNow: false,
+        chargerKw: appSettings.charger_kw || DEFAULT_CHARGER_KW
+      });
+    } finally {
+      this._updatingChargingState = false;
+    }
+  }
+
+  async _getPlanChargeSkipKeys() {
+    const stored = await this.getStoreValue('plan_charge_skip_slot_keys');
+    return Array.isArray(stored) ? stored : [];
+  }
+
   _scheduleEvaluateNow(reason, overrides = {}, options = {}) {
     this.homey.setTimeout(() => {
       this.evaluateNow(reason, overrides, options).catch((error) => {
@@ -948,7 +1010,10 @@ class EvPlannerDevice extends Homey.Device {
     }
 
     this._evaluating = true;
-    let deviceSettings = this._getDeviceSettings(overrides);
+    let deviceSettings = {
+      ...this._getDeviceSettings(overrides),
+      plan_charge_skip_slot_keys: await this._getPlanChargeSkipKeys()
+    };
     let deviceConfig = null;
 
     try {
@@ -1054,6 +1119,23 @@ class EvPlannerDevice extends Homey.Device {
 
       await this._triggerFlowCards(result, orchestration);
       await this._recordValidation(result);
+
+      this._lastEvaluateResult = result;
+      if (!result.charge_now) {
+        this._userDismissedPlanCharge = false;
+      }
+
+      const storedSkipKeys = await this._getPlanChargeSkipKeys();
+      const prunedSkipKeys = prunePlanChargeSkipKeys(storedSkipKeys, result.currentSlot);
+      if (prunedSkipKeys.length !== storedSkipKeys.length) {
+        await this.setStoreValue('plan_charge_skip_slot_keys', prunedSkipKeys);
+      }
+
+      if (this.homey.app?.checkAndSendPriceSavingsNotification) {
+        await this.homey.app.checkAndSendPriceSavingsNotification(this, result, appConfig).catch((error) => {
+          this.log(`Pris-besparelse notifikation fejlede: ${error.message}`);
+        });
+      }
 
       this.log(`[${reason}] charge_now=${result.charge_now} | ${result.charge_message}`);
       if (result.fetchLog) {

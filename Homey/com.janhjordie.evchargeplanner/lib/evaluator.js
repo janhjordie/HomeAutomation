@@ -16,6 +16,7 @@ const { getClockPartsInTimeZone } = require('./quarterScheduler');
 const { fetchPrices } = require('./price/fetchPrices');
 const { findCurrentSlot, getSlotKey, SLOTS_PER_HOUR } = require('./price/slotBuilder');
 const { getChargePlanWindow, getSlotsForWindow, isNightChargeAllowed, isForceChargeActive } = require('./planner/windows');
+const { isSlotSkipped, normalizeSkipKeys } = require('./planner/planChargeSkip');
 const { buildPlanSummaries, buildPlanNotificationMessage } = require('./planNotification');
 const { buildWindowConfig, mergeDeviceWindowConfig, parseNightChargeEnd, partsToDecimalHour } = require('./planner/windowConfig');
 const { parseChargeHours, DEFAULT_ONE_SHOT_CHARGE_HOURS } = require('./chargeHours');
@@ -67,8 +68,21 @@ function buildDeviceConfig(settings = {}, appDefaults = {}) {
     nightChargeEnd: parseNightChargeEnd(
       settings.night_charge_end,
       partsToDecimalHour(appNightEnd.hour, appNightEnd.minute)
-    )
+    ),
+    planChargeSkipSlotKeys: normalizeSkipKeys(settings.plan_charge_skip_slot_keys)
   };
+}
+
+function applyPlanChargeSkip(chargeNow, currentSlot, skipKeys, forceChargeActive) {
+  if (forceChargeActive || !chargeNow) {
+    return chargeNow;
+  }
+
+  if (isSlotSkipped(currentSlot, skipKeys)) {
+    return false;
+  }
+
+  return chargeNow;
 }
 
 function buildAppConfig(appSettings = {}, env = {}) {
@@ -234,7 +248,13 @@ async function evaluateChargePlanForDevice(deviceConfig, appConfig, options = {}
     ) * appConfig.chargerKw * (SLOT_MINUTES / 60);
 
     const forceChargeActive = isForceChargeActive(deviceConfig.forceCharge);
-    const charge_now = forceChargeActive ? true : evaluation.charge_now;
+    let charge_now = forceChargeActive ? true : evaluation.charge_now;
+    charge_now = applyPlanChargeSkip(
+      charge_now,
+      currentSlot,
+      deviceConfig.planChargeSkipSlotKeys,
+      forceChargeActive
+    );
 
     return {
       charge_now,
@@ -290,7 +310,12 @@ async function evaluateChargePlanForDevice(deviceConfig, appConfig, options = {}
     });
 
     return {
-      charge_now: forceChargeActive,
+      charge_now: applyPlanChargeSkip(
+        forceChargeActive,
+        currentSlot,
+        deviceConfig.planChargeSkipSlotKeys,
+        forceChargeActive
+      ),
       charge_message,
       charge_schedule: 'ingen',
       totalCost: 0,
@@ -331,6 +356,13 @@ async function evaluateChargePlanForDevice(deviceConfig, appConfig, options = {}
     evaluation.forceChargeActive = true;
   }
 
+  evaluation.charge_now = applyPlanChargeSkip(
+    evaluation.charge_now,
+    currentSlot,
+    deviceConfig.planChargeSkipSlotKeys,
+    forceChargeActive
+  );
+
   if (!isNightChargeAllowed(deviceConfig.nightChargeEnabled, chargePlanWindow)
     && !forceChargeActive) {
     evaluation.charge_now = false;
@@ -365,6 +397,8 @@ async function evaluateChargePlanForDevice(deviceConfig, appConfig, options = {}
     currentSlot,
     chargePlanWindow,
     evaluation,
+    allSlots,
+    tomorrowSlots,
     debug: {
       todaySlots,
       tomorrowSlots,

@@ -1,4 +1,8 @@
 {
+  "1.0.58": {
+    "en": "Turning off force during scheduled charging pauses until the current plan block ends; push when tomorrow prices are cheaper.",
+    "da": "Slå force fra under planlagt opladning: stop resten af den ladeperiode; push (ikke timeline) ved billigere priser for i morgen/nat."
+  },
   "1.0.57": {
     "en": "Force charge overrides one-shot plan; Easee controlled via Homey device SDK; fewer force setting races.",
     "da": "Tvungen opladning overruler engangsopladning; Easee styres via Homey SDK; færre race ved force-indstilling."

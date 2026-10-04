@@ -391,6 +391,40 @@ class EvChargePlannerApp extends Homey.App {
     await this._sendPushNotification(lines.join('\n').trim());
   }
 
+  async checkAndSendPriceSavingsNotification(device, result, appConfig) {
+    const tomorrowSlots = result?.tomorrowSlots || result?.debug?.tomorrowSlots || [];
+    const allSlots = result?.allSlots || [];
+
+    if (!tomorrowSlots.length || !allSlots.length) {
+      return;
+    }
+
+    const {
+      buildTomorrowPriceFingerprint,
+      buildPriceSavingsMessage
+    } = require('./lib/priceSavingsNotification');
+    const fingerprint = buildTomorrowPriceFingerprint(tomorrowSlots);
+
+    if (!fingerprint) {
+      return;
+    }
+
+    const lastFingerprint = await device.getStoreValue('price_savings_notify_fingerprint');
+    if (lastFingerprint === fingerprint) {
+      return;
+    }
+
+    const message = buildPriceSavingsMessage(allSlots, appConfig, new Date());
+    if (!message) {
+      await device.setStoreValue('price_savings_notify_fingerprint', fingerprint);
+      return;
+    }
+
+    await this._sendPushNotification(message);
+    await device.setStoreValue('price_savings_notify_fingerprint', fingerprint);
+    this.log(`Pris-besparelse push sendt: ${fingerprint}`);
+  }
+
   async sendApiFailureNotification(error) {
     const userName = this.homey.settings.get('notification_user') || 'Homey';
     const message = `${userName}: EV-opladning kunne ikke hente prisdata. Fejl: ${error.message}`;

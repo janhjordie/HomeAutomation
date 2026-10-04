@@ -232,6 +232,83 @@ function testChargingCapabilities() {
   );
 }
 
+function testPlanChargeSkip() {
+  const {
+    getPlanChargeSkipKeysFromEvaluation,
+    isSlotSkipped,
+    prunePlanChargeSkipKeys
+  } = require('../lib/planner/planChargeSkip');
+  const { getSlotKey } = require('../lib/price/slotBuilder');
+
+  const { SLOT_MS } = require('../lib/price/slotBuilder');
+  const base = 1_000_000;
+  const slots = [
+    { date: '2026-08-16', hour: 10, minute: 0, timestamp: base, spotPriceInclVat: 0.2 },
+    { date: '2026-08-16', hour: 10, minute: 15, timestamp: base + SLOT_MS, spotPriceInclVat: 0.2 },
+    { date: '2026-08-16', hour: 10, minute: 30, timestamp: base + (2 * SLOT_MS), spotPriceInclVat: 0.2 },
+    { date: '2026-08-16', hour: 12, minute: 0, timestamp: base + (6 * SLOT_MS), spotPriceInclVat: 0.1 }
+  ];
+  const evaluation = { planSlots: slots };
+  const current = slots[1];
+  const skipKeys = getPlanChargeSkipKeysFromEvaluation(evaluation, current);
+
+  assert.strictEqual(skipKeys.length, 2);
+  assert.strictEqual(skipKeys[0], getSlotKey(slots[1]));
+  assert.strictEqual(isSlotSkipped(current, skipKeys), true);
+  assert.deepStrictEqual(prunePlanChargeSkipKeys(skipKeys, slots[2]), skipKeys);
+  assert.deepStrictEqual(prunePlanChargeSkipKeys(skipKeys, slots[3]), []);
+}
+
+function testPriceSavingsMessage() {
+  const { buildPriceSavingsMessage, buildTomorrowPriceFingerprint } = require('../lib/priceSavingsNotification');
+  const { buildWindowConfig } = require('../lib/planner/windowConfig');
+
+  const windowConfig = buildWindowConfig({
+    day_charge_start: 9,
+    day_charge_end: 17,
+    night_charge_start: 21,
+    night_charge_end: 6
+  });
+  const appConfig = { timeZone: 'Europe/Copenhagen', windowConfig };
+  const today = '2026-08-16';
+  const tomorrow = '2026-08-17';
+  const allSlots = [];
+
+  for (const hour of [10, 11, 12]) {
+    for (const minute of [0, 15, 30, 45]) {
+      allSlots.push({
+        date: today,
+        hour,
+        minute,
+        timestamp: Date.parse(`2026-08-16T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00.000+02:00`),
+        spotPriceInclVat: 0.5
+      });
+    }
+  }
+
+  for (const hour of [10, 11]) {
+    for (const minute of [0, 15, 30, 45]) {
+      allSlots.push({
+        date: tomorrow,
+        hour,
+        minute,
+        timestamp: Date.parse(`2026-08-17T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00.000+02:00`),
+        spotPriceInclVat: 0.2
+      });
+    }
+  }
+
+  const tomorrowSlots = allSlots.filter((slot) => slot.date === tomorrow);
+  assert.ok(buildTomorrowPriceFingerprint(tomorrowSlots));
+  const message = buildPriceSavingsMessage(
+    allSlots,
+    appConfig,
+    new Date('2026-08-16T12:00:00.000+02:00')
+  );
+  assert.ok(message.includes('Nye elpriser'));
+  assert.ok(message.includes('spar'));
+}
+
 function testChargeHoursHalfSteps() {
   const { parseChargeHours, formatChargeHoursForNotification } = require('../lib/chargeHours');
   const { evaluateChargePlan } = require('../lib/planner/chargePlan');
@@ -680,6 +757,8 @@ async function main() {
   testChargeNowThresholdMode();
   testChargeScheduleShowsTotalSpan();
   testDayWindow();
+  testPlanChargeSkip();
+  testPriceSavingsMessage();
   testChargeHoursHalfSteps();
   testWindowConfig();
   testDayWindowHalfHour();
