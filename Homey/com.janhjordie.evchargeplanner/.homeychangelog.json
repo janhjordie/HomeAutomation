@@ -1,4 +1,8 @@
 {
+  "1.0.59": {
+    "en": "One test push notification on app start per version (uses notification_user name).",
+    "da": "Én test push-notifikation ved app-start per version (bruger notification_user-navn)."
+  },
   "1.0.58": {
     "en": "Turning off force during scheduled charging pauses until the current plan block ends; push when tomorrow prices are cheaper.",
     "da": "Slå force fra under planlagt opladning: stop resten af den ladeperiode; push (ikke timeline) ved billigere priser for i morgen/nat."

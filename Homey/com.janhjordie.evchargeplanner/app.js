@@ -57,6 +57,7 @@ class EvChargePlannerApp extends Homey.App {
     this._scheduleDayEndWatchdog();
     this._scheduleBootRepair();
     this._scheduleDeviceQuarterSchedulers();
+    this._scheduleStartupTestPush();
 
     this.homey.on('unload', () => {
       if (this._evaluationTimer) {
@@ -330,6 +331,30 @@ class EvChargePlannerApp extends Homey.App {
     }, Math.max(delay, 1000));
   }
 
+  _scheduleStartupTestPush() {
+    this.homey.setTimeout(() => {
+      this._sendStartupTestPush().catch((error) => {
+        this.error(`Startup test-push fejlede: ${error.message}`);
+      });
+    }, 8000);
+  }
+
+  async _sendStartupTestPush() {
+    const appVersion = this.homey.manifest?.version || 'unknown';
+    const lastSentVersion = this.homey.settings.get('startup_test_push_version');
+    if (lastSentVersion === appVersion) {
+      this.log(`Startup test-push allerede sendt for v${appVersion}`);
+      return;
+    }
+
+    const userName = String(this.homey.settings.get('notification_user') || 'Homey').trim();
+    const message = `${userName}: EV Ladeplan test — push-notifikation ved app-start (v${appVersion}).`;
+    const channel = await this._sendPushNotification(message);
+
+    await this.homey.settings.set('startup_test_push_version', appVersion);
+    this.log(`Startup test-push sendt via ${channel}: ${message}`);
+  }
+
   async _sendPushNotification(message) {
     if (typeof this.homey.flow?.runFlowCardAction === 'function') {
       try {
@@ -338,7 +363,7 @@ class EvChargePlannerApp extends Homey.App {
           id: 'homey:manager:notifications:create_notification',
           args: { text: message }
         });
-        return;
+        return 'flow';
       } catch (flowNotificationError) {
         this.log(`Flow-notifikation fejlede: ${flowNotificationError.message}`);
       }
@@ -347,13 +372,14 @@ class EvChargePlannerApp extends Homey.App {
     if (typeof this.homey.notifications?.createNotification === 'function') {
       try {
         await this.homey.notifications.createNotification({ excerpt: message });
-        return;
+        return 'notifications';
       } catch (notificationError) {
         this.log(`Homey.notifications fejlede: ${notificationError.message}`);
       }
     }
 
     this.log(`NOTIFIKATION (kun log): ${message}`);
+    return 'log';
   }
 
   async sendPlanUpdatedNotification(result, options = {}) {
