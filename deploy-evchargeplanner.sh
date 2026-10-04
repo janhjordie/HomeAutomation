@@ -48,6 +48,11 @@ if [[ ! -f "${APP_DIR}/env.json" && -f "${APP_DIR}/env.json.example" ]]; then
   echo "Oprettede env.json fra env.json.example"
 fi
 
+if [[ -f "${APP_DIR}/package.json" ]]; then
+  echo "Installerer app-afhængigheder (npm) ..."
+  (cd "${APP_DIR}" && npm ci --omit=dev 2>/dev/null || npm install --omit=dev)
+fi
+
 echo "Validerer EV Charge Planner ..."
 if ! homey app validate --level debug -p "${APP_DIR}"; then
   echo "Fejl: App-validering fejlede. Tjek at assets/icon.svg og settings/index.html findes." >&2
