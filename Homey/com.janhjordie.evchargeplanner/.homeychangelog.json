@@ -1,4 +1,8 @@
 {
+  "1.0.55": {
+    "en": "Easee start when charge_now is true even if the charger looked idle; tile power reflects real Easee state.",
+    "da": "Easee startes ved charge_now også når laderen stod klar men ikke ladede; flisens effekt viser reel Easee-status."
+  },
   "1.0.54": {
     "en": "Charge hours needed (and one-shot hours) use 30-minute steps on the device tile and in planning.",
     "da": "Ladetimer behov (og engangs-timer) kan sættes i 30-minutters trin på enheden og i planen."

@@ -61,9 +61,9 @@ function buildEaseeChargingSync(easeeState, chargeNow, chargerKw) {
   const powerW = Number.isFinite(rawPowerW) ? rawPowerW : 0;
   const chargingState = easeeState.chargingState || null;
   const evchargerCharging = Boolean(easeeState.evchargerCharging)
-    || powerW > 0
+    || powerW > 100
     || chargingState === 'plugged_in_charging';
-  const isCharging = evchargerCharging || Boolean(chargeNow);
+  const isCharging = evchargerCharging;
   const resolvedPowerW = isCharging && powerW <= 0
     ? getMeasurePowerW(true, chargerKw)
     : powerW;

@@ -980,7 +980,7 @@ class EvPlannerDevice extends Homey.Device {
         chargeNow: result.charge_now,
         previousChargeNow,
         log: this.log.bind(this),
-        forceEaseeSync: options.forceEaseeSync === true
+        forceEaseeSync: options.forceEaseeSync === true || Boolean(result.charge_now)
       });
 
       const easeeConfig = orchestration.easeeConfig;
@@ -1026,6 +1026,9 @@ class EvPlannerDevice extends Homey.Device {
 
       if (easeeResult?.action && easeeResult.action !== 'noop') {
         this.log(`Easee ${easeeResult.action}: charge_now=${result.charge_now}`);
+      } else if (result.charge_now && easeeConfig?.enabled) {
+        const detail = easeeResult?.reason || easeeResult?.error || 'ukendt';
+        this.log(`[${reason}] charge_now=true, Easee ikke startet (${detail})`);
       }
 
       await this._maybeMirrorToLogic(result, {

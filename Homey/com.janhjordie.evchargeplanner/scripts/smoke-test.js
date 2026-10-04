@@ -197,14 +197,21 @@ function testChargingCapabilities() {
     buildEaseeChargingSync({
       measurePower: 0,
       evchargerCharging: false,
-      chargingState: 'plugged_out'
+      chargingState: 'plugged_in'
     }, true, 11),
     {
       chargeNow: true,
       chargerKw: 11,
-      powerW: 11000,
-      chargingState: 'plugged_out',
-      evchargerCharging: true
+      powerW: 0,
+      chargingState: 'plugged_in',
+      evchargerCharging: false
+    }
+  );
+  assert.deepStrictEqual(
+    buildEaseeChargingSync(null, true, 11),
+    {
+      chargeNow: true,
+      chargerKw: 11
     }
   );
   assert.strictEqual(
@@ -493,6 +500,16 @@ function testEaseeNeedsSync() {
   assert.strictEqual(easeeNeedsSync(true, chargingState, 16), false);
   assert.strictEqual(easeeNeedsSync(false, chargingState, 16), true);
   assert.strictEqual(shouldStartEasee(chargingState, 16), false);
+
+  const readyButIdle = {
+    onoff: true,
+    targetCircuitCurrent: 16,
+    evchargerCharging: false,
+    measurePower: 0,
+    chargingState: 'plugged_in'
+  };
+  assert.strictEqual(easeeNeedsSync(true, readyButIdle, 16), true);
+  assert.strictEqual(shouldStartEasee(readyButIdle, 16), true);
 }
 
 function testEaseeConfig() {
@@ -507,7 +524,13 @@ function testEaseeConfig() {
   assert.strictEqual(enabled.circuitCurrent, 16);
 
   assert.strictEqual(shouldStartEasee({ onoff: false, targetCircuitCurrent: 0 }, 16), true);
-  assert.strictEqual(shouldStartEasee({ onoff: true, targetCircuitCurrent: 16 }, 16), false);
+  assert.strictEqual(shouldStartEasee({ onoff: true, targetCircuitCurrent: 16 }, 16), true);
+  assert.strictEqual(shouldStartEasee({
+    onoff: true,
+    targetCircuitCurrent: 16,
+    evchargerCharging: true,
+    measurePower: 7000
+  }, 16), false);
   assert.strictEqual(shouldStopEasee({ onoff: true, targetCircuitCurrent: 16 }), true);
   assert.strictEqual(shouldStopEasee({ onoff: false, targetCircuitCurrent: 0 }), false);
 }

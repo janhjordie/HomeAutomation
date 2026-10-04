@@ -50,8 +50,34 @@ function readEaseeStateFromDevice(device) {
   };
 }
 
+function isEaseeActivelyCharging(state) {
+  if (!state) {
+    return false;
+  }
+
+  const powerW = Number(state.measurePower);
+  if (Number.isFinite(powerW) && powerW > 100) {
+    return true;
+  }
+
+  if (state.evchargerCharging) {
+    return true;
+  }
+
+  return state.chargingState === 'plugged_in_charging';
+}
+
 function shouldStartEasee(state, circuitCurrent) {
-  return !state?.onoff || state.targetCircuitCurrent < circuitCurrent;
+  if (!state) {
+    return true;
+  }
+
+  const target = Number(state.targetCircuitCurrent) || 0;
+  if (!isEaseeActivelyCharging(state)) {
+    return true;
+  }
+
+  return !state.onoff || target < circuitCurrent;
 }
 
 function shouldStopEasee(state) {
@@ -193,9 +219,6 @@ class EaseeChargerController {
       if (!currentState.onoff) {
         await this.setEaseeCapability(config.deviceId, CAP_ONOFF, true);
       }
-      if (!currentState.evchargerCharging) {
-        await this.setEaseeCapability(config.deviceId, CAP_EVCHARGER_CHARGING, true);
-      }
       this.log(`Easee start: ${config.circuitCurrent}A på ${currentState.name || config.deviceId}`);
 
       return {
@@ -219,9 +242,6 @@ class EaseeChargerController {
     if (currentState.onoff) {
       await this.setEaseeCapability(config.deviceId, CAP_ONOFF, false);
     }
-    if (currentState.evchargerCharging) {
-      await this.setEaseeCapability(config.deviceId, CAP_EVCHARGER_CHARGING, false);
-    }
     this.log(`Easee stop: ${currentState.name || config.deviceId}`);
 
     return {
@@ -238,6 +258,7 @@ module.exports = {
   DEFAULT_STATE_CACHE_MS,
   buildEaseeConfig,
   readEaseeStateFromDevice,
+  isEaseeActivelyCharging,
   shouldStartEasee,
   shouldStopEasee,
   isRateLimitError,
