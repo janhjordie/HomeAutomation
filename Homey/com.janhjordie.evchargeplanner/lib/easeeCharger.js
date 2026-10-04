@@ -31,22 +31,28 @@ function buildEaseeConfig(appSettings = {}) {
   };
 }
 
+function readCapabilityValue(device, capabilityId) {
+  if (typeof device.getCapabilityValue === 'function') {
+    return device.getCapabilityValue(capabilityId);
+  }
+
+  return device.capabilitiesObj?.[capabilityId]?.value;
+}
+
 function readEaseeStateFromDevice(device) {
   if (!device) {
     return null;
   }
 
-  const caps = device.capabilitiesObj || {};
-
   return {
     deviceId: device.id,
     name: device.name,
-    measurePower: Number(caps[CAP_MEASURE_POWER]?.value) || 0,
-    onoff: Boolean(caps[CAP_ONOFF]?.value),
-    evchargerCharging: Boolean(caps[CAP_EVCHARGER_CHARGING]?.value),
-    chargingState: caps[CAP_CHARGING_STATE]?.value || null,
-    targetCircuitCurrent: Number(caps[CAP_TARGET_CIRCUIT_CURRENT]?.value) || 0,
-    chargerStatus: caps[CAP_CHARGER_STATUS]?.value || null
+    measurePower: Number(readCapabilityValue(device, CAP_MEASURE_POWER)) || 0,
+    onoff: Boolean(readCapabilityValue(device, CAP_ONOFF)),
+    evchargerCharging: Boolean(readCapabilityValue(device, CAP_EVCHARGER_CHARGING)),
+    chargingState: readCapabilityValue(device, CAP_CHARGING_STATE) || null,
+    targetCircuitCurrent: Number(readCapabilityValue(device, CAP_TARGET_CIRCUIT_CURRENT)) || 0,
+    chargerStatus: readCapabilityValue(device, CAP_CHARGER_STATUS) || null
   };
 }
 
@@ -110,6 +116,17 @@ class EaseeChargerController {
       return null;
     }
 
+    if (typeof this.homey?.devices?.getDevice === 'function') {
+      try {
+        const nativeDevice = await this.homey.devices.getDevice({ id: deviceId });
+        if (nativeDevice) {
+          return nativeDevice;
+        }
+      } catch (error) {
+        this.log(`Easee device ${deviceId} via SDK: ${error.message}`);
+      }
+    }
+
     try {
       return await managerApiRequest(
         this.homey,
@@ -120,18 +137,23 @@ class EaseeChargerController {
       this.log(`Easee device ${deviceId} via Manager API: ${error.message}`);
     }
 
-    if (typeof this.homey?.devices?.getDevice === 'function') {
-      try {
-        return await this.homey.devices.getDevice({ id: deviceId });
-      } catch (error) {
-        this.log(`Easee device ${deviceId} ikke fundet: ${error.message}`);
-      }
-    }
-
     return null;
   }
 
   async setEaseeCapability(deviceId, capabilityId, value, options = {}) {
+    if (typeof this.homey?.devices?.getDevice === 'function') {
+      try {
+        const nativeDevice = await this.homey.devices.getDevice({ id: deviceId });
+        if (nativeDevice && typeof nativeDevice.setCapabilityValue === 'function') {
+          await nativeDevice.setCapabilityValue({ capabilityId, value });
+          this.invalidateCache(deviceId);
+          return;
+        }
+      } catch (error) {
+        this.log(`Easee SDK set ${capabilityId} fejlede: ${error.message}`);
+      }
+    }
+
     const maxAttempts = options.maxAttempts ?? 3;
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {

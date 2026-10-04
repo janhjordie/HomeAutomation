@@ -254,6 +254,10 @@ class EvPlannerDevice extends Homey.Device {
       this._updatingUiCapabilities = false;
     }
 
+    if (changed.length === 1 && changed[0] === 'force_charge') {
+      return;
+    }
+
     const overrides = this._buildEvaluateOverridesFromSettings(newSettings);
     const hoursChanged = changed.includes('charge_hours')
       && parseChargeHours(newSettings.charge_hours, 0) >= CHARGE_HOURS_MIN;
@@ -965,7 +969,16 @@ class EvPlannerDevice extends Homey.Device {
         night_charge_end: appSettings.night_charge_end
       });
       const oneShotCache = await this._getOneShotCache();
-      const result = await evaluateChargePlanForDevice(deviceConfig, appConfig, { oneShotCache });
+      let result = await evaluateChargePlanForDevice(deviceConfig, appConfig, { oneShotCache });
+
+      if (isForceChargeActive(deviceConfig.forceCharge) && !result.charge_now) {
+        result = {
+          ...result,
+          charge_now: true,
+          forceChargeActive: true,
+          charge_message: 'Tvungen opladning aktiv.'
+        };
+      }
 
       await this._applyOneShotState(result, deviceSettings);
       await this._applyOneShotCache(result);

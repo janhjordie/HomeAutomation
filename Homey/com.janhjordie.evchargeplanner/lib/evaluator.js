@@ -233,15 +233,20 @@ async function evaluateChargePlanForDevice(deviceConfig, appConfig, options = {}
       0
     ) * appConfig.chargerKw * (SLOT_MINUTES / 60);
 
+    const forceChargeActive = isForceChargeActive(deviceConfig.forceCharge);
+    const charge_now = forceChargeActive ? true : evaluation.charge_now;
+
     return {
-      charge_now: evaluation.charge_now,
-      charge_message,
+      charge_now,
+      charge_message: forceChargeActive
+        ? `${chargePlanWindow.messagePrefix}: tvungen opladning aktiv.`
+        : charge_message,
       charge_schedule: scheduleSummary,
       totalCost: totalSpotInclVatCost,
       oneShotActive,
       oneShotDisabledReason,
       oneShotCacheUpdate,
-      forceChargeActive: false,
+      forceChargeActive,
       planSummaries,
       priceSource,
       priceResolution,
@@ -271,7 +276,7 @@ async function evaluateChargePlanForDevice(deviceConfig, appConfig, options = {}
       oneShotDisabledReason = `ingen kvarter tilbage foer deadline ${oneShotDeadline.label}`;
     }
 
-    const forceChargeActive = !oneShotActive && isForceChargeActive(deviceConfig.forceCharge);
+    const forceChargeActive = isForceChargeActive(deviceConfig.forceCharge);
     const planSummaries = buildPlanSummaries(allSlots, deviceConfig, planAppConfig, { now, currentSlot });
     const charge_message = buildPlanNotificationMessage(deviceConfig, planSummaries, {
       oneShotActive: false,
@@ -319,7 +324,7 @@ async function evaluateChargePlanForDevice(deviceConfig, appConfig, options = {}
     }
   );
 
-  const forceChargeActive = !oneShotActive && isForceChargeActive(deviceConfig.forceCharge);
+  const forceChargeActive = isForceChargeActive(deviceConfig.forceCharge);
 
   if (forceChargeActive) {
     evaluation.charge_now = true;

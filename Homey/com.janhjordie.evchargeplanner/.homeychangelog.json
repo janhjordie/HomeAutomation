@@ -1,4 +1,8 @@
 {
+  "1.0.57": {
+    "en": "Force charge overrides one-shot plan; Easee controlled via Homey device SDK; fewer force setting races.",
+    "da": "Tvungen opladning overruler engangsopladning; Easee styres via Homey SDK; færre race ved force-indstilling."
+  },
   "1.0.56": {
     "en": "Force charge reliably kicks Easee when idle-ready (pulse current); sequential force + Easee sync.",
     "da": "Tvungen opladning vækker Easee når laderen står klar men idle (strømpuls); force og Easee kører i rækkefølge."
