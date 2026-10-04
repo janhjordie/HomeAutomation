@@ -74,6 +74,11 @@ class EvChargePlannerApp extends Homey.App {
     this._scheduleDayEndWatchdog();
 
     const changed = Array.isArray(changedKeys) ? changedKeys : [];
+    if (changed.includes('notification_user')) {
+      await this.homey.settings.set('notification_user_id', null);
+      await this.homey.settings.set('notification_user_athom_id', null);
+    }
+
     const planChanged = changed.some((key) => APP_PLAN_SETTING_KEYS.includes(key));
 
     if (!planChanged) {
@@ -350,36 +355,35 @@ class EvChargePlannerApp extends Homey.App {
     const userName = String(this.homey.settings.get('notification_user') || 'Homey').trim();
     const message = `${userName}: EV Ladeplan test — push-notifikation ved app-start (v${appVersion}).`;
     const channel = await this._sendPushNotification(message);
+    const { isMobilePushChannel } = require('./lib/pushNotification');
 
-    await this.homey.settings.set('startup_test_push_version', appVersion);
-    this.log(`Startup test-push sendt via ${channel}: ${message}`);
+    if (isMobilePushChannel(channel)) {
+      await this.homey.settings.set('startup_test_push_version', appVersion);
+    } else {
+      this.log(`Startup test-push ikke markeret som sendt (kanal: ${channel})`);
+    }
+    this.log(`Startup test-push via ${channel}: ${message}`);
   }
 
   async _sendPushNotification(message) {
-    if (typeof this.homey.flow?.runFlowCardAction === 'function') {
-      try {
-        await this.homey.flow.runFlowCardAction({
-          uri: 'homey:flowcardaction:homey:manager:notifications:create_notification',
-          id: 'homey:manager:notifications:create_notification',
-          args: { text: message }
-        });
-        return 'flow';
-      } catch (flowNotificationError) {
-        this.log(`Flow-notifikation fejlede: ${flowNotificationError.message}`);
-      }
-    }
+    const { sendPushNotification } = require('./lib/pushNotification');
+    return sendPushNotification(this.homey, message, (line) => this.log(line));
+  }
 
-    if (typeof this.homey.notifications?.createNotification === 'function') {
-      try {
-        await this.homey.notifications.createNotification({ excerpt: message });
-        return 'notifications';
-      } catch (notificationError) {
-        this.log(`Homey.notifications fejlede: ${notificationError.message}`);
+  async sendTestPush() {
+    const logLines = [];
+    const { sendPushNotification } = require('./lib/pushNotification');
+    const version = this.homey.manifest?.version || '?';
+    const message = `EV Ladeplan API push-test (v${version})`;
+    const channel = await sendPushNotification(
+      this.homey,
+      message,
+      (line) => {
+        logLines.push(line);
+        this.log(line);
       }
-    }
-
-    this.log(`NOTIFIKATION (kun log): ${message}`);
-    return 'log';
+    );
+    return { channel, logLines, message };
   }
 
   async sendPlanUpdatedNotification(result, options = {}) {

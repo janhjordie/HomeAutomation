@@ -1,6 +1,6 @@
 {
   "id": "com.janhjordie.evchargeplanner",
-  "version": "1.0.59",
+  "version": "1.0.69",
   "compatibility": ">=13.0.0",
   "runtime": "nodejs",
   "platforms": [
@@ -42,6 +42,10 @@
     "evaluateAll": {
       "method": "POST",
       "path": "/evaluate-all"
+    },
+    "testPush": {
+      "method": "POST",
+      "path": "/test-push"
     },
     "createDevice": {
       "method": "POST",

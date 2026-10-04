@@ -5,6 +5,9 @@
   "engines": {
     "node": ">=18"
   },
+  "dependencies": {
+    "homey-api": "^3.19.1"
+  },
   "scripts": {
     "smoke": "node scripts/smoke-test.js"
   }

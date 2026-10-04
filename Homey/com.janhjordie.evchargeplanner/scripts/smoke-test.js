@@ -259,6 +259,21 @@ function testPlanChargeSkip() {
   assert.deepStrictEqual(prunePlanChargeSkipKeys(skipKeys, slots[3]), []);
 }
 
+function testPickNotificationUser() {
+  const { pickNotificationUser, isMobilePushChannel } = require('../lib/pushNotification');
+  assert.strictEqual(isMobilePushChannel('mobile-owner:foo'), true);
+  assert.strictEqual(isMobilePushChannel('timeline-flow'), false);
+  const users = [
+    { id: 'a', athomId: '1', name: 'Jan Hjørdie' },
+    { id: 'b', athomId: '2', name: 'Other User' }
+  ];
+
+  assert.strictEqual(pickNotificationUser(users, 'Jan Hjørdie').id, 'a');
+  assert.strictEqual(pickNotificationUser(users, 'jan hjørdie').id, 'a');
+  assert.strictEqual(pickNotificationUser(users, '').id, 'a');
+  assert.strictEqual(pickNotificationUser([], 'Jan'), null);
+}
+
 function testPriceSavingsMessage() {
   const { buildPriceSavingsMessage, buildTomorrowPriceFingerprint } = require('../lib/priceSavingsNotification');
   const { buildWindowConfig } = require('../lib/planner/windowConfig');
@@ -758,6 +773,7 @@ async function main() {
   testChargeScheduleShowsTotalSpan();
   testDayWindow();
   testPlanChargeSkip();
+  testPickNotificationUser();
   testPriceSavingsMessage();
   testChargeHoursHalfSteps();
   testWindowConfig();

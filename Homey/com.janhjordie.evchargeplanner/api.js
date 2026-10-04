@@ -11,6 +11,10 @@ module.exports = {
     return { evaluatedDevices };
   },
 
+  async testPush({ homey }) {
+    return homey.app.sendTestPush();
+  },
+
   async createDevice({ homey, body }) {
     const name = String(body?.name || '').trim() || undefined;
     const dataId = String(body?.dataId || '').trim() || `ev-planner-${Date.now()}`;

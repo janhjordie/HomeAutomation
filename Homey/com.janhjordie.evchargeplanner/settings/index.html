@@ -129,6 +129,12 @@
       <label class="homey-form-label" for="notification_user" data-i18n="settings.notification_user"></label>
       <input class="homey-form-input" id="notification_user" type="text" value="Jan Hjørdie" />
     </div>
+
+    <div class="homey-form-group">
+      <label class="homey-form-label" for="push_api_token" data-i18n="settings.push_api_token"></label>
+      <input class="homey-form-input" id="push_api_token" type="password" autocomplete="off" />
+      <p class="homey-form-help" data-i18n="settings.push_api_token_help"></p>
+    </div>
   </fieldset>
 
   <button id="save" class="homey-button-primary-full" data-i18n="settings.save"></button>
@@ -142,6 +148,7 @@
         'spot_threshold',
         'charger_kw',
         'notification_user',
+        'push_api_token',
         'stromligning_api_key',
         'day_charge_start',
         'day_charge_end',

@@ -35,6 +35,8 @@
     "mirror_logic_variables": "Spejl til Logic-variabler (parallel kørsel)",
     "validation_enabled": "Log valideringssammenligninger (EVC-013)",
     "notification_user": "Notifikationsnavn",
+    "push_api_token": "API-nøgle til mobil push",
+    "push_api_token_help": "Opret en lokal API-nøgle i Homey (Udviklerværktøjer) med Flow-tilladelse, og indsæt den her. Uden nøgle kan appen kun sende timeline-beskeder.",
     "save": "Gem ændringer",
     "saved": "Indstillinger gemt"
   }

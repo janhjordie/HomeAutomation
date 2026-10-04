@@ -35,6 +35,8 @@
     "mirror_logic_variables": "Mirror to Logic variables (parallel run)",
     "validation_enabled": "Log validation comparisons (EVC-013)",
     "notification_user": "Notification user name",
+    "push_api_token": "API key for mobile push",
+    "push_api_token_help": "Create a local API key in Homey (Developer Tools) with Flow permission and paste it here. Without a key the app can only send timeline messages.",
     "save": "Save changes",
     "saved": "Settings saved"
   }

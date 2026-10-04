@@ -1,4 +1,40 @@
 {
+  "1.0.69": {
+    "en": "Redeploy with mobile push (personal API token) and app settings for push_api_token.",
+    "da": "Genudrulning med mobil push (personlig API-nøgle) og app-indstillinger for push_api_token."
+  },
+  "1.0.68": {
+    "en": "Mobile push requires a local API key (Flow scope) in app settings; timeline fallback when push is unavailable.",
+    "da": "Mobil push kræver lokal API-nøgle (Flow-scope) i app-indstillinger; timeline som fallback når push ikke kan sendes."
+  },
+  "1.0.67": {
+    "en": "Mobile push via homey.api.post only (no getOwnerApiToken gate); POST /test-push for diagnostics.",
+    "da": "Mobil push via homey.api.post (uden getOwnerApiToken-gate); POST /test-push til diagnose."
+  },
+  "1.0.65": {
+    "en": "Fix manager API post path for mobile push (/manager/flow/...).",
+    "da": "Ret manager API post-sti til mobil push (/manager/flow/...)."
+  },
+  "1.0.64": {
+    "en": "Mobile push via managerApiRequest (owner fetch), same as other app manager calls.",
+    "da": "Mobil push via managerApiRequest (owner fetch), samme som appens andre manager-kald."
+  },
+  "1.0.63": {
+    "en": "Mobile push: HomeyAPI with owner Bearer token first (forum pattern), then manager API post.",
+    "da": "Mobil push: HomeyAPI med owner Bearer-token først (forum-mønster), derefter manager API post."
+  },
+  "1.0.62": {
+    "en": "Mobile push uses owner API token (same as CLI); startup test only marked sent after a real push.",
+    "da": "Mobil push bruger owner API-token (som CLI); startup-test markeres kun sendt efter reel push."
+  },
+  "1.0.61": {
+    "en": "Mobile push uses the same flowcardaction URI as Homey docs; homey-api bundled; timeline fallback off by default.",
+    "da": "Mobil push bruger flowcardaction-URI som i Homey-dokumentationen; homey-api med i appen; timeline-fallback er slået fra som standard."
+  },
+  "1.0.60": {
+    "en": "Notifications use mobile push (push_text) to the user matching notification_user; timeline only as fallback.",
+    "da": "Notifikationer sendes som mobil push (push_text) til brugeren der matcher notification_user; timeline kun som fallback."
+  },
   "1.0.59": {
     "en": "One test push notification on app start per version (uses notification_user name).",
     "da": "Én test push-notifikation ved app-start per version (bruger notification_user-navn)."

@@ -17,7 +17,7 @@ async function ensureOwnerApiAccess(homey) {
 
 async function managerApiRequest(homey, method, path, body = undefined) {
   const access = await ensureOwnerApiAccess(homey);
-  if (access) {
+  if (access && typeof fetch === 'function') {
     const url = `${access.localUrl}/api${path}`;
     const headers = {
       Authorization: `Bearer ${access.token}`
@@ -53,6 +53,9 @@ async function managerApiRequest(homey, method, path, body = undefined) {
   if (method === 'GET' && typeof homey.api?.get === 'function') {
     return homey.api.get(path);
   }
+  if (method === 'POST' && typeof homey.api?.post === 'function') {
+    return homey.api.post(path, body);
+  }
   if (method === 'PUT' && typeof homey.api?.put === 'function') {
     return homey.api.put(path, body);
   }
@@ -60,6 +63,12 @@ async function managerApiRequest(homey, method, path, body = undefined) {
   throw new Error('Manager API ikke tilgaengelig');
 }
 
+async function runManagerFlowCardAction(homey, uri, id, args) {
+  const path = `/manager/flow/flowcardaction/${uri}/${id}/run`;
+  return managerApiRequest(homey, 'POST', path, { args });
+}
+
 module.exports = {
-  managerApiRequest
+  managerApiRequest,
+  runManagerFlowCardAction
 };
