@@ -8,8 +8,8 @@ const { getChargePlanWindow } = require('../lib/planner/windows');
 const { getSlotKey } = require('../lib/price/slotBuilder');
 
 function testBuildDeviceConfig() {
-  const config = buildDeviceConfig({ charge_hours: 2, force_charge: true });
-  assert.strictEqual(config.chargeHours, 2);
+  const config = buildDeviceConfig({ charge_hours: 2.5, force_charge: true });
+  assert.strictEqual(config.chargeHours, 2.5);
   assert.strictEqual(config.forceCharge, true);
 }
 
@@ -215,6 +215,28 @@ function testChargingCapabilities() {
     }, false, 11).powerW,
     10715
   );
+}
+
+function testChargeHoursHalfSteps() {
+  const { parseChargeHours, formatChargeHoursForNotification } = require('../lib/chargeHours');
+  const { evaluateChargePlan } = require('../lib/planner/chargePlan');
+
+  assert.strictEqual(parseChargeHours(2.5), 2.5);
+  assert.strictEqual(parseChargeHours(2.3), 2.5);
+  assert.strictEqual(formatChargeHoursForNotification(2.5), '2,5');
+
+  const slots = Array.from({ length: 12 }, (_, index) => ({
+    date: '2026-08-16',
+    hour: 9 + Math.floor(index / 4),
+    minute: (index % 4) * 15,
+    timestamp: index,
+    spotPriceInclVat: index * 0.01
+  }));
+  const currentSlot = slots[0];
+  const evaluation = evaluateChargePlan(slots, 2.5, 1, currentSlot, { planOnly: true });
+
+  assert.strictEqual(evaluation.chargeSlotsNeeded, 10);
+  assert.strictEqual(evaluation.planSlots.length, 10);
 }
 
 function testWindowConfig() {
@@ -627,6 +649,7 @@ async function main() {
   testChargeNowThresholdMode();
   testChargeScheduleShowsTotalSpan();
   testDayWindow();
+  testChargeHoursHalfSteps();
   testWindowConfig();
   testDayWindowHalfHour();
   testNightWindowHalfHourEnd();

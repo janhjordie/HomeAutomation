@@ -22,6 +22,7 @@ const {
   syncUiCapabilitiesFromSettings
 } = require('../../lib/deviceUiCapabilities');
 const { parseNightChargeEnd, partsToDecimalHour } = require('../../lib/planner/windowConfig');
+const { parseChargeHours, CHARGE_HOURS_MIN } = require('../../lib/chargeHours');
 const { isForceChargeActive } = require('../../lib/planner/windows');
 const { getMsUntilNextQuarterBoundary, QUARTER_MS } = require('../../lib/quarterScheduler');
 const { updateDeviceSpotPrice } = require('../../lib/spotPriceRefresh');
@@ -174,9 +175,9 @@ class EvPlannerDevice extends Homey.Device {
         return;
       }
 
-      const hours = Math.round(Number(value));
-      if (!Number.isInteger(hours) || hours < 1 || hours > MAX_CHARGE_HOURS) {
-        throw new Error(`Ladetimer skal vaere mellem 1 og ${MAX_CHARGE_HOURS}`);
+      const hours = parseChargeHours(value);
+      if (hours < CHARGE_HOURS_MIN || hours > MAX_CHARGE_HOURS) {
+        throw new Error(`Ladetimer skal vaere mellem ${CHARGE_HOURS_MIN} og ${MAX_CHARGE_HOURS} (30 min trin)`);
       }
 
       await this.setSettings({ charge_hours: hours });
@@ -209,9 +210,9 @@ class EvPlannerDevice extends Homey.Device {
         return;
       }
 
-      const hours = Math.round(Number(value));
-      if (!Number.isInteger(hours) || hours < 1 || hours > MAX_CHARGE_HOURS) {
-        throw new Error(`Engangsopladning timer skal vaere mellem 1 og ${MAX_CHARGE_HOURS}`);
+      const hours = parseChargeHours(value);
+      if (hours < CHARGE_HOURS_MIN || hours > MAX_CHARGE_HOURS) {
+        throw new Error(`Engangsopladning timer skal vaere mellem ${CHARGE_HOURS_MIN} og ${MAX_CHARGE_HOURS} (30 min trin)`);
       }
 
       await this.setSettings({ one_shot_charge_hours: hours });
@@ -255,8 +256,7 @@ class EvPlannerDevice extends Homey.Device {
 
     const overrides = this._buildEvaluateOverridesFromSettings(newSettings);
     const hoursChanged = changed.includes('charge_hours')
-      && Number.isInteger(Number(newSettings.charge_hours))
-      && Number(newSettings.charge_hours) > 0;
+      && parseChargeHours(newSettings.charge_hours, 0) >= CHARGE_HOURS_MIN;
 
     await this.evaluateNow(
       'settings_changed',
@@ -267,7 +267,7 @@ class EvPlannerDevice extends Homey.Device {
             || changed.includes('night_charge_enabled')
             || changed.includes('cheapest_plan_only')
             || changed.includes('night_charge_end'),
-          chargeHours: hoursChanged ? Number(newSettings.charge_hours) : undefined
+          chargeHours: hoursChanged ? parseChargeHours(newSettings.charge_hours) : undefined
         }
         : {}
     );
@@ -315,16 +315,15 @@ class EvPlannerDevice extends Homey.Device {
     return overrides;
   }
 
-  _resolveIntegerHours(settingValue, capabilityId) {
-    const fromSetting = Number(settingValue);
+  _resolveChargeHours(settingValue, capabilityId) {
     if (this.hasCapability(capabilityId)) {
-      const fromCapability = Number(this.getCapabilityValue(capabilityId));
-      if (Number.isInteger(fromCapability) && fromCapability > 0) {
+      const fromCapability = parseChargeHours(this.getCapabilityValue(capabilityId), 0);
+      if (fromCapability >= CHARGE_HOURS_MIN) {
         return fromCapability;
       }
     }
 
-    return fromSetting;
+    return parseChargeHours(settingValue);
   }
 
   _resolveNightChargeEndDecimal() {
@@ -358,8 +357,8 @@ class EvPlannerDevice extends Homey.Device {
   }
 
   _getDeviceSettings(overrides = {}) {
-    let chargeHours = this._resolveIntegerHours(this.getSetting('charge_hours'), 'charge_hours');
-    let oneShotChargeHours = this._resolveIntegerHours(
+    let chargeHours = this._resolveChargeHours(this.getSetting('charge_hours'), 'charge_hours');
+    let oneShotChargeHours = this._resolveChargeHours(
       this.getSetting('one_shot_charge_hours'),
       'one_shot_charge_hours'
     );
@@ -369,17 +368,11 @@ class EvPlannerDevice extends Homey.Device {
       : null;
 
     if (overrides.charge_hours != null) {
-      const hours = Math.round(Number(overrides.charge_hours));
-      if (Number.isInteger(hours) && hours > 0) {
-        chargeHours = hours;
-      }
+      chargeHours = parseChargeHours(overrides.charge_hours, chargeHours);
     }
 
     if (overrides.one_shot_charge_hours != null) {
-      const hours = Math.round(Number(overrides.one_shot_charge_hours));
-      if (Number.isInteger(hours) && hours > 0) {
-        oneShotChargeHours = hours;
-      }
+      oneShotChargeHours = parseChargeHours(overrides.one_shot_charge_hours, oneShotChargeHours);
     }
 
     let nightChargeEnd = this._resolveNightChargeEndDecimal();
@@ -1054,8 +1047,8 @@ class EvPlannerDevice extends Homey.Device {
       }
 
       if (options.notify && this.homey.app?.sendPlanUpdatedNotification) {
-        const notifyHours = Number.isInteger(options.chargeHours) && options.chargeHours > 0
-          ? options.chargeHours
+        const notifyHours = parseChargeHours(options.chargeHours, 0) > 0
+          ? parseChargeHours(options.chargeHours)
           : result.oneShotActive
             ? deviceConfig.oneShotChargeHours
             : deviceConfig.chargeHours;

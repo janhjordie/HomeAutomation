@@ -30,7 +30,7 @@ function findNextPlanSlot(planSlots, currentSlot) {
 
 function evaluateChargePlan(windowSlots, chargeHoursNeeded, spotThresholdInclVat, currentSlot, options = {}) {
   const { useSpotThreshold = true, planOnly = false } = options;
-  const chargeSlotsNeeded = chargeHoursNeeded * SLOTS_PER_HOUR;
+  const chargeSlotsNeeded = Math.round(chargeHoursNeeded * SLOTS_PER_HOUR);
   const planSlots = selectCheapestPlanSlots(windowSlots, chargeSlotsNeeded);
   const planSlotKeys = new Set(planSlots.map(getSlotKey));
   const isBelowThreshold = (slot) => useSpotThreshold && slot.spotPriceInclVat < spotThresholdInclVat;

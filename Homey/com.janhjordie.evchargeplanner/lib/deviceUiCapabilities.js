@@ -11,6 +11,7 @@ const UI_CAPABILITIES = [
 ];
 
 const { DEFAULT_SPOT_CHARGE_THRESHOLD_KR_INCL_VAT } = require('./constants');
+const { parseChargeHours, CHARGE_HOURS_MIN } = require('./chargeHours');
 const {
   parseNightChargeEnd,
   partsToDecimalHour
@@ -46,15 +47,15 @@ async function syncUiCapabilitiesFromSettings(device, settings = {}) {
   }
 
   if (device.hasCapability('charge_hours') && has('charge_hours')) {
-    const chargeHours = Number(settings.charge_hours);
-    if (Number.isInteger(chargeHours) && chargeHours > 0) {
+    const chargeHours = parseChargeHours(settings.charge_hours, 0);
+    if (chargeHours >= CHARGE_HOURS_MIN) {
       updates.push(device.setCapabilityValue('charge_hours', chargeHours));
     }
   }
 
   if (device.hasCapability('one_shot_charge_hours') && has('one_shot_charge_hours')) {
-    const oneShotHours = Number(settings.one_shot_charge_hours);
-    if (Number.isInteger(oneShotHours) && oneShotHours > 0) {
+    const oneShotHours = parseChargeHours(settings.one_shot_charge_hours, 0);
+    if (oneShotHours >= CHARGE_HOURS_MIN) {
       updates.push(device.setCapabilityValue('one_shot_charge_hours', oneShotHours));
     }
   }

@@ -1,4 +1,8 @@
 {
+  "1.0.54": {
+    "en": "Charge hours needed (and one-shot hours) use 30-minute steps on the device tile and in planning.",
+    "da": "Ladetimer behov (og engangs-timer) kan sættes i 30-minutters trin på enheden og i planen."
+  },
   "1.0.53": {
     "en": "Charge window times (day/night start and end) can be set in 30-minute steps in app settings.",
     "da": "Ladevinduer (dag/nat start og slut) kan sættes i 30-minutters trin i app-indstillinger."

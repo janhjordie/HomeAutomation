@@ -19,7 +19,7 @@
     "night_charge_start": "Night: start",
     "night_charge_end": "Night: end",
     "default_charge_hours": "Default charge hours",
-    "default_charge_hours_help": "Used as default for new devices. Can be overridden per device in device settings.",
+    "default_charge_hours_help": "Default for new devices (30-minute steps). Override per device on the tile.",
     "hour_help": "24-hour clock (e.g. 9 = 09:00, 21 = 21:00).",
     "window_time_help": "24-hour clock in 30-minute steps (e.g. 9 = 09:00, 9.5 = 09:30, 21.5 = 21:30).",
     "easee_section": "Easee charger",

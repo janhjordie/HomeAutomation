@@ -3,6 +3,7 @@
 const { formatDateInTimeZone, addDays } = require('./timezone');
 const { formatWindowTime } = require('./planner/windows');
 const { DK_TIME_ZONE } = require('./constants');
+const { formatChargeHoursForNotification, parseChargeHours } = require('./chargeHours');
 const { evaluateChargePlan } = require('./planner/chargePlan');
 const { formatChargeSchedule } = require('./planner/oneShot');
 const {
@@ -125,16 +126,16 @@ function formatPlanSummaryLine(summary) {
 }
 
 function formatPlanNotificationText(planSummaries, options = {}) {
-  const hours = Number(options.chargeHours);
+  const hoursLabel = formatChargeHoursForNotification(options.chargeHours);
   const modeLabel = String(options.modeLabel || '').trim();
   const lines = [];
 
-  if (Number.isInteger(hours) && hours > 0 && modeLabel) {
-    lines.push(`${hours} timer · ${modeLabel}`);
+  if (hoursLabel && modeLabel) {
+    lines.push(`${hoursLabel} timer · ${modeLabel}`);
   } else if (modeLabel) {
     lines.push(modeLabel);
-  } else if (Number.isInteger(hours) && hours > 0) {
-    lines.push(`${hours} timer`);
+  } else if (hoursLabel) {
+    lines.push(`${hoursLabel} timer`);
   }
 
   for (const summary of planSummaries) {
@@ -155,8 +156,9 @@ function buildPlanNotificationMessage(deviceConfig = {}, planSummaries = [], opt
     return String(options.fallback || 'ingen plan').trim();
   }
 
+  const normalizedHours = parseChargeHours(chargeHours, 0);
   return formatPlanNotificationText(planSummaries, {
-    chargeHours: Number.isInteger(chargeHours) && chargeHours > 0 ? chargeHours : null,
+    chargeHours: normalizedHours > 0 ? normalizedHours : null,
     modeLabel
   });
 }

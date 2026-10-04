@@ -1,7 +1,8 @@
 'use strict';
 
 // BacklogTrace: EVC-011
-const { LOGIC_VARIABLES, DEFAULT_ONE_SHOT_CHARGE_HOURS, MAX_CHARGE_HOURS } = require('./constants');
+const { LOGIC_VARIABLES } = require('./constants');
+const { parseChargeHours } = require('./chargeHours');
 
 function parseLogicBoolean(value) {
   if (typeof value === 'boolean') {
@@ -389,12 +390,12 @@ class LogicCompat {
       return null;
     }
 
-    const hours = Number(variable.value);
-    if (!Number.isInteger(hours) || hours <= 0) {
+    const hours = parseChargeHours(variable.value, 0);
+    if (hours <= 0) {
       return null;
     }
 
-    return Math.min(hours, MAX_CHARGE_HOURS);
+    return hours;
   }
 
   async applyOneShotChargeHoursFromLogic(deviceSettings) {

@@ -363,8 +363,9 @@ class EvChargePlannerApp extends Homey.App {
       return;
     }
 
-    const chargeHours = Number(options.chargeHours);
-    const hours = Number.isInteger(chargeHours) && chargeHours > 0 ? chargeHours : null;
+    const { parseChargeHours } = require('./lib/chargeHours');
+    const hoursValue = parseChargeHours(options.chargeHours, 0);
+    const hours = hoursValue > 0 ? hoursValue : null;
     const { describeChargeMode, formatPlanNotificationText } = require('./lib/planNotification');
     const modeLabel = describeChargeMode(options.deviceConfig || {}, {
       oneShotActive: Boolean(result.oneShotActive)

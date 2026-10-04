@@ -4,8 +4,6 @@
 const {
   DK_TIME_ZONE,
   DEFAULT_CHARGE_HOURS,
-  DEFAULT_ONE_SHOT_CHARGE_HOURS,
-  MAX_CHARGE_HOURS,
   DEFAULT_ONE_SHOT_READY_BY,
   DEFAULT_SPOT_CHARGE_THRESHOLD_KR_INCL_VAT,
   DEFAULT_CHARGER_KW,
@@ -20,6 +18,7 @@ const { findCurrentSlot, getSlotKey, SLOTS_PER_HOUR } = require('./price/slotBui
 const { getChargePlanWindow, getSlotsForWindow, isNightChargeAllowed, isForceChargeActive } = require('./planner/windows');
 const { buildPlanSummaries, buildPlanNotificationMessage } = require('./planNotification');
 const { buildWindowConfig, mergeDeviceWindowConfig, parseNightChargeEnd, partsToDecimalHour } = require('./planner/windowConfig');
+const { parseChargeHours, DEFAULT_ONE_SHOT_CHARGE_HOURS } = require('./chargeHours');
 const { evaluateChargePlan, selectCheapestPlanSlots } = require('./planner/chargePlan');
 const {
   resolveOneShotDeadline,
@@ -49,22 +48,16 @@ function clampSpotThreshold(value, fallback = DEFAULT_SPOT_CHARGE_THRESHOLD_KR_I
 function buildDeviceConfig(settings = {}, appDefaults = {}) {
   const chargeHours = Number(settings.charge_hours);
   const defaultChargeHours = Number(appDefaults.default_charge_hours);
-  const fallbackChargeHours = Number.isInteger(defaultChargeHours) && defaultChargeHours > 0
-    ? defaultChargeHours
-    : DEFAULT_CHARGE_HOURS;
+  const fallbackChargeHours = parseChargeHours(defaultChargeHours, DEFAULT_CHARGE_HOURS);
   const oneShotHours = Number(settings.one_shot_charge_hours);
   const appNightEnd = parseNightChargeEnd(appDefaults.night_charge_end);
 
   return {
-    chargeHours: Number.isInteger(chargeHours) && chargeHours > 0
-      ? Math.min(chargeHours, MAX_CHARGE_HOURS)
-      : fallbackChargeHours,
+    chargeHours: parseChargeHours(chargeHours, fallbackChargeHours),
     forceCharge: Boolean(settings.force_charge),
     nightChargeEnabled: settings.night_charge_enabled !== false,
     oneShotEnabled: Boolean(settings.one_shot_enabled),
-    oneShotChargeHours: Number.isInteger(oneShotHours) && oneShotHours > 0
-      ? Math.min(oneShotHours, MAX_CHARGE_HOURS)
-      : DEFAULT_ONE_SHOT_CHARGE_HOURS,
+    oneShotChargeHours: parseChargeHours(oneShotHours, DEFAULT_ONE_SHOT_CHARGE_HOURS),
     oneShotReadyBy: String(settings.one_shot_ready_by || DEFAULT_ONE_SHOT_READY_BY).trim(),
     spotThreshold: clampSpotThreshold(
       settings.spot_threshold,
@@ -88,9 +81,7 @@ function buildAppConfig(appSettings = {}, env = {}) {
     stromligningApiKey: appSettings.stromligning_api_key || env.STROMLIGNING_API_KEY || '',
     timeZone: DK_TIME_ZONE,
     mirrorLogicVariables: appSettings.mirror_logic_variables !== false,
-    defaultChargeHours: Number.isInteger(defaultChargeHours) && defaultChargeHours > 0
-      ? defaultChargeHours
-      : DEFAULT_CHARGE_HOURS,
+    defaultChargeHours: parseChargeHours(defaultChargeHours, DEFAULT_CHARGE_HOURS),
     windowConfig: buildWindowConfig(appSettings)
   };
 }

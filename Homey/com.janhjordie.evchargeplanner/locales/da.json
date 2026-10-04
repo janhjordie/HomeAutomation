@@ -19,7 +19,7 @@
     "night_charge_start": "Nat: start",
     "night_charge_end": "Nat: slut",
     "default_charge_hours": "Standard ladetimer",
-    "default_charge_hours_help": "Bruges som standard for nye enheder. Kan overstyres per enhed under enhedsindstillinger.",
+    "default_charge_hours_help": "Bruges som standard for nye enheder (30 min trin). Kan overstyres per enhed på flisen.",
     "hour_help": "Klokkeslæt i 24-timers format (fx 9 = 09:00, 21 = 21:00).",
     "window_time_help": "24-timers format med 30 minutters trin (fx 9 = 09:00, 9,5 = 09:30, 21,5 = 21:30).",
     "easee_section": "Easee lader",
