@@ -1,4 +1,8 @@
 {
+  "1.0.56": {
+    "en": "Force charge reliably kicks Easee when idle-ready (pulse current); sequential force + Easee sync.",
+    "da": "Tvungen opladning vækker Easee når laderen står klar men idle (strømpuls); force og Easee kører i rækkefølge."
+  },
   "1.0.55": {
     "en": "Easee start when charge_now is true even if the charger looked idle; tile power reflects real Easee state.",
     "da": "Easee startes ved charge_now også når laderen stod klar men ikke ladede; flisens effekt viser reel Easee-status."

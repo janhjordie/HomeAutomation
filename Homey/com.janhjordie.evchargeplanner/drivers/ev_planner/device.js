@@ -92,7 +92,7 @@ class EvPlannerDevice extends Homey.Device {
       const forceCharge = Boolean(value);
       await this.setSettings({ force_charge: forceCharge });
       await this._applyForceChargeQuickFeedback(forceCharge);
-      this._scheduleEvaluateNow(
+      await this.evaluateNow(
         'force_charge_toggle',
         { force_charge: forceCharge },
         { forceEaseeSync: true, skipLogicForceCharge: true }
@@ -902,19 +902,20 @@ class EvPlannerDevice extends Homey.Device {
       this._updatingChargingState = false;
     }
 
-    if (nextChargeNow === previousChargeNow) {
+    if (!nextChargeNow && nextChargeNow === previousChargeNow) {
       return;
     }
 
     const appSettings = this._getAppSettings();
-    orchestrateChargeTransition({
-      homey: this.homey,
-      appSettings,
-      chargeNow: nextChargeNow,
-      previousChargeNow,
-      log: this.log.bind(this),
-      forceEaseeSync: true
-    }).then(async (orchestration) => {
+    try {
+      const orchestration = await orchestrateChargeTransition({
+        homey: this.homey,
+        appSettings,
+        chargeNow: nextChargeNow,
+        previousChargeNow,
+        log: this.log.bind(this),
+        forceEaseeSync: true
+      });
       this._previousChargeNow = nextChargeNow;
       const action = orchestration.easeeResult?.action || orchestration.easeeResult?.reason || 'noop';
       this.log(`Force charge hurtig Easee: ${action}, charge_now=${nextChargeNow}`);
@@ -923,9 +924,9 @@ class EvPlannerDevice extends Homey.Device {
         chargeNow: nextChargeNow
       });
       this._startEaseePowerFollowUp('force_charge_toggle');
-    }).catch((error) => {
+    } catch (error) {
       this.error(`Force charge Easee fejlede: ${error.message}`);
-    });
+    }
   }
 
   async evaluateNow(reason = 'manual', overrides = {}, options = {}) {

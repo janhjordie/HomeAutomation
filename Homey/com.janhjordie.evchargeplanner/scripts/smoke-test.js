@@ -202,10 +202,18 @@ function testChargingCapabilities() {
     {
       chargeNow: true,
       chargerKw: 11,
-      powerW: 0,
+      powerW: 11000,
       chargingState: 'plugged_in',
-      evchargerCharging: false
+      evchargerCharging: true
     }
+  );
+  assert.deepStrictEqual(
+    buildEaseeChargingSync({
+      measurePower: 0,
+      evchargerCharging: false,
+      chargingState: 'plugged_in'
+    }, false, 11).powerW,
+    0
   );
   assert.deepStrictEqual(
     buildEaseeChargingSync(null, true, 11),

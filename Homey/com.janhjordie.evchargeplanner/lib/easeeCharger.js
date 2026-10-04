@@ -209,16 +209,28 @@ class EaseeChargerController {
         };
       }
 
-      if (currentState.targetCircuitCurrent < config.circuitCurrent) {
-        await this.setEaseeCapability(
-          config.deviceId,
-          CAP_TARGET_CIRCUIT_CURRENT,
-          config.circuitCurrent
-        );
+      const needsKick = !isEaseeActivelyCharging(currentState);
+      const target = Number(currentState.targetCircuitCurrent) || 0;
+
+      if (needsKick && target >= config.circuitCurrent) {
+        await this.setEaseeCapability(config.deviceId, CAP_TARGET_CIRCUIT_CURRENT, 0);
+        await delay(400);
       }
+
+      await this.setEaseeCapability(
+        config.deviceId,
+        CAP_TARGET_CIRCUIT_CURRENT,
+        config.circuitCurrent
+      );
+
       if (!currentState.onoff) {
-        await this.setEaseeCapability(config.deviceId, CAP_ONOFF, true);
+        try {
+          await this.setEaseeCapability(config.deviceId, CAP_ONOFF, true);
+        } catch (error) {
+          this.log(`Easee onoff ikke sat (ignoreres): ${error.message}`);
+        }
       }
+
       this.log(`Easee start: ${config.circuitCurrent}A på ${currentState.name || config.deviceId}`);
 
       return {
