@@ -1,4 +1,8 @@
 {
+  "1.0.53": {
+    "en": "Charge window times (day/night start and end) can be set in 30-minute steps in app settings.",
+    "da": "Ladevinduer (dag/nat start og slut) kan sættes i 30-minutters trin i app-indstillinger."
+  },
   "1.0.52": {
     "en": "Force charge works any time of day (overrides spot/night plan); still auto-stops at 16:59 before tariff rise.",
     "da": "Tvungen opladning virker døgnet rundt (overruler spot/natteplan); stopper stadig automatisk kl. 16:59 før takststigning."

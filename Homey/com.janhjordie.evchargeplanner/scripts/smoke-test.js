@@ -82,14 +82,20 @@ function testBuildDeviceConfigSpotThreshold() {
 }
 
 function testDayWindow() {
-  const window = getChargePlanWindow(10, '2026-07-24', '2026-07-23', '2026-07-25', {
-    dayChargeStart: 9,
-    dayChargeEnd: 17,
-    nightChargeStart: 21,
-    nightChargeEnd: 6,
-    dayPlanSwitchHour: 7,
-    nightPlanSwitchHour: 17
+  const { buildWindowConfig } = require('../lib/planner/windowConfig');
+  const windowConfig = buildWindowConfig({
+    day_charge_start: 9,
+    day_charge_end: 17,
+    night_charge_start: 21,
+    night_charge_end: 6
   });
+  const window = getChargePlanWindow(
+    { hour: 10, minute: 0 },
+    '2026-07-24',
+    '2026-07-23',
+    '2026-07-25',
+    windowConfig
+  );
   assert.strictEqual(window.planType, 'day');
 }
 
@@ -212,17 +218,51 @@ function testChargingCapabilities() {
 }
 
 function testWindowConfig() {
-  const { buildWindowConfig, parseNightChargeEnd, partsToDecimalHour } = require('../lib/planner/windowConfig');
-  const config = buildWindowConfig({ day_charge_start: 10, day_charge_end: 18, night_charge_end: 7.5 });
-  assert.strictEqual(config.dayChargeStart, 10);
-  assert.strictEqual(config.dayChargeEnd, 18);
-  assert.strictEqual(config.dayPlanSwitchHour, 8);
-  assert.strictEqual(config.nightPlanSwitchHour, 18);
+  const {
+    buildWindowConfig,
+    parseNightChargeEnd,
+    parseWindowTime,
+    partsToDecimalHour
+  } = require('../lib/planner/windowConfig');
+  const config = buildWindowConfig({
+    day_charge_start: 9.5,
+    day_charge_end: 17.5,
+    night_charge_start: 21.5,
+    night_charge_end: 7.5
+  });
+  assert.strictEqual(config.dayChargeStart, 9);
+  assert.strictEqual(config.dayChargeStartMinute, 30);
+  assert.strictEqual(config.dayChargeEnd, 17);
+  assert.strictEqual(config.dayChargeEndMinute, 30);
+  assert.strictEqual(config.nightChargeStart, 21);
+  assert.strictEqual(config.nightChargeStartMinute, 30);
+  assert.strictEqual(config.dayPlanSwitchMinuteOfDay, 7 * 60 + 30);
+  assert.strictEqual(config.nightPlanSwitchMinuteOfDay, 17 * 60 + 30);
   assert.strictEqual(config.nightChargeEnd, 7);
   assert.strictEqual(config.nightChargeEndMinute, 30);
 
   const parsed = parseNightChargeEnd(6.5);
   assert.strictEqual(partsToDecimalHour(parsed.hour, parsed.minute), 6.5);
+
+  const dayStart = parseWindowTime(10.74, 9, 0);
+  assert.strictEqual(partsToDecimalHour(dayStart.hour, dayStart.minute), 10.5);
+}
+
+function testDayWindowHalfHour() {
+  const { buildWindowConfig } = require('../lib/planner/windowConfig');
+  const { buildDayChargeWindow, getSlotsForWindow } = require('../lib/planner/windows');
+  const windowConfig = buildWindowConfig({ day_charge_start: 9.5, day_charge_end: 17 });
+  const window = buildDayChargeWindow('2026-08-16', windowConfig);
+  const slots = [
+    { date: '2026-08-16', hour: 9, minute: 15, timestamp: 1 },
+    { date: '2026-08-16', hour: 9, minute: 30, timestamp: 2 },
+    { date: '2026-08-16', hour: 16, minute: 45, timestamp: 3 }
+  ];
+
+  const inWindow = getSlotsForWindow(slots, window);
+  assert.strictEqual(inWindow.length, 2);
+  assert.strictEqual(inWindow[0].minute, 30);
+  assert.strictEqual(inWindow[1].minute, 45);
 }
 
 function testNightWindowHalfHourEnd() {
@@ -588,6 +628,7 @@ async function main() {
   testChargeScheduleShowsTotalSpan();
   testDayWindow();
   testWindowConfig();
+  testDayWindowHalfHour();
   testNightWindowHalfHourEnd();
   testCrossMidnightScheduleFormat();
   testQuarterSchedulerAlignment();

@@ -9,6 +9,9 @@ const {
   NIGHT_CHARGE_END_MAX
 } = require('../constants');
 
+const WINDOW_TIME_MIN = 0;
+const WINDOW_TIME_MAX = 23.5;
+
 function parseHour(value, fallback) {
   const hour = Number(value);
   if (!Number.isInteger(hour) || hour < 0 || hour > 23) {
@@ -28,6 +31,27 @@ function partsToDecimalHour(hour, minute = 0) {
   return hour + minute / 60;
 }
 
+function minutesOfDay(hour, minute = 0) {
+  return hour * 60 + minute;
+}
+
+function snapHalfHourDecimal(value) {
+  return Math.round(value * 2) / 2;
+}
+
+function parseWindowTime(value, fallbackHour, fallbackMinute = 0) {
+  const fallback = partsToDecimalHour(fallbackHour, fallbackMinute);
+  const num = Number(value);
+
+  if (!Number.isFinite(num)) {
+    return decimalHourToParts(fallback);
+  }
+
+  const clamped = Math.min(WINDOW_TIME_MAX, Math.max(WINDOW_TIME_MIN, num));
+  const snapped = snapHalfHourDecimal(clamped);
+  return decimalHourToParts(snapped);
+}
+
 function parseNightChargeEnd(value, fallbackDecimal = NIGHT_CHARGE_WINDOW_END) {
   const fallback = decimalHourToParts(fallbackDecimal);
   const num = Number(value);
@@ -37,27 +61,30 @@ function parseNightChargeEnd(value, fallbackDecimal = NIGHT_CHARGE_WINDOW_END) {
   }
 
   const clamped = Math.min(NIGHT_CHARGE_END_MAX, Math.max(NIGHT_CHARGE_END_MIN, num));
-  const snapped = Math.round(clamped * 2) / 2;
+  const snapped = snapHalfHourDecimal(clamped);
   return decimalHourToParts(snapped);
 }
 
 function buildWindowConfig(appSettings = {}) {
-  const dayChargeStart = parseHour(appSettings.day_charge_start, DAY_CHARGE_WINDOW_START);
-  const dayChargeEnd = parseHour(appSettings.day_charge_end, DAY_CHARGE_WINDOW_END);
-  const nightChargeStart = parseHour(appSettings.night_charge_start, NIGHT_CHARGE_WINDOW_START);
-  const nightChargeEndParts = parseNightChargeEnd(
-    appSettings.night_charge_end,
-    NIGHT_CHARGE_WINDOW_END
-  );
+  const dayStartParts = parseWindowTime(appSettings.day_charge_start, DAY_CHARGE_WINDOW_START, 0);
+  const dayEndParts = parseWindowTime(appSettings.day_charge_end, DAY_CHARGE_WINDOW_END, 0);
+  const nightStartParts = parseWindowTime(appSettings.night_charge_start, NIGHT_CHARGE_WINDOW_START, 0);
+  const nightEndParts = parseWindowTime(appSettings.night_charge_end, NIGHT_CHARGE_WINDOW_END, 0);
+
+  const dayStartMinuteOfDay = minutesOfDay(dayStartParts.hour, dayStartParts.minute);
+  const dayEndMinuteOfDay = minutesOfDay(dayEndParts.hour, dayEndParts.minute);
 
   return {
-    dayChargeStart,
-    dayChargeEnd,
-    nightChargeStart,
-    nightChargeEnd: nightChargeEndParts.hour,
-    nightChargeEndMinute: nightChargeEndParts.minute,
-    dayPlanSwitchHour: Math.max(0, dayChargeStart - 2),
-    nightPlanSwitchHour: dayChargeEnd
+    dayChargeStart: dayStartParts.hour,
+    dayChargeStartMinute: dayStartParts.minute,
+    dayChargeEnd: dayEndParts.hour,
+    dayChargeEndMinute: dayEndParts.minute,
+    nightChargeStart: nightStartParts.hour,
+    nightChargeStartMinute: nightStartParts.minute,
+    nightChargeEnd: nightEndParts.hour,
+    nightChargeEndMinute: nightEndParts.minute,
+    dayPlanSwitchMinuteOfDay: Math.max(0, dayStartMinuteOfDay - 120),
+    nightPlanSwitchMinuteOfDay: dayEndMinuteOfDay
   };
 }
 
@@ -77,7 +104,9 @@ module.exports = {
   buildWindowConfig,
   mergeDeviceWindowConfig,
   parseHour,
+  parseWindowTime,
   parseNightChargeEnd,
   decimalHourToParts,
-  partsToDecimalHour
+  partsToDecimalHour,
+  minutesOfDay
 };

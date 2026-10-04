@@ -5,11 +5,10 @@ const {
   NIGHT_CHARGE_WINDOW_START,
   NIGHT_CHARGE_WINDOW_END,
   DAY_CHARGE_WINDOW_START,
-  DAY_CHARGE_WINDOW_END,
-  DAY_PLAN_SWITCH_HOUR,
-  NIGHT_PLAN_SWITCH_HOUR
+  DAY_CHARGE_WINDOW_END
 } = require('../constants');
-const { formatHour, formatHourNumber } = require('../timezone');
+const { formatHourNumber } = require('../timezone');
+const { minutesOfDay } = require('./windowConfig');
 
 function slotMinutes(slot) {
   return slot.hour * 60 + slot.minute;
@@ -27,6 +26,38 @@ function formatWindowTime(hour, minute = 0) {
   return `${formatHourNumber(hour)}:${String(minute).padStart(2, '0')}`;
 }
 
+function normalizeClock(clockOrHour) {
+  if (typeof clockOrHour === 'number') {
+    return { hour: clockOrHour, minute: 0 };
+  }
+
+  return {
+    hour: clockOrHour.hour,
+    minute: clockOrHour.minute ?? 0
+  };
+}
+
+function resolveDayStart(windowConfig = {}) {
+  return {
+    hour: windowConfig.dayChargeStart ?? DAY_CHARGE_WINDOW_START,
+    minute: windowConfig.dayChargeStartMinute ?? 0
+  };
+}
+
+function resolveDayEnd(windowConfig = {}) {
+  return {
+    hour: windowConfig.dayChargeEnd ?? DAY_CHARGE_WINDOW_END,
+    minute: windowConfig.dayChargeEndMinute ?? 0
+  };
+}
+
+function resolveNightStart(windowConfig = {}) {
+  return {
+    hour: windowConfig.nightChargeStart ?? NIGHT_CHARGE_WINDOW_START,
+    minute: windowConfig.nightChargeStartMinute ?? 0
+  };
+}
+
 function resolveNightEnd(windowConfig = {}) {
   return {
     hour: windowConfig.nightChargeEnd ?? NIGHT_CHARGE_WINDOW_END,
@@ -34,21 +65,36 @@ function resolveNightEnd(windowConfig = {}) {
   };
 }
 
-function getChargePlanWindow(currentHour, todayDate, yesterdayDate, tomorrowDate, windowConfig = {}) {
-  const dayStart = windowConfig.dayChargeStart ?? DAY_CHARGE_WINDOW_START;
-  const dayEnd = windowConfig.dayChargeEnd ?? DAY_CHARGE_WINDOW_END;
-  const nightStart = windowConfig.nightChargeStart ?? NIGHT_CHARGE_WINDOW_START;
-  const nightEnd = resolveNightEnd(windowConfig);
-  const dayPlanSwitch = windowConfig.dayPlanSwitchHour ?? DAY_PLAN_SWITCH_HOUR;
-  const nightPlanSwitch = windowConfig.nightPlanSwitchHour ?? NIGHT_PLAN_SWITCH_HOUR;
+function resolvePlanSwitchMinutes(windowConfig = {}) {
+  const dayStart = resolveDayStart(windowConfig);
+  const dayEnd = resolveDayEnd(windowConfig);
+  const dayStartMinuteOfDay = minutesOfDay(dayStart.hour, dayStart.minute);
+  const dayEndMinuteOfDay = minutesOfDay(dayEnd.hour, dayEnd.minute);
 
-  if (currentHour < dayPlanSwitch) {
+  return {
+    dayPlanSwitchMinuteOfDay: windowConfig.dayPlanSwitchMinuteOfDay
+      ?? Math.max(0, dayStartMinuteOfDay - 120),
+    nightPlanSwitchMinuteOfDay: windowConfig.nightPlanSwitchMinuteOfDay ?? dayEndMinuteOfDay
+  };
+}
+
+function getChargePlanWindow(clockOrHour, todayDate, yesterdayDate, tomorrowDate, windowConfig = {}) {
+  const clock = normalizeClock(clockOrHour);
+  const minuteOfDay = minutesOfDay(clock.hour, clock.minute);
+  const dayStart = resolveDayStart(windowConfig);
+  const dayEnd = resolveDayEnd(windowConfig);
+  const nightStart = resolveNightStart(windowConfig);
+  const nightEnd = resolveNightEnd(windowConfig);
+  const { dayPlanSwitchMinuteOfDay, nightPlanSwitchMinuteOfDay } = resolvePlanSwitchMinutes(windowConfig);
+
+  if (minuteOfDay < dayPlanSwitchMinuteOfDay) {
     return {
       planType: 'night',
       planKey: `night-${todayDate}`,
-      label: `${yesterdayDate} ${formatHour(nightStart)} -> ${todayDate} ${formatWindowTime(nightEnd.hour, nightEnd.minute)}`,
+      label: `${yesterdayDate} ${formatWindowTime(nightStart.hour, nightStart.minute)} -> ${todayDate} ${formatWindowTime(nightEnd.hour, nightEnd.minute)}`,
       startDate: yesterdayDate,
-      startHour: nightStart,
+      startHour: nightStart.hour,
+      startMinute: nightStart.minute,
       endDate: todayDate,
       endHour: nightEnd.hour,
       endMinute: nightEnd.minute,
@@ -56,15 +102,17 @@ function getChargePlanWindow(currentHour, todayDate, yesterdayDate, tomorrowDate
     };
   }
 
-  if (currentHour < nightPlanSwitch) {
+  if (minuteOfDay < nightPlanSwitchMinuteOfDay) {
     return {
       planType: 'day',
       planKey: `day-${todayDate}`,
-      label: `${todayDate} ${formatHour(dayStart)} -> ${todayDate} ${formatHour(dayEnd)}`,
+      label: `${todayDate} ${formatWindowTime(dayStart.hour, dayStart.minute)} -> ${todayDate} ${formatWindowTime(dayEnd.hour, dayEnd.minute)}`,
       startDate: todayDate,
-      startHour: dayStart,
+      startHour: dayStart.hour,
+      startMinute: dayStart.minute,
       endDate: todayDate,
-      endHour: dayEnd,
+      endHour: dayEnd.hour,
+      endMinute: dayEnd.minute,
       messagePrefix: 'Dagopladning'
     };
   }
@@ -72,9 +120,10 @@ function getChargePlanWindow(currentHour, todayDate, yesterdayDate, tomorrowDate
   return {
     planType: 'night',
     planKey: `night-${tomorrowDate}`,
-    label: `${todayDate} ${formatHour(nightStart)} -> ${tomorrowDate} ${formatWindowTime(nightEnd.hour, nightEnd.minute)}`,
+    label: `${todayDate} ${formatWindowTime(nightStart.hour, nightStart.minute)} -> ${tomorrowDate} ${formatWindowTime(nightEnd.hour, nightEnd.minute)}`,
     startDate: todayDate,
-    startHour: nightStart,
+    startHour: nightStart.hour,
+    startMinute: nightStart.minute,
     endDate: tomorrowDate,
     endHour: nightEnd.hour,
     endMinute: nightEnd.minute,
@@ -115,31 +164,34 @@ function isNightChargeAllowed(nightChargeEnabled, chargePlanWindow) {
 }
 
 function buildDayChargeWindow(todayDate, windowConfig = {}) {
-  const dayStart = windowConfig.dayChargeStart ?? DAY_CHARGE_WINDOW_START;
-  const dayEnd = windowConfig.dayChargeEnd ?? DAY_CHARGE_WINDOW_END;
+  const dayStart = resolveDayStart(windowConfig);
+  const dayEnd = resolveDayEnd(windowConfig);
 
   return {
     planType: 'day',
     planKey: `day-${todayDate}`,
-    label: `${todayDate} ${formatHour(dayStart)} -> ${todayDate} ${formatHour(dayEnd)}`,
+    label: `${todayDate} ${formatWindowTime(dayStart.hour, dayStart.minute)} -> ${todayDate} ${formatWindowTime(dayEnd.hour, dayEnd.minute)}`,
     startDate: todayDate,
-    startHour: dayStart,
+    startHour: dayStart.hour,
+    startMinute: dayStart.minute,
     endDate: todayDate,
-    endHour: dayEnd,
+    endHour: dayEnd.hour,
+    endMinute: dayEnd.minute,
     messagePrefix: 'Dagopladning'
   };
 }
 
 function buildTonightChargeWindow(todayDate, tomorrowDate, windowConfig = {}) {
-  const nightStart = windowConfig.nightChargeStart ?? NIGHT_CHARGE_WINDOW_START;
+  const nightStart = resolveNightStart(windowConfig);
   const nightEnd = resolveNightEnd(windowConfig);
 
   return {
     planType: 'night',
     planKey: `night-${tomorrowDate}`,
-    label: `${todayDate} ${formatHour(nightStart)} -> ${tomorrowDate} ${formatWindowTime(nightEnd.hour, nightEnd.minute)}`,
+    label: `${todayDate} ${formatWindowTime(nightStart.hour, nightStart.minute)} -> ${tomorrowDate} ${formatWindowTime(nightEnd.hour, nightEnd.minute)}`,
     startDate: todayDate,
-    startHour: nightStart,
+    startHour: nightStart.hour,
+    startMinute: nightStart.minute,
     endDate: tomorrowDate,
     endHour: nightEnd.hour,
     endMinute: nightEnd.minute,

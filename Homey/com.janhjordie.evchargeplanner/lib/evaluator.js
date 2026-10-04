@@ -13,7 +13,8 @@ const {
   MIN_SPOT_THRESHOLD_KR_INCL_VAT,
   MAX_SPOT_THRESHOLD_KR_INCL_VAT
 } = require('./constants');
-const { formatDateInTimeZone, addDays, getHourInTimeZone } = require('./timezone');
+const { formatDateInTimeZone, addDays } = require('./timezone');
+const { getClockPartsInTimeZone } = require('./quarterScheduler');
 const { fetchPrices } = require('./price/fetchPrices');
 const { findCurrentSlot, getSlotKey, SLOTS_PER_HOUR } = require('./price/slotBuilder');
 const { getChargePlanWindow, getSlotsForWindow, isNightChargeAllowed, isForceChargeActive } = require('./planner/windows');
@@ -102,7 +103,7 @@ async function evaluateChargePlanForDevice(deviceConfig, appConfig, options = {}
   const today = formatDateInTimeZone(now, timeZone);
   const yesterday = addDays(today, -1);
   const tomorrow = addDays(today, 1);
-  const currentHour = getHourInTimeZone(now, timeZone);
+  const clock = getClockPartsInTimeZone(now, timeZone);
 
   const priceData = await fetchPrices({
     priceArea: appConfig.priceArea,
@@ -123,7 +124,7 @@ async function evaluateChargePlanForDevice(deviceConfig, appConfig, options = {}
 
   const currentSlot = findCurrentSlot(allSlots, now, timeZone);
   let chargePlanWindow = getChargePlanWindow(
-    currentHour,
+    clock,
     today,
     yesterday,
     tomorrow,
