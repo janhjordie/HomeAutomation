@@ -1,4 +1,12 @@
 {
+  "1.0.71": {
+    "en": "Bugbot fixes: fresh Easee reads on sync, lighter reconcile starts, recovery backoff, and stricter charge_started Flow triggers.",
+    "da": "Bugbot-rettelser: frisk Easee-status ved sync, lettere reconcile-start, recovery backoff og strammere charge_started Flow."
+  },
+  "1.0.70": {
+    "en": "Reliable Easee restarts between charge slots with cable connected: fixed capability reads, start verify/retry, single quarter scheduler.",
+    "da": "Stabil Easee-genstart mellem ladekvarter med kabel i: rettet capability-læsning, start-verifikation/retry, én kvarters-scheduler."
+  },
   "1.0.69": {
     "en": "Redeploy with mobile push (personal API token) and app settings for push_api_token.",
     "da": "Genudrulning med mobil push (personlig API-nøgle) og app-indstillinger for push_api_token."

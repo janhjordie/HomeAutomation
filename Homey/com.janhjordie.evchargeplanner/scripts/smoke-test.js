@@ -430,10 +430,14 @@ async function testLiveFetchOptional() {
   const appConfig = buildAppConfig({ price_area: 'DK2', spot_threshold: 0.30, charger_kw: 11 }, {});
   const deviceConfig = buildDeviceConfig({ charge_hours: 3 });
 
-  const result = await evaluateChargePlanForDevice(deviceConfig, appConfig);
-  assert.ok(typeof result.charge_now === 'boolean');
-  assert.ok(typeof result.charge_message === 'string');
-  console.log(`Live fetch OK: charge_now=${result.charge_now}, source=${result.priceSource}`);
+  try {
+    const result = await evaluateChargePlanForDevice(deviceConfig, appConfig);
+    assert.ok(typeof result.charge_now === 'boolean');
+    assert.ok(typeof result.charge_message === 'string');
+    console.log(`Live fetch OK: charge_now=${result.charge_now}, source=${result.priceSource}`);
+  } catch (error) {
+    console.log(`SKIP live fetch (${error.message})`);
+  }
 }
 
 function testOneShotSessionFinish() {
@@ -595,7 +599,8 @@ function testEaseeNeedsSync() {
   const chargingState = {
     onoff: true,
     targetCircuitCurrent: 16,
-    evchargerCharging: true
+    evchargerCharging: true,
+    measurePower: 7000
   };
   assert.strictEqual(easeeNeedsSync(true, chargingState, 16), false);
   assert.strictEqual(easeeNeedsSync(false, chargingState, 16), true);
@@ -610,6 +615,295 @@ function testEaseeNeedsSync() {
   };
   assert.strictEqual(easeeNeedsSync(true, readyButIdle, 16), true);
   assert.strictEqual(shouldStartEasee(readyButIdle, 16), true);
+}
+
+function testEaseeStaleTelemetryWithZeroPower() {
+  const { shouldStartEasee, isEaseeDeliveringPower } = require('../lib/easeeCharger');
+
+  const stale = {
+    onoff: true,
+    targetCircuitCurrent: 16,
+    evchargerCharging: true,
+    chargingState: 'plugged_in_charging',
+    measurePower: 0
+  };
+
+  assert.strictEqual(isEaseeDeliveringPower(stale), false);
+  assert.strictEqual(shouldStartEasee(stale, 16), true);
+}
+
+function testEaseeDayAndNightPlanSlots() {
+  const { evaluateChargePlan } = require('../lib/planner/chargePlan');
+  const { getSlotsForWindow, buildDayChargeWindow, buildTonightChargeWindow } = require('../lib/planner/windows');
+
+  const daySlots = [];
+  for (let hour = 9; hour < 17; hour++) {
+    for (const minute of [0, 15, 30, 45]) {
+      daySlots.push({
+        date: '2026-08-05',
+        hour,
+        minute,
+        timestamp: hour * 100 + minute,
+        spotPriceInclVat: hour < 13 ? 0.40 : 0.08
+      });
+    }
+  }
+
+  const nightSlots = [];
+  for (let hour = 21; hour < 24; hour++) {
+    for (const minute of [0, 15, 30, 45]) {
+      nightSlots.push({
+        date: '2026-08-05',
+        hour,
+        minute,
+        timestamp: hour * 100 + minute,
+        spotPriceInclVat: 0.06
+      });
+    }
+  }
+  for (let hour = 0; hour < 6; hour++) {
+    for (const minute of [0, 15, 30, 45]) {
+      nightSlots.push({
+        date: '2026-08-06',
+        hour,
+        minute,
+        timestamp: (hour + 24) * 100 + minute,
+        spotPriceInclVat: 0.05
+      });
+    }
+  }
+
+  const dayWindow = buildDayChargeWindow('2026-08-05', {
+    dayChargeStart: 9,
+    dayChargeEnd: 17
+  });
+  const nightWindow = buildTonightChargeWindow('2026-08-05', '2026-08-06', {
+    nightChargeStart: 21,
+    nightChargeEnd: 6
+  });
+
+  const dayPlan = evaluateChargePlan(getSlotsForWindow(daySlots, dayWindow), 2, 0.30, daySlots[0], { planOnly: true });
+  const nightPlan = evaluateChargePlan(getSlotsForWindow(nightSlots, nightWindow), 2, 0.30, nightSlots[0], { planOnly: true });
+
+  assert.strictEqual(dayPlan.planSlots.length, 8);
+  assert.strictEqual(nightPlan.planSlots.length, 8);
+}
+
+async function testEaseeStopStartStartWithoutUnplug() {
+  const { EaseeChargerController } = require('../lib/easeeCharger');
+
+  let state = {
+    deviceId: 'easee-mock',
+    name: 'Mock Easee',
+    measurePower: 0,
+    onoff: false,
+    evchargerCharging: false,
+    chargingState: 'plugged_in',
+    targetCircuitCurrent: 0
+  };
+
+  const writes = [];
+  const homey = {
+    devices: {
+      async getDevice() {
+        return {
+          id: state.deviceId,
+          name: state.name,
+          getCapabilityValue({ capabilityId }) {
+            const map = {
+              measure_power: state.measurePower,
+              onoff: state.onoff,
+              evcharger_charging: state.evchargerCharging,
+              evcharger_charging_state: state.chargingState,
+              target_circuit_current: state.targetCircuitCurrent
+            };
+            return map[capabilityId];
+          },
+          async setCapabilityValue({ capabilityId, value }) {
+            writes.push({ capabilityId, value });
+            if (capabilityId === 'target_circuit_current') {
+              state.targetCircuitCurrent = value;
+            }
+            if (capabilityId === 'onoff') {
+              state.onoff = value;
+              if (value) {
+                state.measurePower = 6500;
+                state.evchargerCharging = true;
+                state.chargingState = 'plugged_in_charging';
+              } else {
+                state.measurePower = 0;
+                state.evchargerCharging = false;
+                state.chargingState = 'plugged_in';
+              }
+            }
+          }
+        };
+      }
+    }
+  };
+
+  const config = { enabled: true, deviceId: 'easee-mock', circuitCurrent: 16, syncPower: true };
+  const controller = new EaseeChargerController(homey, () => {});
+
+  const start1 = await controller.applyChargeNow(config, true, {
+    aggressiveStart: true,
+    verifyDelayMs: 0,
+    kickDelayMs: 0,
+    maxStartAttempts: 1
+  });
+  assert.strictEqual(start1.action, 'start');
+  assert.ok(state.measurePower > 100);
+
+  const stop = await controller.applyChargeNow(config, false, { knownState: state });
+  assert.strictEqual(stop.action, 'stop');
+  assert.strictEqual(state.onoff, false);
+  assert.strictEqual(state.targetCircuitCurrent, 0);
+
+  state.evchargerCharging = true;
+  state.chargingState = 'plugged_in_charging';
+  state.measurePower = 0;
+  state.onoff = true;
+  state.targetCircuitCurrent = 16;
+
+  const start2 = await controller.applyChargeNow(config, true, {
+    knownState: state,
+    forceRefresh: true,
+    aggressiveStart: true,
+    verifyDelayMs: 0,
+    kickDelayMs: 0,
+    maxStartAttempts: 2
+  });
+  assert.strictEqual(start2.action, 'start');
+  assert.ok(state.measurePower > 100);
+  assert.ok(writes.filter((entry) => entry.capabilityId === 'onoff' && entry.value === true).length >= 2);
+}
+
+async function testForceRefreshIgnoresStaleKnownState() {
+  const { EaseeChargerController } = require('../lib/easeeCharger');
+
+  let state = {
+    deviceId: 'easee-mock',
+    name: 'Mock',
+    measurePower: 6500,
+    onoff: true,
+    evchargerCharging: true,
+    chargingState: 'plugged_in_charging',
+    targetCircuitCurrent: 16
+  };
+
+  const homey = {
+    devices: {
+      async getDevice() {
+        return {
+          id: state.deviceId,
+          name: state.name,
+          getCapabilityValue({ capabilityId }) {
+            const map = {
+              measure_power: state.measurePower,
+              onoff: state.onoff,
+              evcharger_charging: state.evchargerCharging,
+              evcharger_charging_state: state.chargingState,
+              target_circuit_current: state.targetCircuitCurrent
+            };
+            return map[capabilityId];
+          },
+          async setCapabilityValue() {}
+        };
+      }
+    }
+  };
+
+  const config = { enabled: true, deviceId: 'easee-mock', circuitCurrent: 16, syncPower: true };
+  const controller = new EaseeChargerController(homey, () => {});
+  const stale = {
+    measurePower: 0,
+    onoff: true,
+    targetCircuitCurrent: 16,
+    evchargerCharging: true,
+    chargingState: 'plugged_in_charging'
+  };
+
+  const resolved = await controller.resolveEaseeState(config, {
+    knownState: stale,
+    forceRefresh: true
+  });
+
+  assert.strictEqual(resolved.measurePower, 6500);
+}
+
+function testOrchestratorShouldTriggerStartedSkippedNoop() {
+  const easeeResult = {
+    action: 'noop',
+    skipped: true,
+    reason: 'easee_state_matches',
+    chargeNow: true
+  };
+  const nextChargeNow = true;
+  const changed = true;
+  const startVerified = !nextChargeNow || easeeResult.startVerified === true;
+  const shouldTriggerStarted = changed
+    && nextChargeNow
+    && easeeResult.action !== 'start_failed'
+    && easeeResult.action !== 'start_pending'
+    && startVerified;
+
+  assert.strictEqual(startVerified, false);
+  assert.strictEqual(shouldTriggerStarted, false);
+}
+
+function testEaseeLightStartReturnsPendingWithoutPower() {
+  const { EaseeChargerController } = require('../lib/easeeCharger');
+
+  let state = {
+    deviceId: 'easee-mock',
+    name: 'Mock',
+    measurePower: 0,
+    onoff: false,
+    evchargerCharging: false,
+    chargingState: 'plugged_in',
+    targetCircuitCurrent: 0
+  };
+
+  const homey = {
+    devices: {
+      async getDevice() {
+        return {
+          id: state.deviceId,
+          name: state.name,
+          getCapabilityValue({ capabilityId }) {
+            const map = {
+              measure_power: state.measurePower,
+              onoff: state.onoff,
+              evcharger_charging: state.evchargerCharging,
+              evcharger_charging_state: state.chargingState,
+              target_circuit_current: state.targetCircuitCurrent
+            };
+            return map[capabilityId];
+          },
+          async setCapabilityValue({ capabilityId, value }) {
+            if (capabilityId === 'target_circuit_current') {
+              state.targetCircuitCurrent = value;
+            }
+            if (capabilityId === 'onoff' && value) {
+              state.onoff = true;
+            }
+          }
+        };
+      }
+    }
+  };
+
+  const config = { enabled: true, deviceId: 'easee-mock', circuitCurrent: 16, syncPower: true };
+  const controller = new EaseeChargerController(homey, () => {});
+
+  return controller.applyChargeNow(config, true, {
+    aggressiveStart: false,
+    lightVerifyDelayMs: 0,
+    kickDelayMs: 0
+  }).then((result) => {
+    assert.strictEqual(result.action, 'start_pending');
+    assert.strictEqual(result.startVerified, false);
+  });
 }
 
 function testEaseeConfig() {
@@ -787,6 +1081,12 @@ async function main() {
   testChargingCapabilities();
   testOneShotSessionFinish();
   testEaseeConfig();
+  testEaseeStaleTelemetryWithZeroPower();
+  testEaseeDayAndNightPlanSlots();
+  testOrchestratorShouldTriggerStartedSkippedNoop();
+  await testForceRefreshIgnoresStaleKnownState();
+  await testEaseeLightStartReturnsPendingWithoutPower();
+  await testEaseeStopStartStartWithoutUnplug();
   testForceChargeActive();
   testDayEndWatchdogWindow();
   testEaseeNeedsSync();

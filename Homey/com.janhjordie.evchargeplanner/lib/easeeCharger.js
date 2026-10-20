@@ -14,6 +14,11 @@ const CAP_CHARGING_STATE = 'evcharger_charging_state';
 const CAP_CHARGER_STATUS = 'charger_status';
 
 const DEFAULT_STATE_CACHE_MS = 45 * 1000;
+const ACTIVE_POWER_THRESHOLD_W = 100;
+const START_VERIFY_DELAY_MS = 2000;
+const LIGHT_VERIFY_DELAY_MS = 500;
+const START_KICK_DELAY_MS = 400;
+const MAX_START_ATTEMPTS = 2;
 const RATE_LIMIT_PATTERN = /429|rate limit|too many requests/i;
 
 function buildEaseeConfig(appSettings = {}) {
@@ -31,46 +36,80 @@ function buildEaseeConfig(appSettings = {}) {
   };
 }
 
-function readCapabilityValue(device, capabilityId) {
+async function unwrapCapabilityValue(value) {
+  if (value && typeof value.then === 'function') {
+    return await value;
+  }
+
+  return value;
+}
+
+async function readCapabilityValue(device, capabilityId) {
   if (typeof device.getCapabilityValue === 'function') {
-    return device.getCapabilityValue(capabilityId);
+    try {
+      const objectForm = await unwrapCapabilityValue(device.getCapabilityValue({ capabilityId }));
+      if (objectForm !== undefined) {
+        return objectForm;
+      }
+    } catch (error) {
+      // Fall through to legacy string signature.
+    }
+
+    try {
+      return await unwrapCapabilityValue(device.getCapabilityValue(capabilityId));
+    } catch (error) {
+      return undefined;
+    }
   }
 
   return device.capabilitiesObj?.[capabilityId]?.value;
 }
 
-function readEaseeStateFromDevice(device) {
+async function readEaseeStateFromDevice(device) {
   if (!device) {
     return null;
   }
 
+  const measurePower = Number(await readCapabilityValue(device, CAP_MEASURE_POWER)) || 0;
+  const onoff = Boolean(await readCapabilityValue(device, CAP_ONOFF));
+  const evchargerCharging = Boolean(await readCapabilityValue(device, CAP_EVCHARGER_CHARGING));
+  const chargingState = await readCapabilityValue(device, CAP_CHARGING_STATE) || null;
+  const targetCircuitCurrent = Number(await readCapabilityValue(device, CAP_TARGET_CIRCUIT_CURRENT)) || 0;
+  const chargerStatus = await readCapabilityValue(device, CAP_CHARGER_STATUS) || null;
+
   return {
     deviceId: device.id,
     name: device.name,
-    measurePower: Number(readCapabilityValue(device, CAP_MEASURE_POWER)) || 0,
-    onoff: Boolean(readCapabilityValue(device, CAP_ONOFF)),
-    evchargerCharging: Boolean(readCapabilityValue(device, CAP_EVCHARGER_CHARGING)),
-    chargingState: readCapabilityValue(device, CAP_CHARGING_STATE) || null,
-    targetCircuitCurrent: Number(readCapabilityValue(device, CAP_TARGET_CIRCUIT_CURRENT)) || 0,
-    chargerStatus: readCapabilityValue(device, CAP_CHARGER_STATUS) || null
+    measurePower,
+    onoff,
+    evchargerCharging,
+    chargingState,
+    targetCircuitCurrent,
+    chargerStatus
   };
 }
 
+function isEaseeDeliveringPower(state) {
+  const powerW = Number(state?.measurePower);
+  return Number.isFinite(powerW) && powerW > ACTIVE_POWER_THRESHOLD_W;
+}
+
+/** True only when measurable power indicates charging (ignores stale capability flags). */
 function isEaseeActivelyCharging(state) {
+  return isEaseeDeliveringPower(state);
+}
+
+function isEaseeStartSatisfied(state, circuitCurrent) {
   if (!state) {
     return false;
   }
 
-  const powerW = Number(state.measurePower);
-  if (Number.isFinite(powerW) && powerW > 100) {
-    return true;
+  if (!isEaseeDeliveringPower(state)) {
+    return false;
   }
 
-  if (state.evchargerCharging) {
-    return true;
-  }
-
-  return state.chargingState === 'plugged_in_charging';
+  const target = Number(state.targetCircuitCurrent) || 0;
+  return Boolean(state.onoff) && target >= circuitCurrent;
 }
 
 function shouldStartEasee(state, circuitCurrent) {
@@ -78,12 +117,7 @@ function shouldStartEasee(state, circuitCurrent) {
     return true;
   }
 
-  const target = Number(state.targetCircuitCurrent) || 0;
-  if (!isEaseeActivelyCharging(state)) {
-    return true;
-  }
-
-  return !state.onoff || target < circuitCurrent;
+  return !isEaseeStartSatisfied(state, circuitCurrent);
 }
 
 function shouldStopEasee(state) {
@@ -184,19 +218,141 @@ class EaseeChargerController {
       return null;
     }
 
-    const cacheMs = Number(options.cacheMs) ?? DEFAULT_STATE_CACHE_MS;
+    const cacheMs = Number.isFinite(Number(options.cacheMs))
+      ? Number(options.cacheMs)
+      : DEFAULT_STATE_CACHE_MS;
     const cached = this._stateCache.get(deviceId);
     if (!options.forceRefresh && cached && Date.now() - cached.at < cacheMs) {
       return cached.state;
     }
 
+    return this.readFreshState(config);
+  }
+
+  async readFreshState(config) {
+    const deviceId = config?.deviceId;
+    if (!deviceId) {
+      return null;
+    }
+
+    this.invalidateCache(deviceId);
     const device = await this.getEaseeDevice(deviceId);
-    const state = readEaseeStateFromDevice(device);
+    const state = await readEaseeStateFromDevice(device);
     if (state) {
       this._stateCache.set(deviceId, { state, at: Date.now() });
     }
 
     return state;
+  }
+
+  async resolveEaseeState(config, options = {}) {
+    if (options.forceRefresh) {
+      return this.readFreshState(config);
+    }
+
+    if (options.knownState) {
+      return options.knownState;
+    }
+
+    return this.readState(config, { forceRefresh: false });
+  }
+
+  async _executeStartSequence(config, initialState, options = {}) {
+    const aggressive = options.aggressiveStart === true;
+    const maxAttempts = aggressive
+      ? (options.maxStartAttempts ?? MAX_START_ATTEMPTS)
+      : 1;
+    const verifyDelayMs = aggressive
+      ? (options.verifyDelayMs ?? START_VERIFY_DELAY_MS)
+      : (options.lightVerifyDelayMs ?? LIGHT_VERIFY_DELAY_MS);
+    const kickDelayMs = options.kickDelayMs ?? START_KICK_DELAY_MS;
+    let lastState = initialState;
+    let lastError = null;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      if (attempt > 1) {
+        lastState = await this.readFreshState(config) || lastState;
+      }
+
+      if (isEaseeStartSatisfied(lastState, config.circuitCurrent)) {
+        return {
+          action: 'noop',
+          chargeNow: true,
+          state: lastState,
+          startVerified: true
+        };
+      }
+
+      const target = Number(lastState.targetCircuitCurrent) || 0;
+      const needsKick = !isEaseeDeliveringPower(lastState)
+        && (target >= config.circuitCurrent || lastState.onoff || attempt > 1);
+
+      if (needsKick) {
+        await this.setEaseeCapability(config.deviceId, CAP_TARGET_CIRCUIT_CURRENT, 0);
+        await delay(kickDelayMs);
+      }
+
+      await this.setEaseeCapability(
+        config.deviceId,
+        CAP_TARGET_CIRCUIT_CURRENT,
+        config.circuitCurrent
+      );
+      await delay(kickDelayMs);
+
+      try {
+        await this.setEaseeCapability(config.deviceId, CAP_ONOFF, true);
+      } catch (error) {
+        lastError = error;
+        this.log(`Easee onoff start fejlede (forsøg ${attempt}/${maxAttempts}): ${error.message}`);
+        if (attempt === maxAttempts) {
+          throw error;
+        }
+        continue;
+      }
+
+      await delay(verifyDelayMs);
+      lastState = await this.readFreshState(config) || lastState;
+
+      if (isEaseeDeliveringPower(lastState)) {
+        this.log(
+          `Easee start OK: ${config.circuitCurrent}A på ${lastState.name || config.deviceId} `
+          + `(forsøg ${attempt}, ${lastState.measurePower}W)`
+        );
+        return {
+          action: 'start',
+          chargeNow: true,
+          state: lastState,
+          startVerified: true,
+          attempts: attempt
+        };
+      }
+
+      lastError = new Error('easee_start_not_delivering_power');
+      this.log(
+        `Easee start verify: ingen effekt efter forsøg ${attempt}/${maxAttempts} `
+        + `(onoff=${lastState.onoff}, target=${lastState.targetCircuitCurrent}A, power=${lastState.measurePower}W)`
+      );
+
+      if (!aggressive) {
+        return {
+          action: 'start_pending',
+          chargeNow: true,
+          state: lastState,
+          startVerified: false,
+          error: lastError.message,
+          attempts: attempt
+        };
+      }
+    }
+
+    return {
+      action: 'start_failed',
+      chargeNow: true,
+      state: lastState,
+      startVerified: false,
+      error: lastError?.message || 'easee_start_verify_failed',
+      attempts: maxAttempts
+    };
   }
 
   async applyChargeNow(config, chargeNow, options = {}) {
@@ -208,8 +364,8 @@ class EaseeChargerController {
       };
     }
 
-    const state = options.knownState || await this.readState(config, { forceRefresh: options.forceRefresh });
-    if (!state) {
+    let currentState = await this.resolveEaseeState(config, options);
+    if (!currentState) {
       const device = await this.getEaseeDevice(config.deviceId);
       if (!device) {
         return {
@@ -218,48 +374,20 @@ class EaseeChargerController {
           chargeNow: Boolean(chargeNow)
         };
       }
+      currentState = await readEaseeStateFromDevice(device);
     }
-
-    const currentState = state || readEaseeStateFromDevice(await this.getEaseeDevice(config.deviceId));
 
     if (chargeNow) {
       if (!shouldStartEasee(currentState, config.circuitCurrent)) {
         return {
           action: 'noop',
           chargeNow: true,
-          state: currentState
+          state: currentState,
+          startVerified: true
         };
       }
 
-      const needsKick = !isEaseeActivelyCharging(currentState);
-      const target = Number(currentState.targetCircuitCurrent) || 0;
-
-      if (needsKick && target >= config.circuitCurrent) {
-        await this.setEaseeCapability(config.deviceId, CAP_TARGET_CIRCUIT_CURRENT, 0);
-        await delay(400);
-      }
-
-      await this.setEaseeCapability(
-        config.deviceId,
-        CAP_TARGET_CIRCUIT_CURRENT,
-        config.circuitCurrent
-      );
-
-      if (!currentState.onoff) {
-        try {
-          await this.setEaseeCapability(config.deviceId, CAP_ONOFF, true);
-        } catch (error) {
-          this.log(`Easee onoff ikke sat (ignoreres): ${error.message}`);
-        }
-      }
-
-      this.log(`Easee start: ${config.circuitCurrent}A på ${currentState.name || config.deviceId}`);
-
-      return {
-        action: 'start',
-        chargeNow: true,
-        state: await this.readState(config, { forceRefresh: true, cacheMs: 0 })
-      };
+      return this._executeStartSequence(config, currentState, options);
     }
 
     if (!shouldStopEasee(currentState)) {
@@ -281,7 +409,7 @@ class EaseeChargerController {
     return {
       action: 'stop',
       chargeNow: false,
-      state: await this.readState(config, { forceRefresh: true, cacheMs: 0 })
+      state: await this.readFreshState(config)
     };
   }
 }
@@ -290,9 +418,16 @@ module.exports = {
   DEFAULT_EASEE_DEVICE_ID,
   DEFAULT_EASEE_CIRCUIT_CURRENT,
   DEFAULT_STATE_CACHE_MS,
+  ACTIVE_POWER_THRESHOLD_W,
+  START_VERIFY_DELAY_MS,
+  LIGHT_VERIFY_DELAY_MS,
+  START_KICK_DELAY_MS,
+  MAX_START_ATTEMPTS,
   buildEaseeConfig,
   readEaseeStateFromDevice,
+  isEaseeDeliveringPower,
   isEaseeActivelyCharging,
+  isEaseeStartSatisfied,
   shouldStartEasee,
   shouldStopEasee,
   isRateLimitError,

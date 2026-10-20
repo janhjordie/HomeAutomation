@@ -6,10 +6,11 @@ const TAIL_AFTER_CHANGE_MS = 10000;
 const STABLE_STOP_MS = 10000;
 
 class EaseePowerFollowUp {
-  constructor({ scheduleTimeout, clearTimeout, pollFn, log = () => {} }) {
+  constructor({ scheduleTimeout, clearTimeout, pollFn, onComplete = null, log = () => {} }) {
     this._scheduleTimeout = scheduleTimeout;
     this._clearTimeout = clearTimeout;
     this._pollFn = pollFn;
+    this._onComplete = onComplete;
     this._log = log;
     this._timerId = null;
     this._session = null;
@@ -23,7 +24,7 @@ class EaseePowerFollowUp {
     this._session = null;
   }
 
-  start(reason = 'action') {
+  start(reason = 'action', options = {}) {
     this.stop();
 
     const startedAt = Date.now();
@@ -33,7 +34,8 @@ class EaseePowerFollowUp {
       endAt: startedAt + MAX_SESSION_MS,
       lastPowerW: null,
       lastChangeAt: startedAt,
-      pollCount: 0
+      pollCount: 0,
+      recoverDesiredCharge: Boolean(options.recoverDesiredCharge)
     };
 
     this._pollNow();
@@ -82,7 +84,15 @@ class EaseePowerFollowUp {
         `Easee power follow-up færdig (${session.reason}): ${powerW}W, `
         + `${session.pollCount} polls, ${timedOut ? 'timeout' : 'stabil'}`
       );
+      const completedSession = { ...session };
       this.stop();
+      if (typeof this._onComplete === 'function') {
+        try {
+          this._onComplete(powerW, completedSession);
+        } catch (error) {
+          this._log(`Easee power follow-up onComplete fejlede: ${error.message}`);
+        }
+      }
       return;
     }
 

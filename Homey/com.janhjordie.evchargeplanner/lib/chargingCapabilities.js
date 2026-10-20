@@ -49,7 +49,7 @@ async function syncChargingCapabilities(device, {
   await device.setCapabilityValue('evcharger_charging_state', resolvedState);
 }
 
-function buildEaseeChargingSync(easeeState, chargeNow, chargerKw) {
+function buildEaseeChargingSync(easeeState, chargeNow, chargerKw, options = {}) {
   if (!easeeState) {
     return {
       chargeNow,
@@ -60,10 +60,12 @@ function buildEaseeChargingSync(easeeState, chargeNow, chargerKw) {
   const rawPowerW = Number(easeeState.measurePower);
   const powerW = Number.isFinite(rawPowerW) ? rawPowerW : 0;
   const chargingState = easeeState.chargingState || null;
-  const evchargerCharging = Boolean(easeeState.evchargerCharging)
-    || powerW > 100
-    || chargingState === 'plugged_in_charging';
-  const pendingStart = Boolean(chargeNow) && !evchargerCharging;
+  const evchargerCharging = powerW > 100
+    || (Boolean(easeeState.evchargerCharging) && powerW > 0)
+    || (chargingState === 'plugged_in_charging' && powerW > 100);
+  const pendingStart = !options.suppressPendingStart
+    && Boolean(chargeNow)
+    && !evchargerCharging;
   const isCharging = evchargerCharging || pendingStart;
   const resolvedPowerW = isCharging && powerW <= 0
     ? getMeasurePowerW(true, chargerKw)

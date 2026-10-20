@@ -15,7 +15,7 @@ const {
   syncChargingCapabilities,
   buildEaseeChargingSync
 } = require('../../lib/chargingCapabilities');
-const { buildEaseeConfig, EaseeChargerController } = require('../../lib/easeeCharger');
+const { buildEaseeConfig, EaseeChargerController, ACTIVE_POWER_THRESHOLD_W } = require('../../lib/easeeCharger');
 const { ensureDeviceFavorite } = require('../../lib/deviceFavorites');
 const {
   ensureUiCapabilities,
@@ -24,7 +24,6 @@ const {
 const { parseNightChargeEnd, partsToDecimalHour } = require('../../lib/planner/windowConfig');
 const { parseChargeHours, CHARGE_HOURS_MIN } = require('../../lib/chargeHours');
 const { isForceChargeActive } = require('../../lib/planner/windows');
-const { getMsUntilNextQuarterBoundary, QUARTER_MS } = require('../../lib/quarterScheduler');
 const { updateDeviceSpotPrice } = require('../../lib/spotPriceRefresh');
 const { orchestrateChargeTransition } = require('../../lib/chargeOrchestrator');
 const { EaseePowerFollowUp } = require('../../lib/easeePowerFollowUp');
@@ -32,6 +31,11 @@ const {
   getPlanChargeSkipKeysFromEvaluation,
   prunePlanChargeSkipKeys
 } = require('../../lib/planner/planChargeSkip');
+const { getSlotKey } = require('../../lib/price/slotBuilder');
+
+const EASEE_RECOVERY_MAX_ATTEMPTS = 3;
+const EASEE_RECOVERY_COOLDOWN_MS = 30 * 1000;
+const EASEE_RECOVERY_TIMER_MS = 12 * 1000;
 
 const PLAN_SETTING_KEYS = [
   'charge_hours',
@@ -89,6 +93,10 @@ class EvPlannerDevice extends Homey.Device {
     this._pendingEvaluate = null;
     this._lastEvaluateResult = null;
     this._userDismissedPlanCharge = false;
+    this._easeeRecoveryAttempts = 0;
+    this._easeeRecoveryCooldownUntil = 0;
+    this._easeeRecoverySlotKey = null;
+    this._easeeRecoveryTimer = null;
 
     this.registerCapabilityListener('force_charge', async (value) => {
       if (this._updatingChargingState) {
@@ -243,11 +251,13 @@ class EvPlannerDevice extends Homey.Device {
 
     await this.evaluateNow('device_init');
     this._bindEaseeDisplaySync();
-    this._bindQuarterScheduler();
   }
 
   async onDeleted() {
-    this._teardownQuarterScheduler();
+    if (this._easeeRecoveryTimer) {
+      this.homey.clearTimeout(this._easeeRecoveryTimer);
+      this._easeeRecoveryTimer = null;
+    }
     this._teardownEaseeDisplaySync();
     if (this.homey.app?.unregisterPlannerDevice) {
       this.homey.app.unregisterPlannerDevice(this);
@@ -671,19 +681,112 @@ class EvPlannerDevice extends Homey.Device {
       scheduleTimeout: (fn, ms) => this.homey.setTimeout(fn, ms),
       clearTimeout: (id) => this.homey.clearTimeout(id),
       pollFn: async () => this.syncEaseeDisplayFromCharger({ forceRefresh: true }),
+      onComplete: (powerW, session) => {
+        if (!session?.recoverDesiredCharge) {
+          return;
+        }
+        if (powerW > ACTIVE_POWER_THRESHOLD_W) {
+          return;
+        }
+        if (!this.getCapabilityValue('charge_now')) {
+          return;
+        }
+        this.log(`Easee recovery: charge_now=true men ${powerW}W — forsøger genstart`);
+        this._requestEaseeRecovery('easee_power_follow_up', { useTimer: false });
+      },
       log: (message) => this.log(message)
     });
 
     return this._easeePowerFollowUp;
   }
 
-  _startEaseePowerFollowUp(reason = 'easee_action') {
+  _startEaseePowerFollowUp(reason = 'easee_action', options = {}) {
     const easeeConfig = buildEaseeConfig(this._getAppSettings());
     if (!easeeConfig.syncPower || !easeeConfig.deviceId) {
       return;
     }
 
-    this._ensureEaseePowerFollowUp().start(reason);
+    this._ensureEaseePowerFollowUp().start(reason, {
+      recoverDesiredCharge: options.recoverDesiredCharge === true
+    });
+  }
+
+  _getEaseeRecoverySlotKey(result) {
+    const slot = result?.currentSlot || this._lastEvaluateResult?.currentSlot;
+    return slot ? getSlotKey(slot) : null;
+  }
+
+  _resetEaseeRecovery(slotKey = null) {
+    this._easeeRecoveryAttempts = 0;
+    this._easeeRecoveryCooldownUntil = 0;
+    if (slotKey) {
+      this._easeeRecoverySlotKey = slotKey;
+    }
+  }
+
+  _canAttemptEaseeRecovery(slotKey) {
+    const now = Date.now();
+    if (now < this._easeeRecoveryCooldownUntil) {
+      return false;
+    }
+
+    if (slotKey && this._easeeRecoverySlotKey && slotKey !== this._easeeRecoverySlotKey) {
+      this._easeeRecoveryAttempts = 0;
+      this._easeeRecoverySlotKey = slotKey;
+    }
+
+    return this._easeeRecoveryAttempts < EASEE_RECOVERY_MAX_ATTEMPTS;
+  }
+
+  _recordEaseeRecoveryAttempt(slotKey) {
+    if (slotKey) {
+      this._easeeRecoverySlotKey = slotKey;
+    }
+    this._easeeRecoveryAttempts += 1;
+    this._easeeRecoveryCooldownUntil = Date.now() + EASEE_RECOVERY_COOLDOWN_MS;
+  }
+
+  _requestEaseeRecovery(reason = 'easee_start', { useTimer = true } = {}) {
+    if (!this.getCapabilityValue('charge_now')) {
+      return false;
+    }
+
+    const slotKey = this._getEaseeRecoverySlotKey(this._lastEvaluateResult);
+    if (!this._canAttemptEaseeRecovery(slotKey)) {
+      this.log(
+        `Easee recovery sprunget over (${this._easeeRecoveryAttempts}/${EASEE_RECOVERY_MAX_ATTEMPTS} forsøg)`
+      );
+      return false;
+    }
+
+    if (useTimer) {
+      if (this._easeeRecoveryTimer) {
+        return false;
+      }
+
+      this._recordEaseeRecoveryAttempt(slotKey);
+      this._easeeRecoveryTimer = this.homey.setTimeout(() => {
+        this._easeeRecoveryTimer = null;
+        this.evaluateNow(`${reason}_recovery`, {}, { forceEaseeSync: true }).catch((error) => {
+          this.error(`Easee start recovery fejlede: ${error.message}`);
+        });
+      }, EASEE_RECOVERY_TIMER_MS);
+      return true;
+    }
+
+    if (this._easeeRecoveryTimer) {
+      return false;
+    }
+
+    this._recordEaseeRecoveryAttempt(slotKey);
+    this.evaluateNow(`${reason}_recovery`, {}, { forceEaseeSync: true }).catch((error) => {
+      this.error(`Easee recovery fejlede: ${error.message}`);
+    });
+    return true;
+  }
+
+  _scheduleEaseeStartRecovery(reason = 'easee_start') {
+    this._requestEaseeRecovery(reason, { useTimer: true });
   }
 
   _stopEaseePowerFollowUp() {
@@ -744,40 +847,6 @@ class EvPlannerDevice extends Homey.Device {
     if (this._easeeDeviceUpdateHandler && typeof this.homey.devices?.off === 'function') {
       this.homey.devices.off('device.update', this._easeeDeviceUpdateHandler);
       this._easeeDeviceUpdateHandler = null;
-    }
-  }
-
-  _bindQuarterScheduler() {
-    this._teardownQuarterScheduler();
-
-    const run = async () => {
-      await this.evaluateNow('quarter_scheduler');
-    };
-
-    const delay = getMsUntilNextQuarterBoundary();
-    this.log(`Quarter scheduler starter om ${Math.round(delay / 1000)}s`);
-
-    this._quarterBootTimer = this.homey.setTimeout(() => {
-      run().catch((error) => {
-        this.error(`Quarter scheduler fejlede: ${error.message}`);
-      });
-      this._quarterTimer = this.homey.setInterval(() => {
-        run().catch((error) => {
-          this.error(`Quarter scheduler fejlede: ${error.message}`);
-        });
-      }, QUARTER_MS);
-    }, delay);
-  }
-
-  _teardownQuarterScheduler() {
-    if (this._quarterBootTimer) {
-      this.homey.clearTimeout(this._quarterBootTimer);
-      this._quarterBootTimer = null;
-    }
-
-    if (this._quarterTimer) {
-      this.homey.clearInterval(this._quarterTimer);
-      this._quarterTimer = null;
     }
   }
 
@@ -1059,7 +1128,7 @@ class EvPlannerDevice extends Homey.Device {
         chargeNow: result.charge_now,
         previousChargeNow,
         log: this.log.bind(this),
-        forceEaseeSync: options.forceEaseeSync === true || Boolean(result.charge_now)
+        forceEaseeSync: options.forceEaseeSync === true
       });
 
       const easeeConfig = orchestration.easeeConfig;
@@ -1086,21 +1155,48 @@ class EvPlannerDevice extends Homey.Device {
         await syncChargingCapabilities(this, buildEaseeChargingSync(
           easeeState,
           result.charge_now,
-          appConfig.chargerKw
+          appConfig.chargerKw,
+          {
+            suppressPendingStart: easeeResult?.action === 'start_failed'
+              || easeeResult?.action === 'start_pending'
+          }
         ));
       } finally {
         this._updatingChargingState = false;
         this._updatingUiCapabilities = false;
       }
 
-      if (easeeConfig?.syncPower && (orchestration.changed || easeeResult?.action === 'start' || easeeResult?.action === 'stop')) {
+      if (easeeConfig?.syncPower && (
+        orchestration.changed
+        || easeeResult?.action === 'start'
+        || easeeResult?.action === 'stop'
+        || easeeResult?.action === 'start_failed'
+        || easeeResult?.action === 'start_pending'
+      )) {
         this.syncEaseeDisplayFromCharger({
           forceRefresh: true,
           chargeNow: result.charge_now
         }).catch((error) => {
           this.log(`Easee display efter orchestration fejlede: ${error.message}`);
         });
-        this._startEaseePowerFollowUp(reason);
+        this._startEaseePowerFollowUp(reason, {
+          recoverDesiredCharge: Boolean(result.charge_now)
+        });
+      }
+
+      if (orchestration.startVerified && result.charge_now) {
+        this._resetEaseeRecovery(this._getEaseeRecoverySlotKey(result));
+      }
+      if (!result.charge_now) {
+        this._resetEaseeRecovery();
+      }
+
+      if (result.charge_now && easeeResult?.action === 'start_failed') {
+        this.log(`[${reason}] charge_now=true, Easee start fejlede: ${easeeResult.error || 'ukendt'}`);
+        this._scheduleEaseeStartRecovery(reason);
+      } else if (result.charge_now && easeeResult?.action === 'start_pending') {
+        this.log(`[${reason}] charge_now=true, Easee start afventer effekt`);
+        this._scheduleEaseeStartRecovery(reason);
       }
 
       if (easeeResult?.action && easeeResult.action !== 'noop') {

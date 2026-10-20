@@ -13,7 +13,6 @@ const {
 } = require('./constants');
 const { formatDateInTimeZone, addDays } = require('./timezone');
 const { getClockPartsInTimeZone } = require('./quarterScheduler');
-const { fetchPrices } = require('./price/fetchPrices');
 const { findCurrentSlot, getSlotKey, SLOTS_PER_HOUR } = require('./price/slotBuilder');
 const { getChargePlanWindow, getSlotsForWindow, isNightChargeAllowed, isForceChargeActive } = require('./planner/windows');
 const { isSlotSkipped, normalizeSkipKeys } = require('./planner/planChargeSkip');
@@ -110,7 +109,7 @@ async function evaluateChargePlanForDevice(deviceConfig, appConfig, options = {}
   const tomorrow = addDays(today, 1);
   const clock = getClockPartsInTimeZone(now, timeZone);
 
-  const priceData = await fetchPrices({
+  const priceData = await require('./price/fetchPrices').fetchPrices({
     priceArea: appConfig.priceArea,
     stromligningApiKey: appConfig.stromligningApiKey,
     now,

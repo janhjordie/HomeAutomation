@@ -56,7 +56,7 @@ class EvChargePlannerApp extends Homey.App {
     this._startScheduler();
     this._scheduleDayEndWatchdog();
     this._scheduleBootRepair();
-    this._scheduleDeviceQuarterSchedulers();
+    this._refreshPlannerDevicesOnBoot();
     this._scheduleStartupTestPush();
 
     this.homey.on('unload', () => {
@@ -224,7 +224,7 @@ class EvChargePlannerApp extends Homey.App {
     this.log(`Scheduler started (every ${EVALUATION_INTERVAL_MS / 60000} minutes, aligned to :00/:15/:30/:45)`);
   }
 
-  _scheduleDeviceQuarterSchedulers() {
+  _refreshPlannerDevicesOnBoot() {
     this.homey.setTimeout(async () => {
       try {
         const devices = await this._getPlannerDevices();
@@ -232,16 +232,13 @@ class EvChargePlannerApp extends Homey.App {
           if (typeof device.refreshSpotPriceNow === 'function') {
             await device.refreshSpotPriceNow('app_boot').catch(() => {});
           }
-          if (typeof device._bindQuarterScheduler === 'function') {
-            device._bindQuarterScheduler();
-          }
         }
 
         if (devices.length > 0) {
-          this.log(`Quarter scheduler genstartet på ${devices.length} enhed(er)`);
+          this.log(`Spotpris opdateret på ${devices.length} enhed(er) ved boot (kvarters-evaluering kun via app-scheduler)`);
         }
       } catch (error) {
-        this.error(`Quarter scheduler setup failed: ${error.message}`);
+        this.error(`Boot refresh af planner-enheder fejlede: ${error.message}`);
       }
     }, 8000);
   }

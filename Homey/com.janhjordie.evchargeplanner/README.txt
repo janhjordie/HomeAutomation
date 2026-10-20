@@ -29,3 +29,12 @@ If the app does not appear under Tilføj enhed:
 - Restart the app (Apps → EV Charge Planner → Restart)
 - Reinstall: homey app install
 - Check Homey app log for "EV Planner driver initialized"
+
+Easee repeated-session verification (after deploy):
+1. Pair EV Ladeplan with easee_control_enabled and correct Easee device ID.
+2. Set day + night charge (e.g. 2 h each), leave cable connected all weekend.
+3. In Homey app log, confirm each planned slot: "Easee start OK" with power > 0 W.
+4. If a slot fails, look for "Easee start verify" or "charge_now=true, Easee start fejlede" and automatic recovery logs.
+5. Optional: ./test-easee-cycle.sh from repo root for manual force_charge start/stop.
+
+Offline tests: node scripts/smoke-test.js (set SKIP_LIVE_FETCH=1 to skip price API).

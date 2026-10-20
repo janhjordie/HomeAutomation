@@ -47,8 +47,9 @@ async function syncEaseeCharger(homey, appSettings, chargeNow, log = () => {}, o
       easeeConfig,
       Boolean(chargeNow),
       {
-        knownState,
-        forceRefresh: options.forceRefresh
+        knownState: options.forceRefresh ? undefined : knownState,
+        forceRefresh: options.forceRefresh === true,
+        aggressiveStart: options.aggressiveStart === true
       }
     );
     return { easeeConfig, easeeResult };
@@ -80,21 +81,26 @@ async function orchestrateChargeTransition({
   const previous = Boolean(previousChargeNow);
   const changed = nextChargeNow !== previous;
   const easeeConfig = buildEaseeConfig(appSettings);
+  const controller = new EaseeChargerController(homey, log);
 
   let knownState = easeeState;
-  if (easeeConfig.enabled && !knownState) {
-    const controller = new EaseeChargerController(homey, log);
+  if (easeeConfig.enabled && (forceEaseeSync || changed || nextChargeNow)) {
+    knownState = await controller.readFreshState(easeeConfig) || knownState;
+  } else if (easeeConfig.enabled && !knownState) {
     knownState = await controller.readState(easeeConfig);
   }
 
   const needsEaseeSync = easeeConfig.enabled
     && (forceEaseeSync || changed || easeeNeedsSync(nextChargeNow, knownState, easeeConfig.circuitCurrent));
 
+  const shouldForceRefresh = needsEaseeSync && (forceEaseeSync || changed || nextChargeNow);
+
   const { easeeResult } = needsEaseeSync
     ? await syncEaseeCharger(homey, appSettings, nextChargeNow, log, {
       knownState,
       forceSync: forceEaseeSync || changed,
-      forceRefresh: forceEaseeSync || changed
+      forceRefresh: shouldForceRefresh,
+      aggressiveStart: changed
     })
     : {
       easeeConfig,
@@ -107,6 +113,8 @@ async function orchestrateChargeTransition({
       }
     };
 
+  const startVerified = !nextChargeNow || easeeResult?.startVerified === true;
+
   return {
     changed,
     chargeNow: nextChargeNow,
@@ -114,7 +122,12 @@ async function orchestrateChargeTransition({
     easeeConfig,
     easeeResult,
     easeeState: easeeResult?.state || knownState,
-    shouldTriggerStarted: changed && nextChargeNow,
+    startVerified,
+    shouldTriggerStarted: changed
+      && nextChargeNow
+      && easeeResult?.action !== 'start_failed'
+      && easeeResult?.action !== 'start_pending'
+      && startVerified,
     shouldTriggerStopped: changed && !nextChargeNow
   };
 }
