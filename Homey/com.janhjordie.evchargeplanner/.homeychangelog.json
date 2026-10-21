@@ -1,4 +1,12 @@
 {
+  "1.0.73": {
+    "en": "Easee control uses evcharger_charging (Homey Easee has no onoff capability).",
+    "da": "Easee-styring bruger evcharger_charging (Homey Easee har ikke onoff-capability)."
+  },
+  "1.0.72": {
+    "en": "Resume charging when Easee is paused: aggressive start while charge_now is true but power is 0 W, and no fake 11 kW on the planner tile.",
+    "da": "Genoptag opladning når Easee er sat på pause: aggressiv start mens charge_now er true men effekt er 0 W, og ingen falske 11 kW på planner-flisen."
+  },
   "1.0.71": {
     "en": "Bugbot fixes: fresh Easee reads on sync, lighter reconcile starts, recovery backoff, and stricter charge_started Flow triggers.",
     "da": "Bugbot-rettelser: frisk Easee-status ved sync, lettere reconcile-start, recovery backoff og strammere charge_started Flow."

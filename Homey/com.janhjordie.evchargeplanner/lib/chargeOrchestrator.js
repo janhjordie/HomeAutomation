@@ -94,13 +94,16 @@ async function orchestrateChargeTransition({
     && (forceEaseeSync || changed || easeeNeedsSync(nextChargeNow, knownState, easeeConfig.circuitCurrent));
 
   const shouldForceRefresh = needsEaseeSync && (forceEaseeSync || changed || nextChargeNow);
+  const needsAggressiveStart = changed
+    || forceEaseeSync
+    || (nextChargeNow && shouldStartEasee(knownState, easeeConfig.circuitCurrent));
 
   const { easeeResult } = needsEaseeSync
     ? await syncEaseeCharger(homey, appSettings, nextChargeNow, log, {
       knownState,
-      forceSync: forceEaseeSync || changed,
+      forceSync: forceEaseeSync || changed || needsAggressiveStart,
       forceRefresh: shouldForceRefresh,
-      aggressiveStart: changed
+      aggressiveStart: needsAggressiveStart
     })
     : {
       easeeConfig,

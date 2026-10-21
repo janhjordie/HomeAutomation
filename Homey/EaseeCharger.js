@@ -45,8 +45,10 @@ async function startEaseeCharging(circuitCurrent = DEFAULT_CIRCUIT_CURRENT) {
   }
 
   await device.setCapabilityValue(CAP_TARGET_CIRCUIT_CURRENT, amps);
-  await device.setCapabilityValue(CAP_ONOFF, true);
   await device.setCapabilityValue(CAP_EVCHARGER_CHARGING, true);
+  if (device.capabilities?.includes?.(CAP_ONOFF)) {
+    await device.setCapabilityValue(CAP_ONOFF, true);
+  }
 
   const state = readEaseeState(device);
   log(`Easee start: ${amps}A | ${state.name} | ${state.measurePowerW}W`);
@@ -57,8 +59,10 @@ async function stopEaseeCharging() {
   const device = await getEaseeDevice();
 
   await device.setCapabilityValue(CAP_TARGET_CIRCUIT_CURRENT, 0);
-  await device.setCapabilityValue(CAP_ONOFF, false);
   await device.setCapabilityValue(CAP_EVCHARGER_CHARGING, false);
+  if (device.capabilities?.includes?.(CAP_ONOFF)) {
+    await device.setCapabilityValue(CAP_ONOFF, false);
+  }
 
   const state = readEaseeState(device);
   log(`Easee stop: ${state.name} | status=${state.chargerStatus}`);

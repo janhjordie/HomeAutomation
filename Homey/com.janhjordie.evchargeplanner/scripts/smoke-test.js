@@ -230,6 +230,15 @@ function testChargingCapabilities() {
     }, false, 11).powerW,
     10715
   );
+  assert.strictEqual(
+    buildEaseeChargingSync({
+      measurePower: 0,
+      evchargerCharging: false,
+      chargingState: 'plugged_in_paused',
+      chargerStatus: 'Paused'
+    }, true, 11).powerW,
+    0
+  );
 }
 
 function testPlanChargeSkip() {
@@ -709,6 +718,13 @@ async function testEaseeStopStartStartWithoutUnplug() {
         return {
           id: state.deviceId,
           name: state.name,
+          capabilities: [
+            'measure_power',
+            'onoff',
+            'evcharger_charging',
+            'evcharger_charging_state',
+            'target_circuit_current'
+          ],
           getCapabilityValue({ capabilityId }) {
             const map = {
               measure_power: state.measurePower,
@@ -724,13 +740,19 @@ async function testEaseeStopStartStartWithoutUnplug() {
             if (capabilityId === 'target_circuit_current') {
               state.targetCircuitCurrent = value;
             }
-            if (capabilityId === 'onoff') {
-              state.onoff = value;
-              if (value) {
+            if (capabilityId === 'evcharger_charging' || capabilityId === 'onoff') {
+              if (capabilityId === 'onoff') {
+                state.onoff = value;
+              }
+              if (capabilityId === 'evcharger_charging') {
+                state.evchargerCharging = value;
+              }
+              const active = capabilityId === 'evcharger_charging' ? value : state.evchargerCharging;
+              if (active) {
                 state.measurePower = 6500;
                 state.evchargerCharging = true;
                 state.chargingState = 'plugged_in_charging';
-              } else {
+              } else if (capabilityId === 'evcharger_charging' || capabilityId === 'onoff') {
                 state.measurePower = 0;
                 state.evchargerCharging = false;
                 state.chargingState = 'plugged_in';
@@ -756,7 +778,7 @@ async function testEaseeStopStartStartWithoutUnplug() {
 
   const stop = await controller.applyChargeNow(config, false, { knownState: state });
   assert.strictEqual(stop.action, 'stop');
-  assert.strictEqual(state.onoff, false);
+  assert.strictEqual(state.evchargerCharging, false);
   assert.strictEqual(state.targetCircuitCurrent, 0);
 
   state.evchargerCharging = true;
@@ -775,7 +797,78 @@ async function testEaseeStopStartStartWithoutUnplug() {
   });
   assert.strictEqual(start2.action, 'start');
   assert.ok(state.measurePower > 100);
-  assert.ok(writes.filter((entry) => entry.capabilityId === 'onoff' && entry.value === true).length >= 2);
+  assert.ok(writes.filter((entry) => entry.capabilityId === 'evcharger_charging' && entry.value === true).length >= 2);
+}
+
+async function testEaseeStartWithoutOnoffCapability() {
+  const { EaseeChargerController } = require('../lib/easeeCharger');
+
+  let state = {
+    deviceId: 'easee-no-onoff',
+    name: 'Easee Homey',
+    measurePower: 0,
+    evchargerCharging: false,
+    chargingState: 'plugged_in_paused',
+    chargerStatus: 'Paused',
+    targetCircuitCurrent: 16
+  };
+
+  const homey = {
+    devices: {
+      async getDevice() {
+        return {
+          id: state.deviceId,
+          name: state.name,
+          capabilities: [
+            'measure_power',
+            'evcharger_charging',
+            'evcharger_charging_state',
+            'target_circuit_current',
+            'charger_status'
+          ],
+          getCapabilityValue({ capabilityId }) {
+            const map = {
+              measure_power: state.measurePower,
+              evcharger_charging: state.evchargerCharging,
+              evcharger_charging_state: state.chargingState,
+              target_circuit_current: state.targetCircuitCurrent,
+              charger_status: state.chargerStatus
+            };
+            return map[capabilityId];
+          },
+          async setCapabilityValue({ capabilityId, value }) {
+            if (capabilityId === 'target_circuit_current') {
+              state.targetCircuitCurrent = value;
+            }
+            if (capabilityId === 'evcharger_charging') {
+              state.evchargerCharging = value;
+              if (value) {
+                state.measurePower = 7200;
+                state.chargingState = 'plugged_in_charging';
+                state.chargerStatus = 'Charging';
+              } else {
+                state.measurePower = 0;
+                state.chargingState = 'plugged_in_paused';
+                state.chargerStatus = 'Paused';
+              }
+            }
+          }
+        };
+      }
+    }
+  };
+
+  const config = { enabled: true, deviceId: 'easee-no-onoff', circuitCurrent: 16, syncPower: true };
+  const controller = new EaseeChargerController(homey, () => {});
+  const result = await controller.applyChargeNow(config, true, {
+    aggressiveStart: true,
+    verifyDelayMs: 0,
+    kickDelayMs: 0,
+    maxStartAttempts: 2
+  });
+
+  assert.strictEqual(result.action, 'start');
+  assert.ok(state.measurePower > 100);
 }
 
 async function testForceRefreshIgnoresStaleKnownState() {
@@ -925,8 +1018,13 @@ function testEaseeConfig() {
     evchargerCharging: true,
     measurePower: 7000
   }, 16), false);
-  assert.strictEqual(shouldStopEasee({ onoff: true, targetCircuitCurrent: 16 }), true);
-  assert.strictEqual(shouldStopEasee({ onoff: false, targetCircuitCurrent: 0 }), false);
+  assert.strictEqual(shouldStartEasee({
+    chargingState: 'plugged_in_paused',
+    chargerStatus: 'Paused',
+    measurePower: 0
+  }, 16), true);
+  assert.strictEqual(shouldStopEasee({ evchargerCharging: true, targetCircuitCurrent: 16 }), true);
+  assert.strictEqual(shouldStopEasee({ evchargerCharging: false, targetCircuitCurrent: 0 }), false);
 }
 
 function testChargeHoursAffectsPlanSlots() {
@@ -1087,6 +1185,7 @@ async function main() {
   await testForceRefreshIgnoresStaleKnownState();
   await testEaseeLightStartReturnsPendingWithoutPower();
   await testEaseeStopStartStartWithoutUnplug();
+  await testEaseeStartWithoutOnoffCapability();
   testForceChargeActive();
   testDayEndWatchdogWindow();
   testEaseeNeedsSync();

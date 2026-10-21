@@ -1,6 +1,7 @@
 'use strict';
 
 const { DEFAULT_CHARGER_KW } = require('./constants');
+const { isEaseePaused } = require('./easeeCharger');
 
 const SYSTEM_CHARGING_CAPABILITIES = [
   'measure_power',
@@ -65,7 +66,8 @@ function buildEaseeChargingSync(easeeState, chargeNow, chargerKw, options = {}) 
     || (chargingState === 'plugged_in_charging' && powerW > 100);
   const pendingStart = !options.suppressPendingStart
     && Boolean(chargeNow)
-    && !evchargerCharging;
+    && !evchargerCharging
+    && !isEaseePaused(easeeState);
   const isCharging = evchargerCharging || pendingStart;
   const resolvedPowerW = isCharging && powerW <= 0
     ? getMeasurePowerW(true, chargerKw)

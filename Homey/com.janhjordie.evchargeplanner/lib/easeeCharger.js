@@ -44,6 +44,18 @@ async function unwrapCapabilityValue(value) {
   return value;
 }
 
+function deviceCapabilityIds(device) {
+  if (Array.isArray(device?.capabilities)) {
+    return device.capabilities;
+  }
+
+  return Object.keys(device?.capabilitiesObj || {});
+}
+
+function deviceHasCapability(device, capabilityId) {
+  return deviceCapabilityIds(device).includes(capabilityId);
+}
+
 async function readCapabilityValue(device, capabilityId) {
   if (typeof device.getCapabilityValue === 'function') {
     try {
@@ -71,8 +83,12 @@ async function readEaseeStateFromDevice(device) {
   }
 
   const measurePower = Number(await readCapabilityValue(device, CAP_MEASURE_POWER)) || 0;
-  const onoff = Boolean(await readCapabilityValue(device, CAP_ONOFF));
+  const hasOnoff = deviceHasCapability(device, CAP_ONOFF);
   const evchargerCharging = Boolean(await readCapabilityValue(device, CAP_EVCHARGER_CHARGING));
+  const onoffRaw = hasOnoff ? await readCapabilityValue(device, CAP_ONOFF) : undefined;
+  const onoff = onoffRaw === null || onoffRaw === undefined
+    ? evchargerCharging
+    : Boolean(onoffRaw);
   const chargingState = await readCapabilityValue(device, CAP_CHARGING_STATE) || null;
   const targetCircuitCurrent = Number(await readCapabilityValue(device, CAP_TARGET_CIRCUIT_CURRENT)) || 0;
   const chargerStatus = await readCapabilityValue(device, CAP_CHARGER_STATUS) || null;
@@ -81,6 +97,7 @@ async function readEaseeStateFromDevice(device) {
     deviceId: device.id,
     name: device.name,
     measurePower,
+    hasOnoff,
     onoff,
     evchargerCharging,
     chargingState,
@@ -109,7 +126,18 @@ function isEaseeStartSatisfied(state, circuitCurrent) {
   }
 
   const target = Number(state.targetCircuitCurrent) || 0;
-  return Boolean(state.onoff) && target >= circuitCurrent;
+  const outputOn = state.evchargerCharging || (state.hasOnoff && state.onoff);
+  return outputOn && target >= circuitCurrent;
+}
+
+function isEaseePaused(state) {
+  if (!state) {
+    return false;
+  }
+
+  const status = String(state.chargerStatus || '').toLowerCase();
+  const chargingState = String(state.chargingState || '').toLowerCase();
+  return status === 'paused' || chargingState.includes('paused');
 }
 
 function shouldStartEasee(state, circuitCurrent) {
@@ -117,11 +145,17 @@ function shouldStartEasee(state, circuitCurrent) {
     return true;
   }
 
+  if (isEaseePaused(state)) {
+    return true;
+  }
+
   return !isEaseeStartSatisfied(state, circuitCurrent);
 }
 
 function shouldStopEasee(state) {
-  return Boolean(state?.onoff) || (state?.targetCircuitCurrent || 0) > 0;
+  return Boolean(state?.evchargerCharging)
+    || (state?.hasOnoff && state?.onoff)
+    || (state?.targetCircuitCurrent || 0) > 0;
 }
 
 function isRateLimitError(error) {
@@ -245,6 +279,21 @@ class EaseeChargerController {
     return state;
   }
 
+  async setEaseeChargingOutput(config, active, state = {}) {
+    const device = await this.getEaseeDevice(config.deviceId);
+    const hasOnoff = state.hasOnoff ?? deviceHasCapability(device, CAP_ONOFF);
+
+    await this.setEaseeCapability(config.deviceId, CAP_EVCHARGER_CHARGING, active);
+
+    if (hasOnoff) {
+      try {
+        await this.setEaseeCapability(config.deviceId, CAP_ONOFF, active);
+      } catch (error) {
+        this.log(`Easee onoff ${active ? 'start' : 'stop'} fejlede (ignoreres): ${error.message}`);
+      }
+    }
+  }
+
   async resolveEaseeState(config, options = {}) {
     if (options.forceRefresh) {
       return this.readFreshState(config);
@@ -284,8 +333,16 @@ class EaseeChargerController {
       }
 
       const target = Number(lastState.targetCircuitCurrent) || 0;
-      const needsKick = !isEaseeDeliveringPower(lastState)
-        && (target >= config.circuitCurrent || lastState.onoff || attempt > 1);
+      const paused = isEaseePaused(lastState);
+      const outputActive = lastState.evchargerCharging || (lastState.hasOnoff && lastState.onoff);
+      const needsKick = paused
+        || (!isEaseeDeliveringPower(lastState)
+          && (target >= config.circuitCurrent || outputActive || attempt > 1));
+
+      if (paused && outputActive) {
+        await this.setEaseeChargingOutput(config, false, lastState);
+        await delay(kickDelayMs);
+      }
 
       if (needsKick) {
         await this.setEaseeCapability(config.deviceId, CAP_TARGET_CIRCUIT_CURRENT, 0);
@@ -300,10 +357,10 @@ class EaseeChargerController {
       await delay(kickDelayMs);
 
       try {
-        await this.setEaseeCapability(config.deviceId, CAP_ONOFF, true);
+        await this.setEaseeChargingOutput(config, true, lastState);
       } catch (error) {
         lastError = error;
-        this.log(`Easee onoff start fejlede (forsøg ${attempt}/${maxAttempts}): ${error.message}`);
+        this.log(`Easee start output fejlede (forsøg ${attempt}/${maxAttempts}): ${error.message}`);
         if (attempt === maxAttempts) {
           throw error;
         }
@@ -330,7 +387,7 @@ class EaseeChargerController {
       lastError = new Error('easee_start_not_delivering_power');
       this.log(
         `Easee start verify: ingen effekt efter forsøg ${attempt}/${maxAttempts} `
-        + `(onoff=${lastState.onoff}, target=${lastState.targetCircuitCurrent}A, power=${lastState.measurePower}W)`
+        + `(charging=${lastState.evchargerCharging}, target=${lastState.targetCircuitCurrent}A, power=${lastState.measurePower}W)`
       );
 
       if (!aggressive) {
@@ -401,8 +458,8 @@ class EaseeChargerController {
     if (currentState.targetCircuitCurrent > 0) {
       await this.setEaseeCapability(config.deviceId, CAP_TARGET_CIRCUIT_CURRENT, 0);
     }
-    if (currentState.onoff) {
-      await this.setEaseeCapability(config.deviceId, CAP_ONOFF, false);
+    if (shouldStopEasee(currentState)) {
+      await this.setEaseeChargingOutput(config, false, currentState);
     }
     this.log(`Easee stop: ${currentState.name || config.deviceId}`);
 
@@ -428,6 +485,7 @@ module.exports = {
   isEaseeDeliveringPower,
   isEaseeActivelyCharging,
   isEaseeStartSatisfied,
+  isEaseePaused,
   shouldStartEasee,
   shouldStopEasee,
   isRateLimitError,
