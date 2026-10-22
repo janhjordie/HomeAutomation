@@ -786,11 +786,13 @@ async function testEaseeStopStartStartWithoutUnplug() {
   state.measurePower = 0;
   state.onoff = true;
   state.targetCircuitCurrent = 16;
+  const start2WriteIndex = writes.length;
 
   const start2 = await controller.applyChargeNow(config, true, {
     knownState: state,
     forceRefresh: true,
     aggressiveStart: true,
+    resetBeforeStart: true,
     verifyDelayMs: 0,
     kickDelayMs: 0,
     maxStartAttempts: 2
@@ -798,6 +800,13 @@ async function testEaseeStopStartStartWithoutUnplug() {
   assert.strictEqual(start2.action, 'start');
   assert.ok(state.measurePower > 100);
   assert.ok(writes.filter((entry) => entry.capabilityId === 'evcharger_charging' && entry.value === true).length >= 2);
+  assert.deepStrictEqual(
+    writes
+      .slice(start2WriteIndex)
+      .filter((entry) => entry.capabilityId === 'target_circuit_current')
+      .map((entry) => entry.value),
+    [0, 16]
+  );
 }
 
 async function testEaseeStartWithoutOnoffCapability() {

@@ -332,7 +332,7 @@ class EaseeChargerController {
         };
       }
 
-      const target = Number(lastState.targetCircuitCurrent) || 0;
+      let target = Number(lastState.targetCircuitCurrent) || 0;
       const outputActive = lastState.evchargerCharging || (lastState.hasOnoff && lastState.onoff);
       if (resetBeforeStart && attempt === 1 && (target > 0 || outputActive)) {
         if (outputActive) {
@@ -349,6 +349,7 @@ class EaseeChargerController {
           onoff: false,
           targetCircuitCurrent: 0
         };
+        target = 0;
       }
 
       if (target !== config.circuitCurrent) {

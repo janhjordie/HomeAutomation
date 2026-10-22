@@ -1,4 +1,8 @@
 {
+  "1.0.75": {
+    "en": "Fix recovery reset so Easee is set back to the configured current after the reset.",
+    "da": "Ret recovery-reset, så Easee sættes tilbage til den konfigurerede strøm efter reset."
+  },
   "1.0.74": {
     "en": "Allow Easee up to two minutes to report charging before recovery; do not reset the charger during its start handshake or show fake power while waiting.",
     "da": "Giv Easee op til to minutter til at rapportere opladning før recovery; nulstil ikke laderen under start-handshake, og vis ikke falsk effekt mens der ventes."
