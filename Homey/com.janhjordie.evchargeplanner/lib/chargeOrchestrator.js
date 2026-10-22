@@ -3,6 +3,7 @@
 const {
   buildEaseeConfig,
   EaseeChargerController,
+  isEaseeDeliveringPower,
   shouldStartEasee,
   shouldStopEasee
 } = require('./easeeCharger');
@@ -49,7 +50,8 @@ async function syncEaseeCharger(homey, appSettings, chargeNow, log = () => {}, o
       {
         knownState: options.forceRefresh ? undefined : knownState,
         forceRefresh: options.forceRefresh === true,
-        aggressiveStart: options.aggressiveStart === true
+        aggressiveStart: options.aggressiveStart === true,
+        resetBeforeStart: options.resetBeforeStart === true
       }
     );
     return { easeeConfig, easeeResult };
@@ -103,7 +105,10 @@ async function orchestrateChargeTransition({
       knownState,
       forceSync: forceEaseeSync || changed || needsAggressiveStart,
       forceRefresh: shouldForceRefresh,
-      aggressiveStart: needsAggressiveStart
+      aggressiveStart: needsAggressiveStart,
+      resetBeforeStart: forceEaseeSync
+        && nextChargeNow
+        && !isEaseeDeliveringPower(knownState)
     })
     : {
       easeeConfig,

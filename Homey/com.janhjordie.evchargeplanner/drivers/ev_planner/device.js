@@ -1195,8 +1195,10 @@ class EvPlannerDevice extends Homey.Device {
         this.log(`[${reason}] charge_now=true, Easee start fejlede: ${easeeResult.error || 'ukendt'}`);
         this._scheduleEaseeStartRecovery(reason);
       } else if (result.charge_now && easeeResult?.action === 'start_pending') {
-        this.log(`[${reason}] charge_now=true, Easee start afventer effekt`);
-        this._scheduleEaseeStartRecovery(reason);
+        this.log(
+          `[${reason}] charge_now=true, Easee start afventer effekt `
+          + `— ingen reset før grace-perioden er udløbet`
+        );
       }
 
       if (easeeResult?.action && easeeResult.action !== 'noop') {

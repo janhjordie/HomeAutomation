@@ -1,4 +1,8 @@
 {
+  "1.0.74": {
+    "en": "Allow Easee up to two minutes to report charging before recovery; do not reset the charger during its start handshake or show fake power while waiting.",
+    "da": "Giv Easee op til to minutter til at rapportere opladning før recovery; nulstil ikke laderen under start-handshake, og vis ikke falsk effekt mens der ventes."
+  },
   "1.0.73": {
     "en": "Easee control uses evcharger_charging (Homey Easee has no onoff capability).",
     "da": "Easee-styring bruger evcharger_charging (Homey Easee har ikke onoff-capability)."

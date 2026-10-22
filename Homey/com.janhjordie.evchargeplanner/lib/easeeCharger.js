@@ -18,6 +18,7 @@ const ACTIVE_POWER_THRESHOLD_W = 100;
 const START_VERIFY_DELAY_MS = 2000;
 const LIGHT_VERIFY_DELAY_MS = 500;
 const START_KICK_DELAY_MS = 400;
+const START_GRACE_MS = 120000;
 const MAX_START_ATTEMPTS = 2;
 const RATE_LIMIT_PATTERN = /429|rate limit|too many requests/i;
 
@@ -308,9 +309,8 @@ class EaseeChargerController {
 
   async _executeStartSequence(config, initialState, options = {}) {
     const aggressive = options.aggressiveStart === true;
-    const maxAttempts = aggressive
-      ? (options.maxStartAttempts ?? MAX_START_ATTEMPTS)
-      : 1;
+    const resetBeforeStart = options.resetBeforeStart === true;
+    const maxAttempts = options.maxStartAttempts ?? MAX_START_ATTEMPTS;
     const verifyDelayMs = aggressive
       ? (options.verifyDelayMs ?? START_VERIFY_DELAY_MS)
       : (options.lightVerifyDelayMs ?? LIGHT_VERIFY_DELAY_MS);
@@ -333,28 +333,32 @@ class EaseeChargerController {
       }
 
       const target = Number(lastState.targetCircuitCurrent) || 0;
-      const paused = isEaseePaused(lastState);
       const outputActive = lastState.evchargerCharging || (lastState.hasOnoff && lastState.onoff);
-      const needsKick = paused
-        || (!isEaseeDeliveringPower(lastState)
-          && (target >= config.circuitCurrent || outputActive || attempt > 1));
-
-      if (paused && outputActive) {
-        await this.setEaseeChargingOutput(config, false, lastState);
-        await delay(kickDelayMs);
+      if (resetBeforeStart && attempt === 1 && (target > 0 || outputActive)) {
+        if (outputActive) {
+          await this.setEaseeChargingOutput(config, false, lastState);
+          await delay(kickDelayMs);
+        }
+        if (target > 0) {
+          await this.setEaseeCapability(config.deviceId, CAP_TARGET_CIRCUIT_CURRENT, 0);
+          await delay(kickDelayMs);
+        }
+        lastState = {
+          ...lastState,
+          evchargerCharging: false,
+          onoff: false,
+          targetCircuitCurrent: 0
+        };
       }
 
-      if (needsKick) {
-        await this.setEaseeCapability(config.deviceId, CAP_TARGET_CIRCUIT_CURRENT, 0);
+      if (target !== config.circuitCurrent) {
+        await this.setEaseeCapability(
+          config.deviceId,
+          CAP_TARGET_CIRCUIT_CURRENT,
+          config.circuitCurrent
+        );
         await delay(kickDelayMs);
       }
-
-      await this.setEaseeCapability(
-        config.deviceId,
-        CAP_TARGET_CIRCUIT_CURRENT,
-        config.circuitCurrent
-      );
-      await delay(kickDelayMs);
 
       try {
         await this.setEaseeChargingOutput(config, true, lastState);
@@ -386,20 +390,20 @@ class EaseeChargerController {
 
       lastError = new Error('easee_start_not_delivering_power');
       this.log(
-        `Easee start verify: ingen effekt efter forsøg ${attempt}/${maxAttempts} `
+        `Easee start afventer effekt efter forsøg ${attempt}/${maxAttempts}; `
+        + `Easee får op til ${Math.round(START_GRACE_MS / 1000)}s til at svare `
         + `(charging=${lastState.evchargerCharging}, target=${lastState.targetCircuitCurrent}A, power=${lastState.measurePower}W)`
       );
 
-      if (!aggressive) {
-        return {
-          action: 'start_pending',
-          chargeNow: true,
-          state: lastState,
-          startVerified: false,
-          error: lastError.message,
-          attempts: attempt
-        };
-      }
+      return {
+        action: 'start_pending',
+        chargeNow: true,
+        state: lastState,
+        startVerified: false,
+        error: lastError.message,
+        attempts: attempt,
+        graceMs: START_GRACE_MS
+      };
     }
 
     return {
@@ -479,6 +483,7 @@ module.exports = {
   START_VERIFY_DELAY_MS,
   LIGHT_VERIFY_DELAY_MS,
   START_KICK_DELAY_MS,
+  START_GRACE_MS,
   MAX_START_ATTEMPTS,
   buildEaseeConfig,
   readEaseeStateFromDevice,

@@ -202,9 +202,9 @@ function testChargingCapabilities() {
     {
       chargeNow: true,
       chargerKw: 11,
-      powerW: 11000,
+      powerW: 0,
       chargingState: 'plugged_in',
-      evchargerCharging: true
+      evchargerCharging: false
     }
   );
   assert.deepStrictEqual(
@@ -1050,7 +1050,11 @@ function testChargeHoursAffectsPlanSlots() {
 }
 
 function testEaseePowerFollowUp() {
-  const { EaseePowerFollowUp, STABLE_STOP_MS } = require('../lib/easeePowerFollowUp');
+  const {
+    EaseePowerFollowUp,
+    START_GRACE_MS,
+    STABLE_STOP_MS
+  } = require('../lib/easeePowerFollowUp');
 
   const followUp = new EaseePowerFollowUp({
     scheduleTimeout: () => 1,
@@ -1072,6 +1076,24 @@ function testEaseePowerFollowUp() {
   followUp._session.pollCount = 3;
   followUp._handlePollResult(11000);
   assert.strictEqual(followUp._session, null);
+
+  const pendingFollowUp = new EaseePowerFollowUp({
+    scheduleTimeout: () => 1,
+    clearTimeout: () => {},
+    pollFn: async () => 0,
+    log: () => {}
+  });
+
+  pendingFollowUp.start('pending-start', { recoverDesiredCharge: true });
+  pendingFollowUp._session.lastChangeAt = Date.now() - STABLE_STOP_MS - 1;
+  pendingFollowUp._session.pollCount = 3;
+  pendingFollowUp._handlePollResult(0);
+  assert.ok(pendingFollowUp._session);
+  assert.ok(
+    pendingFollowUp._session.endAt
+      >= pendingFollowUp._session.startedAt + START_GRACE_MS
+  );
+  pendingFollowUp.stop();
 }
 
 function testPlanNotificationFormat() {

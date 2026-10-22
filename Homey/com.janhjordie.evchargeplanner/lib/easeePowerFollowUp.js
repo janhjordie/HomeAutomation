@@ -2,8 +2,10 @@
 
 const POLL_INTERVAL_MS = 5000;
 const MAX_SESSION_MS = 60000;
+const START_GRACE_MS = 120000;
 const TAIL_AFTER_CHANGE_MS = 10000;
 const STABLE_STOP_MS = 10000;
+const ACTIVE_POWER_THRESHOLD_W = 100;
 
 class EaseePowerFollowUp {
   constructor({ scheduleTimeout, clearTimeout, pollFn, onComplete = null, log = () => {} }) {
@@ -28,10 +30,13 @@ class EaseePowerFollowUp {
     this.stop();
 
     const startedAt = Date.now();
+    const maxSessionMs = options.maxSessionMs
+      ?? (options.recoverDesiredCharge ? START_GRACE_MS : MAX_SESSION_MS);
     this._session = {
       reason,
       startedAt,
-      endAt: startedAt + MAX_SESSION_MS,
+      endAt: startedAt + maxSessionMs,
+      maxSessionMs,
       lastPowerW: null,
       lastChangeAt: startedAt,
       pollCount: 0,
@@ -71,13 +76,18 @@ class EaseePowerFollowUp {
       session.lastChangeAt = now;
       session.endAt = Math.min(
         Math.max(session.endAt, now + TAIL_AFTER_CHANGE_MS),
-        session.startedAt + MAX_SESSION_MS + TAIL_AFTER_CHANGE_MS
+        session.startedAt + session.maxSessionMs + TAIL_AFTER_CHANGE_MS
       );
     }
 
     const stableFor = now - session.lastChangeAt;
     const timedOut = now >= session.endAt;
-    const stableEnough = stableFor >= STABLE_STOP_MS && session.pollCount > 1;
+    const waitingForStartGrace = session.recoverDesiredCharge
+      && powerW <= ACTIVE_POWER_THRESHOLD_W
+      && now < session.startedAt + START_GRACE_MS;
+    const stableEnough = stableFor >= STABLE_STOP_MS
+      && session.pollCount > 1
+      && !waitingForStartGrace;
 
     if (stableEnough || timedOut) {
       this._log(
@@ -119,6 +129,7 @@ class EaseePowerFollowUp {
 module.exports = {
   POLL_INTERVAL_MS,
   MAX_SESSION_MS,
+  START_GRACE_MS,
   TAIL_AFTER_CHANGE_MS,
   STABLE_STOP_MS,
   EaseePowerFollowUp
