@@ -17,6 +17,7 @@ const {
 } = require('../../lib/chargingCapabilities');
 const { buildEaseeConfig, EaseeChargerController, ACTIVE_POWER_THRESHOLD_W } = require('../../lib/easeeCharger');
 const { ensureDeviceFavorite } = require('../../lib/deviceFavorites');
+const { refreshDeviceDriverIcon } = require('../../lib/deviceIconRefresh');
 const {
   ensureUiCapabilities,
   syncUiCapabilitiesFromSettings
@@ -65,6 +66,7 @@ class EvPlannerDevice extends Homey.Device {
     if (this.homey.app?.registerPlannerDevice) {
       this.homey.app.registerPlannerDevice(this);
     }
+    await refreshDeviceDriverIcon(this, this.log.bind(this));
     await ensureDeviceFavorite(this.homey, this.getId(), this.log.bind(this), this);
     this._previousChargeNow = this.getCapabilityValue('charge_now');
 

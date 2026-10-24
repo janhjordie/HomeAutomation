@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <script type="text/javascript" src="/homey.js" data-origin="settings"></script>
+  <meta charset="utf-8">
+  <style>
+    #curve_table { width: 100%; border-collapse: collapse; margin-top: 0.5rem; }
+    #curve_table th, #curve_table td { padding: 0.35rem 0.5rem; text-align: left; }
+    #curve_table input { width: 5rem; }
+    #curve_preview { margin-top: 0.75rem; font-weight: 600; }
+    .curve-actions { margin-top: 0.5rem; }
+    .curve-chart-wrap {
+      margin: 1rem 0;
+      padding: 0.75rem;
+      border-radius: 8px;
+      background: rgba(0, 0, 0, 0.04);
+    }
+    .curve-chart-wrap svg {
+      display: block;
+      width: 100%;
+      max-width: 520px;
+      height: auto;
+    }
+    .curve-chart-axis { fill: #666; font-size: 11px; }
+    .curve-chart-grid { stroke: rgba(0, 0, 0, 0.08); stroke-width: 1; }
+    .curve-chart-line { fill: none; stroke: #0B4F6C; stroke-width: 2.5; stroke-linejoin: round; }
+    .curve-chart-point { fill: #0B4F6C; stroke: #fff; stroke-width: 1.5; }
+    .curve-chart-marker { stroke: #c45c26; stroke-width: 1.5; stroke-dasharray: 4 3; }
+    .curve-chart-marker-label { fill: #c45c26; font-size: 11px; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <header class="homey-header">
+    <h1 class="homey-title">Ecodan kurve</h1>
+    <p class="homey-subtitle">Vejrkompenseret fremløb via mecloud (Heatpump)</p>
+  </header>
+
+  <fieldset class="homey-form-fieldset">
+    <legend class="homey-form-legend">Varmepumpe (MELCloud)</legend>
+    <div class="homey-form-group">
+      <label class="homey-form-label" for="heatpump_device_name">Enhedsnavn</label>
+      <input class="homey-form-input" id="heatpump_device_name" type="text" value="Heatpump" />
+    </div>
+    <div class="homey-form-group">
+      <label class="homey-form-label" for="heatpump_device_id">Device ID (valgfrit)</label>
+      <input class="homey-form-input" id="heatpump_device_id" type="text" value="4d696a96-ea94-4d7d-b97f-027e86658a80" />
+    </div>
+  </fieldset>
+
+  <fieldset class="homey-form-fieldset">
+    <legend class="homey-form-legend">Varmekurve</legend>
+    <p class="homey-form-help">Punkter sorteres efter udetemp. Lineær interpolation. Standard: 20 °C → 25 °C, blød stigning mod 12 °C → 32 °C (reference), derefter koldere ude → højere fremløb.</p>
+    <div class="curve-chart-wrap" aria-hidden="false">
+      <svg id="curve_chart" viewBox="0 0 480 280" role="img" aria-label="Graf: fremløb som funktion af udetemperatur">
+        <text x="240" y="270" text-anchor="middle" class="curve-chart-axis">Udetemperatur (°C)</text>
+        <text x="14" y="140" text-anchor="middle" class="curve-chart-axis" transform="rotate(-90 14 140)">Fremløb (°C)</text>
+      </svg>
+    </div>
+    <table id="curve_table">
+      <thead>
+        <tr>
+          <th>Ude (°C)</th>
+          <th>Fremløb (°C)</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="curve_tbody"></tbody>
+    </table>
+    <div class="curve-actions">
+      <button type="button" class="homey-button" id="curve_add_row">Tilføj punkt</button>
+    </div>
+    <p id="curve_preview" class="homey-form-help"></p>
+  </fieldset>
+
+  <fieldset class="homey-form-fieldset">
+    <legend class="homey-form-legend">Filter &amp; styring</legend>
+    <div class="homey-form-group">
+      <label class="homey-form-label" for="outdoor_avg_window_min">Ude-gennemsnit (min)</label>
+      <input class="homey-form-input" id="outdoor_avg_window_min" type="number" min="5" max="120" step="5" value="15" />
+    </div>
+    <div class="homey-form-group">
+      <label class="homey-form-label" for="defrost_cooldown_min">Defrost cooldown (min)</label>
+      <input class="homey-form-input" id="defrost_cooldown_min" type="number" min="5" max="60" step="5" value="15" />
+    </div>
+    <div class="homey-form-group">
+      <label class="homey-form-label" for="flow_deadband_c">Deadband fremløb (°C)</label>
+      <input class="homey-form-input" id="flow_deadband_c" type="number" min="0" max="3" step="0.1" value="0.5" />
+    </div>
+    <div class="homey-form-group">
+      <label class="homey-form-label" for="curve_offset_c">Kurve-offset (°C)</label>
+      <input class="homey-form-input" id="curve_offset_c" type="number" min="-5" max="5" step="0.5" value="0" />
+    </div>
+  </fieldset>
+
+  <script type="text/javascript">
+    const DEFAULT_CURVE = [
+      { outdoor: 20, flow: 25 },
+      { outdoor: 15, flow: 29 },
+      { outdoor: 12, flow: 32 },
+      { outdoor: 0, flow: 42 },
+      { outdoor: -12, flow: 48 }
+    ];
+
+    function parseCurveJson(raw) {
+      if (!raw) {
+        return DEFAULT_CURVE.slice();
+      }
+      try {
+        const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+        const list = Array.isArray(parsed) ? parsed : (parsed.points || []);
+        const points = list
+          .map((p) => ({ outdoor: Number(p.outdoor), flow: Number(p.flow) }))
+          .filter((p) => Number.isFinite(p.outdoor) && Number.isFinite(p.flow))
+          .sort((a, b) => a.outdoor - b.outdoor);
+        return points.length ? points : DEFAULT_CURVE.slice();
+      } catch {
+        return DEFAULT_CURVE.slice();
+      }
+    }
+
+    function interpolateFlow(outdoorC, points, offset) {
+      if (!Number.isFinite(outdoorC) || !points.length) {
+        return null;
+      }
+      const first = points[0];
+      const last = points[points.length - 1];
+      let flow;
+      if (outdoorC <= first.outdoor) {
+        flow = first.flow;
+      } else if (outdoorC >= last.outdoor) {
+        flow = last.flow;
+      } else {
+        for (let i = 0; i < points.length - 1; i++) {
+          const left = points[i];
+          const right = points[i + 1];
+          if (outdoorC >= left.outdoor && outdoorC <= right.outdoor) {
+            const span = right.outdoor - left.outdoor;
+            const ratio = span === 0 ? 0 : (outdoorC - left.outdoor) / span;
+            flow = left.flow + ratio * (right.flow - left.flow);
+            break;
+          }
+        }
+      }
+      if (!Number.isFinite(flow)) {
+        return null;
+      }
+      flow += Number(offset) || 0;
+      return Math.round(flow * 10) / 10;
+    }
+
+    function readCurveFromTable() {
+      const rows = document.querySelectorAll('#curve_tbody tr');
+      const points = [];
+      rows.forEach((row) => {
+        const outdoor = Number(row.querySelector('.curve-outdoor').value);
+        const flow = Number(row.querySelector('.curve-flow').value);
+        if (Number.isFinite(outdoor) && Number.isFinite(flow)) {
+          points.push({ outdoor, flow });
+        }
+      });
+      return points.sort((a, b) => a.outdoor - b.outdoor);
+    }
+
+    function sampleCurve(points, offset, step) {
+      if (!points.length) {
+        return [];
+      }
+      const minOut = points[0].outdoor;
+      const maxOut = points[points.length - 1].outdoor;
+      const samples = [];
+      for (let outdoor = minOut; outdoor <= maxOut + step * 0.01; outdoor += step) {
+        const flow = interpolateFlow(outdoor, points, offset);
+        if (flow != null) {
+          samples.push({ outdoor, flow });
+        }
+      }
+      const lastFlow = interpolateFlow(maxOut, points, offset);
+      if (lastFlow != null && samples[samples.length - 1]?.outdoor !== maxOut) {
+        samples.push({ outdoor: maxOut, flow: lastFlow });
+      }
+      return samples;
+    }
+
+    function drawCurveChart() {
+      const svg = document.getElementById('curve_chart');
+      if (!svg) {
+        return;
+      }
+
+      const points = readCurveFromTable();
+      const offset = Number(document.getElementById('curve_offset_c').value) || 0;
+      const margin = { top: 16, right: 20, bottom: 44, left: 48 };
+      const width = 480;
+      const height = 280;
+      const plotW = width - margin.left - margin.right;
+      const plotH = height - margin.top - margin.bottom;
+
+      while (svg.firstChild) {
+        svg.removeChild(svg.firstChild);
+      }
+
+      if (!points.length) {
+        const empty = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        empty.setAttribute('x', String(width / 2));
+        empty.setAttribute('y', String(height / 2));
+        empty.setAttribute('text-anchor', 'middle');
+        empty.setAttribute('class', 'curve-chart-axis');
+        empty.textContent = 'Ingen kurvepunkter';
+        svg.appendChild(empty);
+        return;
+      }
+
+      const samples = sampleCurve(points, offset, 0.5);
+      const outdoorVals = samples.map((s) => s.outdoor);
+      const flowVals = samples.map((s) => s.flow);
+      let xMin = Math.min(...outdoorVals);
+      let xMax = Math.max(...outdoorVals);
+      let yMin = Math.min(...flowVals);
+      let yMax = Math.max(...flowVals);
+      const xPad = Math.max(1, (xMax - xMin) * 0.08);
+      const yPad = Math.max(2, (yMax - yMin) * 0.12);
+      xMin -= xPad;
+      xMax += xPad;
+      yMin -= yPad;
+      yMax += yPad;
+
+      const xScale = (outdoor) => margin.left + ((outdoor - xMin) / (xMax - xMin)) * plotW;
+      const yScale = (flow) => margin.top + plotH - ((flow - yMin) / (yMax - yMin)) * plotH;
+
+      const ns = 'http://www.w3.org/2000/svg';
+
+      function el(name, attrs) {
+        const node = document.createElementNS(ns, name);
+        Object.entries(attrs || {}).forEach(([k, v]) => node.setAttribute(k, v));
+        return node;
+      }
+
+      for (let i = 0; i <= 4; i++) {
+        const y = margin.top + (plotH * i) / 4;
+        svg.appendChild(el('line', {
+          class: 'curve-chart-grid',
+          x1: String(margin.left),
+          y1: String(y),
+          x2: String(margin.left + plotW),
+          y2: String(y)
+        }));
+      }
+      for (let i = 0; i <= 4; i++) {
+        const x = margin.left + (plotW * i) / 4;
+        svg.appendChild(el('line', {
+          class: 'curve-chart-grid',
+          x1: String(x),
+          y1: String(margin.top),
+          x2: String(x),
+          y2: String(margin.top + plotH)
+        }));
+      }
+
+      svg.appendChild(el('rect', {
+        x: String(margin.left),
+        y: String(margin.top),
+        width: String(plotW),
+        height: String(plotH),
+        fill: 'none',
+        stroke: 'rgba(0,0,0,0.15)',
+        'stroke-width': '1'
+      }));
+
+      const pathD = samples
+        .map((s, i) => `${i === 0 ? 'M' : 'L'} ${xScale(s.outdoor).toFixed(2)} ${yScale(s.flow).toFixed(2)}`)
+        .join(' ');
+      svg.appendChild(el('path', { class: 'curve-chart-line', d: pathD }));
+
+      points.forEach((p) => {
+        const flow = interpolateFlow(p.outdoor, points, offset);
+        if (flow == null) {
+          return;
+        }
+        svg.appendChild(el('circle', {
+          class: 'curve-chart-point',
+          cx: String(xScale(p.outdoor)),
+          cy: String(yScale(flow)),
+          r: '4.5'
+        }));
+      });
+
+      const markerOutdoor = 12;
+      if (markerOutdoor >= xMin && markerOutdoor <= xMax) {
+        const markerFlow = interpolateFlow(markerOutdoor, points, offset);
+        if (markerFlow != null) {
+          const mx = xScale(markerOutdoor);
+          const my = yScale(markerFlow);
+          svg.appendChild(el('line', {
+            class: 'curve-chart-marker',
+            x1: String(mx),
+            y1: String(margin.top),
+            x2: String(mx),
+            y2: String(margin.top + plotH)
+          }));
+          svg.appendChild(el('line', {
+            class: 'curve-chart-marker',
+            x1: String(margin.left),
+            y1: String(my),
+            x2: String(margin.left + plotW),
+            y2: String(my)
+          }));
+          svg.appendChild(el('circle', {
+            fill: '#c45c26',
+            stroke: '#fff',
+            'stroke-width': '1.5',
+            cx: String(mx),
+            cy: String(my),
+            r: '5'
+          }));
+          const label = el('text', {
+            class: 'curve-chart-marker-label',
+            x: String(Math.min(mx + 8, margin.left + plotW - 4)),
+            y: String(Math.max(my - 8, margin.top + 12))
+          });
+          label.textContent = `12 °C → ${markerFlow} °C`;
+          svg.appendChild(label);
+        }
+      }
+
+      const xAxisY = margin.top + plotH;
+      for (let i = 0; i <= 4; i++) {
+        const outdoor = xMin + ((xMax - xMin) * i) / 4;
+        const x = xScale(outdoor);
+        const tick = el('text', {
+          class: 'curve-chart-axis',
+          x: String(x),
+          y: String(xAxisY + 16),
+          'text-anchor': 'middle'
+        });
+        tick.textContent = outdoor.toFixed(0);
+        svg.appendChild(tick);
+      }
+
+      for (let i = 0; i <= 4; i++) {
+        const flow = yMin + ((yMax - yMin) * i) / 4;
+        const y = yScale(flow);
+        const tick = el('text', {
+          class: 'curve-chart-axis',
+          x: String(margin.left - 8),
+          y: String(y + 4),
+          'text-anchor': 'end'
+        });
+        tick.textContent = flow.toFixed(0);
+        svg.appendChild(tick);
+      }
+
+      const xTitle = el('text', {
+        class: 'curve-chart-axis',
+        x: String(margin.left + plotW / 2),
+        y: String(height - 6),
+        'text-anchor': 'middle'
+      });
+      xTitle.textContent = 'Udetemperatur (°C)';
+      svg.appendChild(xTitle);
+
+      const yTitle = el('text', {
+        class: 'curve-chart-axis',
+        x: '12',
+        y: String(margin.top + plotH / 2),
+        'text-anchor': 'middle',
+        transform: `rotate(-90 12 ${margin.top + plotH / 2})`
+      });
+      yTitle.textContent = 'Fremløb (°C)';
+      svg.appendChild(yTitle);
+    }
+
+    function updatePreview() {
+      const points = readCurveFromTable();
+      const offset = Number(document.getElementById('curve_offset_c').value) || 0;
+      const at12 = interpolateFlow(12, points, offset);
+      const el = document.getElementById('curve_preview');
+      el.textContent = at12 == null
+        ? 'Tilføj mindst ét kurvepunkt.'
+        : `Eksempel: ved 12 °C ude → ${at12} °C fremløb (inkl. offset).`;
+      drawCurveChart();
+    }
+
+    function saveCurve(Homey) {
+      const points = readCurveFromTable();
+      const json = JSON.stringify(points);
+      Homey.set('curve_points_json', json);
+      Homey.set('curve_points_custom', true);
+      updatePreview();
+    }
+
+    function renderCurveTable(points) {
+      const tbody = document.getElementById('curve_tbody');
+      tbody.innerHTML = '';
+      points.forEach((point) => addCurveRow(point.outdoor, point.flow));
+      if (!points.length) {
+        DEFAULT_CURVE.forEach((p) => addCurveRow(p.outdoor, p.flow));
+      }
+      updatePreview();
+    }
+
+    function addCurveRow(outdoor = 0, flow = 32) {
+      const tbody = document.getElementById('curve_tbody');
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><input class="curve-outdoor homey-form-input" type="number" step="0.5" value="${outdoor}" /></td>
+        <td><input class="curve-flow homey-form-input" type="number" step="0.1" value="${flow}" /></td>
+        <td><button type="button" class="homey-button" data-action="remove">Fjern</button></td>
+      `;
+      tbody.appendChild(tr);
+      tr.querySelectorAll('input').forEach((input) => {
+        input.addEventListener('change', () => {
+          updatePreview();
+          if (window.__ecodanHomey) {
+            saveCurve(window.__ecodanHomey);
+          }
+        });
+        input.addEventListener('input', () => updatePreview());
+      });
+      tr.querySelector('[data-action="remove"]').addEventListener('click', () => {
+        tr.remove();
+        if (window.__ecodanHomey) {
+          saveCurve(window.__ecodanHomey);
+        } else {
+          updatePreview();
+        }
+      });
+    }
+
+    function onHomeyReady(Homey) {
+      window.__ecodanHomey = Homey;
+
+      const ids = [
+        'heatpump_device_name',
+        'heatpump_device_id',
+        'outdoor_avg_window_min',
+        'defrost_cooldown_min',
+        'flow_deadband_c',
+        'curve_offset_c'
+      ];
+
+      ids.forEach((id) => {
+        Homey.get(id, (err, value) => {
+          if (!err && value !== undefined && value !== null) {
+            document.getElementById(id).value = value;
+            if (id === 'curve_offset_c') {
+              updatePreview();
+            }
+          }
+        });
+        document.getElementById(id).addEventListener('change', () => {
+          const el = document.getElementById(id);
+          let val = el.value;
+          if (el.type === 'number') {
+            val = Number(val);
+          }
+          Homey.set(id, val);
+          if (id === 'curve_offset_c') {
+            updatePreview();
+          }
+        });
+      });
+
+      Homey.get('curve_points_json', (err, value) => {
+        renderCurveTable(parseCurveJson(!err ? value : null));
+      });
+
+      document.getElementById('curve_add_row').addEventListener('click', () => {
+        addCurveRow(10, 35);
+        saveCurve(Homey);
+      });
+
+      Homey.ready();
+    }
+  </script>
+</body>
+</html>

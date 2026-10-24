@@ -1,0 +1,115 @@
+{
+  "name": {
+    "en": "Ecodan curve",
+    "da": "Ecodan kurve"
+  },
+  "class": "heater",
+  "capabilities": [
+    "target_temperature",
+    "measure_temperature",
+    "outdoor_temp_raw",
+    "outdoor_temp_filtered",
+    "flow_target_curve",
+    "heatpump_flow_setpoint",
+    "curve_target_info",
+    "curve_control_enabled",
+    "curve_control_message"
+  ],
+  "capabilitiesOptions": {
+    "curve_control_enabled": {
+      "title": {
+        "en": "Curve control",
+        "da": "Kurvestyring"
+      },
+      "uiQuickAction": true,
+      "uiState": false
+    },
+    "measure_temperature": {
+      "title": {
+        "en": "Offset",
+        "da": "Offset"
+      },
+      "decimals": 1
+    },
+    "flow_target_curve": {
+      "title": {
+        "en": "Curve target",
+        "da": "Kurve"
+      }
+    },
+    "heatpump_flow_setpoint": {
+      "title": {
+        "en": "Pump setpoint",
+        "da": "Pumpe mål"
+      }
+    },
+    "target_temperature": {
+      "title": {
+        "en": "Flow target",
+        "da": "Fremløb mål"
+      },
+      "min": 25,
+      "max": 55,
+      "step": 0.5,
+      "decimals": 1
+    },
+    "curve_control_message": {
+      "title": {
+        "en": "Status",
+        "da": "Status"
+      }
+    }
+  },
+  "images": {
+    "small": "/drivers/ecodan_curve/assets/images/small.png",
+    "large": "/drivers/ecodan_curve/assets/images/large.png",
+    "xlarge": "/drivers/ecodan_curve/assets/images/xlarge.png"
+  },
+  "pair": [
+    {
+      "id": "list_devices",
+      "template": "list_devices",
+      "navigation": {
+        "next": "add_devices"
+      }
+    },
+    {
+      "id": "add_devices",
+      "template": "add_devices"
+    }
+  ],
+  "settings": [
+    {
+      "id": "curve_offset_c",
+      "type": "number",
+      "label": {
+        "en": "Curve offset",
+        "da": "Kurve-offset"
+      },
+      "value": 0,
+      "min": -5,
+      "max": 5,
+      "step": 0.5,
+      "units": {
+        "en": "°C",
+        "da": "°C"
+      }
+    },
+    {
+      "id": "outdoor_avg_window_min",
+      "type": "number",
+      "label": {
+        "en": "Outdoor average window",
+        "da": "Ude-gennemsnit vindue"
+      },
+      "value": 15,
+      "min": 5,
+      "max": 120,
+      "step": 5,
+      "units": {
+        "en": "min",
+        "da": "min"
+      }
+    }
+  ]
+}

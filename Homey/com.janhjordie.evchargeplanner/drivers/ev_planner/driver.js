@@ -94,7 +94,7 @@ class EvPlannerDriver extends Homey.Driver {
   _listPairDevices() {
     return [{
       name: 'EV Ladeplan',
-      icon: '/drivers/ev_planner/assets/images/small.png',
+      icon: '/icon.svg',
       data: {
         id: `ev-planner-${Date.now()}`
       }

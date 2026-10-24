@@ -1,0 +1,290 @@
+{
+  "_comment": "This file is generated. Please edit .homeycompose/app.json instead.",
+  "id": "com.janhjordie.ecodancurve",
+  "version": "0.1.21",
+  "compatibility": ">=13.0.0",
+  "runtime": "nodejs",
+  "platforms": [
+    "local"
+  ],
+  "sdk": 3,
+  "brandColor": "#0B4F6C",
+  "name": {
+    "en": "Ecodan Curve",
+    "da": "Ecodan kurve"
+  },
+  "description": {
+    "en": "Weather-compensated flow temperature for Mitsubishi Ecodan via MELCloud (mecloud).",
+    "da": "Vejrkompenseret fremløbstemperatur til Mitsubishi Ecodan via MELCloud (mecloud)."
+  },
+  "category": "climate",
+  "tags": {
+    "en": [
+      "heat pump",
+      "ecodan",
+      "mitsubishi",
+      "weather compensation"
+    ],
+    "da": [
+      "varmepumpe",
+      "ecodan",
+      "mitsubishi",
+      "vejrkompensering"
+    ]
+  },
+  "permissions": [
+    "homey:manager:api"
+  ],
+  "api": {
+    "evaluateAll": {
+      "method": "POST",
+      "path": "/evaluate-all"
+    },
+    "probeHeatpump": {
+      "method": "GET",
+      "path": "/probe-heatpump"
+    }
+  },
+  "images": {
+    "small": "/assets/images/small.png",
+    "large": "/assets/images/large.png",
+    "xlarge": "/assets/images/xlarge.png"
+  },
+  "author": {
+    "name": "Jan Hjørdie"
+  },
+  "flow": {
+    "actions": [
+      {
+        "id": "recalculate_now",
+        "title": {
+          "en": "Recalculate curve now",
+          "da": "Genberegn kurve nu"
+        },
+        "titleFormatted": {
+          "en": "Recalculate Ecodan curve",
+          "da": "Genberegn Ecodan-kurve"
+        },
+        "args": [
+          {
+            "type": "device",
+            "name": "device",
+            "filter": "driver_id=ecodan_curve"
+          }
+        ]
+      }
+    ]
+  },
+  "drivers": [
+    {
+      "name": {
+        "en": "Ecodan curve",
+        "da": "Ecodan kurve"
+      },
+      "class": "heater",
+      "capabilities": [
+        "target_temperature",
+        "measure_temperature",
+        "outdoor_temp_raw",
+        "outdoor_temp_filtered",
+        "flow_target_curve",
+        "heatpump_flow_setpoint",
+        "curve_target_info",
+        "curve_control_enabled",
+        "curve_control_message"
+      ],
+      "capabilitiesOptions": {
+        "curve_control_enabled": {
+          "title": {
+            "en": "Curve control",
+            "da": "Kurvestyring"
+          },
+          "uiQuickAction": true,
+          "uiState": false
+        },
+        "measure_temperature": {
+          "title": {
+            "en": "Offset",
+            "da": "Offset"
+          },
+          "decimals": 1
+        },
+        "flow_target_curve": {
+          "title": {
+            "en": "Curve target",
+            "da": "Kurve"
+          }
+        },
+        "heatpump_flow_setpoint": {
+          "title": {
+            "en": "Pump setpoint",
+            "da": "Pumpe mål"
+          }
+        },
+        "target_temperature": {
+          "title": {
+            "en": "Flow target",
+            "da": "Fremløb mål"
+          },
+          "min": 25,
+          "max": 55,
+          "step": 0.5,
+          "decimals": 1
+        },
+        "curve_control_message": {
+          "title": {
+            "en": "Status",
+            "da": "Status"
+          }
+        }
+      },
+      "images": {
+        "small": "/drivers/ecodan_curve/assets/images/small.png",
+        "large": "/drivers/ecodan_curve/assets/images/large.png",
+        "xlarge": "/drivers/ecodan_curve/assets/images/xlarge.png"
+      },
+      "pair": [
+        {
+          "id": "list_devices",
+          "template": "list_devices",
+          "navigation": {
+            "next": "add_devices"
+          }
+        },
+        {
+          "id": "add_devices",
+          "template": "add_devices"
+        }
+      ],
+      "settings": [
+        {
+          "id": "curve_offset_c",
+          "type": "number",
+          "label": {
+            "en": "Curve offset",
+            "da": "Kurve-offset"
+          },
+          "value": 0,
+          "min": -5,
+          "max": 5,
+          "step": 0.5,
+          "units": {
+            "en": "°C",
+            "da": "°C"
+          }
+        },
+        {
+          "id": "outdoor_avg_window_min",
+          "type": "number",
+          "label": {
+            "en": "Outdoor average window",
+            "da": "Ude-gennemsnit vindue"
+          },
+          "value": 15,
+          "min": 5,
+          "max": 120,
+          "step": 5,
+          "units": {
+            "en": "min",
+            "da": "min"
+          }
+        }
+      ],
+      "id": "ecodan_curve"
+    }
+  ],
+  "capabilities": {
+    "curve_control_enabled": {
+      "type": "boolean",
+      "title": {
+        "en": "Curve control enabled",
+        "da": "Kurvestyring aktiv"
+      },
+      "getable": true,
+      "setable": true,
+      "uiComponent": "toggle",
+      "uiQuickAction": true,
+      "uiState": false
+    },
+    "curve_control_message": {
+      "type": "string",
+      "title": {
+        "en": "Curve status",
+        "da": "Kurvestatus"
+      },
+      "getable": true,
+      "setable": false,
+      "uiComponent": "sensor"
+    },
+    "curve_target_info": {
+      "type": "string",
+      "title": {
+        "en": "Target summary",
+        "da": "Mål (kurve + offset)"
+      },
+      "getable": true,
+      "setable": false,
+      "uiComponent": "sensor"
+    },
+    "flow_target_curve": {
+      "type": "number",
+      "title": {
+        "en": "Curve target",
+        "da": "Kurve"
+      },
+      "getable": true,
+      "setable": false,
+      "uiComponent": "sensor",
+      "units": {
+        "en": "°C",
+        "da": "°C"
+      },
+      "decimals": 1
+    },
+    "heatpump_flow_setpoint": {
+      "type": "number",
+      "title": {
+        "en": "Pump setpoint",
+        "da": "Pumpe mål"
+      },
+      "getable": true,
+      "setable": false,
+      "uiComponent": "sensor",
+      "units": {
+        "en": "°C",
+        "da": "°C"
+      },
+      "decimals": 1
+    },
+    "outdoor_temp_filtered": {
+      "type": "number",
+      "title": {
+        "en": "Outdoor temp (filtered)",
+        "da": "Udetemp (filtreret)"
+      },
+      "getable": true,
+      "setable": false,
+      "uiComponent": "sensor",
+      "units": {
+        "en": "°C",
+        "da": "°C"
+      },
+      "decimals": 1
+    },
+    "outdoor_temp_raw": {
+      "type": "number",
+      "title": {
+        "en": "Outdoor temp (raw)",
+        "da": "Udetemp (rå)"
+      },
+      "getable": true,
+      "setable": false,
+      "uiComponent": "sensor",
+      "units": {
+        "en": "°C",
+        "da": "°C"
+      },
+      "decimals": 1
+    }
+  }
+}

@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 960" fill="none">
+  <path
+    fill="#FFFFFF"
+    d="M180 640 H 780 V 600 L 700 520 H 560 L 500 460 H 380 L 320 520 H 220 L 180 560 V 640 Z"
+  />
+  <path
+    fill="#FFFFFF"
+    d="M244 640 A 56 56 0 1 0 356 640 A 56 56 0 1 0 244 640 Z M 604 640 A 56 56 0 1 0 716 640 A 56 56 0 1 0 604 640 Z"
+  />
+  <path
+    fill="#FFFFFF"
+    d="M560 280 L 600 360 H 540 L 580 440 Z"
+  />
+</svg>

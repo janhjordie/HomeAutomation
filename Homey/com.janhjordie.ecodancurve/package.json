@@ -1,0 +1,11 @@
+{
+  "name": "com.janhjordie.ecodancurve",
+  "version": "0.1.0",
+  "private": true,
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "smoke": "node scripts/smoke-test.js"
+  }
+}

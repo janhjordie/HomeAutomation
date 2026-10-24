@@ -1,0 +1,17 @@
+{
+  "triggers": [],
+  "conditions": [],
+  "actions": [
+    {
+      "id": "recalculate_now",
+      "title": {
+        "en": "Recalculate curve now",
+        "da": "Genberegn kurve nu"
+      },
+      "titleFormatted": {
+        "en": "Recalculate Ecodan curve",
+        "da": "Genberegn Ecodan-kurve"
+      }
+    }
+  ]
+}

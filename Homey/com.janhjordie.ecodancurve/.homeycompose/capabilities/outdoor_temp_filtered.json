@@ -1,0 +1,15 @@
+{
+  "type": "number",
+  "title": {
+    "en": "Outdoor temp (filtered)",
+    "da": "Udetemp (filtreret)"
+  },
+  "getable": true,
+  "setable": false,
+  "uiComponent": "sensor",
+  "units": {
+    "en": "°C",
+    "da": "°C"
+  },
+  "decimals": 1
+}

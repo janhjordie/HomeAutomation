@@ -1,0 +1,15 @@
+{
+  "type": "number",
+  "title": {
+    "en": "Pump setpoint",
+    "da": "Pumpe mål"
+  },
+  "getable": true,
+  "setable": false,
+  "uiComponent": "sensor",
+  "units": {
+    "en": "°C",
+    "da": "°C"
+  },
+  "decimals": 1
+}

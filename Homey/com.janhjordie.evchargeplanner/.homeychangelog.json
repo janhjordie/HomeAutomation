@@ -1,4 +1,16 @@
 {
+  "1.0.78": {
+    "en": "Driver icon: white filled shapes on transparent for favorites tiles.",
+    "da": "Driver-ikon: hvide fyldte former på transparent til favorit-kort."
+  },
+  "1.0.77": {
+    "en": "Driver icon as white line art (Homey favorites); refresh icon on existing EV Ladeplan device.",
+    "da": "Driver-ikon som hvide streger på transparent baggrund (favoritter); opdaterer ikon på eksisterende enhed."
+  },
+  "1.0.76": {
+    "en": "Regenerate driver/app icons (EV + charging bolt) for Homey favorites tiles.",
+    "da": "Nye driver-/app-ikoner (elbil + lyn) til favorit-kort på Homey."
+  },
   "1.0.75": {
     "en": "Fix recovery reset so Easee is set back to the configured current after the reset.",
     "da": "Ret recovery-reset, så Easee sættes tilbage til den konfigurerede strøm efter reset."

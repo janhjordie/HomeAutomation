@@ -1,6 +1,7 @@
 'use strict';
 
 const { ensureDeviceFavorite } = require('./deviceFavorites');
+const { DRIVER_ICON_PATH } = require('./deviceIconRefresh');
 
 const DEFAULT_DEVICE_NAME = 'EV Ladeplan';
 const DEFAULT_DEVICE_DATA_ID = 'ev-planner-primary';
@@ -70,7 +71,8 @@ async function createPlannerDeviceViaManagerApi(homey, options = {}) {
 
   const device = await homey.api.post(`/manager/drivers/pairsession/${session.id}/device`, {
     name,
-    data: { id: dataId }
+    data: { id: dataId },
+    icon: DRIVER_ICON_PATH
   });
 
   if (typeof homey.api?.delete === 'function') {
@@ -99,7 +101,8 @@ async function createPlannerDevice(homey, options = {}) {
       id: session.id,
       device: {
         name,
-        data: { id: dataId }
+        data: { id: dataId },
+        icon: DRIVER_ICON_PATH
       }
     });
   }

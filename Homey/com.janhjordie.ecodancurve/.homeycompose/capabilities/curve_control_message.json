@@ -1,0 +1,10 @@
+{
+  "type": "string",
+  "title": {
+    "en": "Curve status",
+    "da": "Kurvestatus"
+  },
+  "getable": true,
+  "setable": false,
+  "uiComponent": "sensor"
+}

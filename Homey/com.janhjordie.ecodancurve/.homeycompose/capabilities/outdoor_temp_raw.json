@@ -1,0 +1,15 @@
+{
+  "type": "number",
+  "title": {
+    "en": "Outdoor temp (raw)",
+    "da": "Udetemp (rå)"
+  },
+  "getable": true,
+  "setable": false,
+  "uiComponent": "sensor",
+  "units": {
+    "en": "°C",
+    "da": "°C"
+  },
+  "decimals": 1
+}

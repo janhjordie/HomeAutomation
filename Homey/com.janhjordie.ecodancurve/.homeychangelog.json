@@ -1,0 +1,82 @@
+{
+  "0.1.21": {
+    "en": "Fix toggle tab: restore uiQuickAction on curve_control_enabled (Homey device UI).",
+    "da": "Retter toggle-fanen: uiQuickAction på curve_control_enabled igen (Homey enheds-UI)."
+  },
+  "0.1.20": {
+    "en": "Rollback to stable capability IDs; remove broken measure_temperature sub-caps; custom caps without icon.svg.",
+    "da": "Tilbage til stabile capability-navne; fjerner measure_temperature sub-caps; egne caps uden icon.svg."
+  },
+  "0.1.19": {
+    "en": "Fix crash: use measure_* custom capabilities (not measure_temperature sub-caps on heater); safe timeline notifications.",
+    "da": "Retter nedbrud: measure_*-capabilities (ikke sub-caps på heater); sikre timeline-notifikationer."
+  },
+  "0.1.18": {
+    "en": "Device UI: Homey measure_temperature sub-capabilities (default icons); timeline tied to device; app icon fix.",
+    "da": "Enheds-UI: Homey measure_temperature-felter med standard-ikoner; timeline knyttet til enhed; app-ikon rettet."
+  },
+  "0.1.17": {
+    "en": "Timeline when flow target changes (max every 3 h) and on app start; includes filtered outdoor temp and offset.",
+    "da": "Timeline ved ændret fremløbsmål (max hver 3. time) og ved app-start; inkl. filtreret udetemp og offset."
+  },
+  "0.1.16": {
+    "en": "Driver icon: white filled shapes on transparent (Homey-style), not stroke-only.",
+    "da": "Driver-ikon: hvide fyldte former på transparent — som Easee, ikke kun streger."
+  },
+  "0.1.15": {
+    "en": "Driver icons as white line art on transparent (Homey favorites); refresh icon on existing devices.",
+    "da": "Driver-ikoner som hvide streger på transparent baggrund (favoritter); opdaterer ikon på eksisterende enheder."
+  },
+  "0.1.14": {
+    "en": "Proper driver/app icons (heat curve blue, EV green) instead of placeholder tiles.",
+    "da": "Rigtige app-/driver-ikoner (blå kurve, grøn elbil) i stedet for grå felter."
+  },
+  "0.1.13": {
+    "en": "Thermostat view: large target + offset under dial (measure_temperature slot).",
+    "da": "Hjul: stort mål-fremløb + offset under (Homey-termometerfelt)."
+  },
+  "0.1.12": {
+    "en": "UI shows target, curve and offset only; remove misleading measured flow; hint below physical min.",
+    "da": "Viser kun mål, kurve og offset; fjernet målt fremløb; note under fysisk minimum."
+  },
+  "0.1.11": {
+    "en": "Dial labels: curve breakdown string, offset & base sensors; dial adjusts offset; flow now on heater view.",
+    "da": "Tekst på mål: kurve+offset, offset/kurve-sensorer; hjul justerer offset; fremløb nu ved hjulet."
+  },
+  "0.1.10": {
+    "en": "Restore target_temperature dial as first tile; curve offset only in device/app settings (no slider).",
+    "da": "Termostat-hjul (mål-fremløb) først igen; kurve-offset kun i indstillinger."
+  },
+  "0.1.9": {
+    "en": "Restore on-device curve offset slider and target_temperature display for heater UI.",
+    "da": "Kurve-offset-slider og mål-fremløb tilbage på enheden (heater-UI)."
+  },
+  "0.1.8": {
+    "en": "Device tile: Fremløb nu, Fremløb mål, Pumpe mål; short status text; fix outdoor raw.",
+    "da": "Enhedskort: Fremløb nu, Fremløb mål, Pumpe mål; kort status; ret ude rå."
+  },
+  "0.1.7": {
+    "en": "Softer mild-to-12 °C transition (15 °C → 29 °C) to reduce curve kink; 12 °C → 32 °C unchanged.",
+    "da": "Blødere overgang mod 12 °C (15 °C → 29 °C), mindre knæk; 12 °C → 32 °C uændret."
+  },
+  "0.1.6": {
+    "en": "DK-style default curve: mild plateau to 20 °C, anchor 12 °C → 32 °C, design -12 °C.",
+    "da": "DK-standardkurve: lavt fremløb til 20 °C, reference 12 °C → 32 °C, design −12 °C."
+  },
+  "0.1.5": {
+    "en": "Replace jagged empirical default curve with smooth 3-point standard (-10/0/12 °C).",
+    "da": "Erstat ujævn måle-kurve med glat standardkurve med 3 punkter (-10/0/12 °C)."
+  },
+  "0.1.4": {
+    "en": "SVG heating curve chart in app settings (updates live with table and offset).",
+    "da": "SVG-varmekurve i app-indstillinger (opdateres live med tabel og offset)."
+  },
+  "0.1.3": {
+    "en": "12 °C outdoor → 32 °C flow default; curve editor in app settings; auto-create Ecodan kurve device on favorites.",
+    "da": "12 °C ude → 32 °C fremløb som standard; kurve-editor i app-indstillinger; auto-opretter Ecodan kurve på favoritter."
+  },
+  "0.1.0": {
+    "en": "Initial Ecodan weather curve: read Heatpump via mecloud, 15 min outdoor filter, flow_heat control.",
+    "da": "Første Ecodan vejrkurve: læs Heatpump via mecloud, 15 min ude-filter, styring af flow_heat."
+  }
+}
