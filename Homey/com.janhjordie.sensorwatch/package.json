@@ -1,0 +1,14 @@
+{
+  "name": "com.janhjordie.sensorwatch",
+  "version": "0.1.18",
+  "private": true,
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "homey-api": "^3.19.1"
+  },
+  "scripts": {
+    "smoke": "node scripts/smoke-test.js"
+  }
+}

@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <script type="text/javascript" src="/homey.js" data-origin="settings"></script>
+  <meta charset="utf-8">
+  <style>
+    #status_table { width: 100%; border-collapse: collapse; margin-top: 0.5rem; font-size: 0.9rem; }
+    #status_table th, #status_table td { padding: 0.35rem 0.5rem; text-align: left; vertical-align: top; }
+    #status_table tr.stale td { color: #c62828; font-weight: 600; }
+    #status_table tr.disabled td { opacity: 0.55; }
+    .status-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.75rem; }
+    .device-toggle { transform: scale(1.15); }
+  </style>
+</head>
+<body>
+  <header class="homey-header">
+    <h1 class="homey-title" data-i18n="settings.title"></h1>
+    <p class="homey-subtitle" data-i18n="settings.subtitle"></p>
+    <p class="homey-form-help" data-i18n="settings.where_app"></p>
+  </header>
+
+  <fieldset class="homey-form-fieldset">
+    <legend class="homey-form-legend" data-i18n="settings.monitor_section"></legend>
+
+    <div class="homey-form-group">
+      <label class="homey-form-label" for="watch_model_ids_json" data-i18n="settings.watch_model_ids"></label>
+      <input class="homey-form-input" id="watch_model_ids_json" type="text" value='["lumi.weather","lumi.sensor*","(empty)"]' />
+      <p class="homey-form-help" data-i18n="settings.watch_model_ids_help"></p>
+    </div>
+
+    <div class="homey-form-group">
+      <label class="homey-form-label" for="stale_after_hours" data-i18n="settings.stale_after_hours"></label>
+      <input class="homey-form-input" id="stale_after_hours" type="number" min="12" max="720" step="1" value="72" />
+      <p class="homey-form-help" data-i18n="settings.stale_after_hours_help"></p>
+    </div>
+
+    <div class="homey-form-group">
+      <label class="homey-form-label" for="check_interval_minutes" data-i18n="settings.check_interval_minutes"></label>
+      <input class="homey-form-input" id="check_interval_minutes" type="number" min="15" max="1440" step="15" value="60" />
+      <p class="homey-form-help" data-i18n="settings.check_interval_help"></p>
+    </div>
+  </fieldset>
+
+  <fieldset class="homey-form-fieldset">
+    <legend class="homey-form-legend" data-i18n="settings.push_section"></legend>
+
+    <div class="homey-form-group">
+      <label class="homey-form-label" for="notification_user" data-i18n="settings.notification_user"></label>
+      <input class="homey-form-input" id="notification_user" type="text" value="Jan Hjørdie" />
+      <p class="homey-form-help" data-i18n="settings.notification_user_help"></p>
+    </div>
+
+    <div class="homey-form-group">
+      <label class="homey-form-label" for="push_api_token" data-i18n="settings.push_api_token"></label>
+      <input class="homey-form-input" id="push_api_token" type="password" autocomplete="off" />
+      <p class="homey-form-help" data-i18n="settings.push_api_token_help"></p>
+    </div>
+  </fieldset>
+
+  <fieldset class="homey-form-fieldset">
+    <legend class="homey-form-legend" data-i18n="settings.status_section"></legend>
+    <p class="homey-form-help" data-i18n="settings.device_toggle_help"></p>
+    <div class="status-actions">
+      <button type="button" class="homey-button" id="refresh_status" data-i18n="settings.refresh_status"></button>
+      <button type="button" class="homey-button-primary" id="check_now" data-i18n="settings.check_now"></button>
+      <button type="button" class="homey-button" id="test_push" data-i18n="settings.test_push"></button>
+    </div>
+    <table id="status_table">
+      <thead>
+        <tr>
+          <th data-i18n="settings.col_enabled"></th>
+          <th data-i18n="settings.col_name"></th>
+          <th data-i18n="settings.col_activity"></th>
+          <th data-i18n="settings.col_model"></th>
+          <th data-i18n="settings.col_state"></th>
+        </tr>
+      </thead>
+      <tbody id="status_tbody"></tbody>
+    </table>
+  </fieldset>
+
+  <button id="save" class="homey-button-primary-full" data-i18n="settings.save"></button>
+
+  <script type="text/javascript">
+    function formatTs(ms) {
+      if (!ms) return '—';
+      try {
+        return new Date(ms).toLocaleString();
+      } catch (e) {
+        return String(ms);
+      }
+    }
+
+    function renderStatus(devices) {
+      const tbody = document.getElementById('status_tbody');
+      tbody.innerHTML = '';
+      (devices || []).forEach((row) => {
+        const tr = document.createElement('tr');
+        if (!row.enabled) tr.classList.add('disabled');
+        if (row.stale && row.enabled) tr.classList.add('stale');
+
+        let state = Homey.__('settings.state_ok');
+        if (!row.enabled) state = Homey.__('settings.state_disabled');
+        else if (row.stale) state = Homey.__('settings.state_stale');
+
+        const tdCheck = document.createElement('td');
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.className = 'device-toggle';
+        checkbox.checked = row.enabled !== false;
+        checkbox.setAttribute('data-id', row.id);
+        checkbox.addEventListener('change', () => {
+          Homey.api('POST', '/device-enabled', {
+            id: row.id,
+            enabled: checkbox.checked
+          }, (err) => {
+            if (err) {
+              checkbox.checked = !checkbox.checked;
+              return Homey.alert(err.message || String(err));
+            }
+            loadStatus();
+          });
+        });
+        tdCheck.appendChild(checkbox);
+
+        const tdName = document.createElement('td');
+        tdName.textContent = row.name;
+        const tdSeen = document.createElement('td');
+        tdSeen.textContent = formatTs(row.lastSeen);
+        const tdModel = document.createElement('td');
+        tdModel.textContent = row.modelId || '—';
+        const tdState = document.createElement('td');
+        tdState.textContent = state;
+
+        tr.appendChild(tdCheck);
+        tr.appendChild(tdName);
+        tr.appendChild(tdSeen);
+        tr.appendChild(tdModel);
+        tr.appendChild(tdState);
+        tbody.appendChild(tr);
+      });
+    }
+
+    function loadStatus() {
+      Homey.api('GET', '/status', {}, (err, result) => {
+        if (err) return Homey.alert(err.message || String(err));
+        renderStatus(result.devices);
+      });
+    }
+
+    function onHomeyReady(Homey) {
+      Homey.ready();
+
+      const numberFields = ['stale_after_hours', 'check_interval_minutes'];
+      const textFields = ['watch_model_ids_json', 'notification_user', 'push_api_token'];
+      const allFields = numberFields.concat(textFields);
+
+      allFields.forEach((field) => {
+        Homey.get(field, (err, value) => {
+          if (err) return Homey.alert(err);
+          if (value !== null && value !== undefined && value !== '') {
+            document.getElementById(field).value = value;
+          }
+        });
+      });
+
+      document.getElementById('save').addEventListener('click', () => {
+        let pending = allFields.length;
+        const done = (err) => {
+          if (err) return Homey.alert(err);
+          pending -= 1;
+          if (pending === 0) Homey.alert(Homey.__('settings.saved'));
+        };
+
+        numberFields.forEach((field) => {
+          Homey.set(field, Number(document.getElementById(field).value), done);
+        });
+        textFields.forEach((field) => {
+          Homey.set(field, document.getElementById(field).value, done);
+        });
+      });
+
+      document.getElementById('test_push').addEventListener('click', () => {
+        Homey.api('POST', '/test-push', {}, (err, result) => {
+          if (err) return Homey.alert(err.message || String(err));
+          Homey.alert(Homey.__('settings.test_push_done', { channel: result.channel || '?' }));
+        });
+      });
+
+      document.getElementById('refresh_status').addEventListener('click', loadStatus);
+      document.getElementById('check_now').addEventListener('click', () => {
+        Homey.api('POST', '/check-now', {}, (err, result) => {
+          if (err) return Homey.alert(err.message || String(err));
+          Homey.alert(Homey.__('settings.check_done', { count: result.alertsSent || 0 }));
+          loadStatus();
+        });
+      });
+
+      loadStatus();
+    }
+  </script>
+</body>
+</html>

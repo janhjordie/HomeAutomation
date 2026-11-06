@@ -32,4 +32,7 @@ render_set "$ROOT/Homey/com.janhjordie.evchargeplanner/assets/icon.svg" \
 render_set "$ROOT/Homey/com.janhjordie.evchargeplanner/drivers/ev_planner/assets/icon.svg" \
   "$ROOT/Homey/com.janhjordie.evchargeplanner/drivers/ev_planner/assets/images"
 
+render_set "$ROOT/Homey/com.janhjordie.sensorwatch/assets/icon.svg" \
+  "$ROOT/Homey/com.janhjordie.sensorwatch/assets/images"
+
 echo "Homey icon PNGs generated."

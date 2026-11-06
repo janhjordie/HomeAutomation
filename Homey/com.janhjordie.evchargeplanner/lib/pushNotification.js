@@ -1,5 +1,7 @@
 'use strict';
 
+const { runManagerFlowCardAction, managerApiRequest } = require('./homeyManagerApi');
+
 const PUSH_CARD_ID = 'homey:manager:mobile:push_text';
 
 /** Same URI pattern as Homey docs / forum (CLI-verified). */
@@ -54,10 +56,30 @@ function toPushUserArg(user) {
 async function fetchHomeyUsers(homey, log) {
   if (typeof homey.users?.getUsers === 'function') {
     try {
-      return await homey.users.getUsers();
+      const users = await homey.users.getUsers();
+      const list = usersToList(users);
+      if (list.length) return list;
     } catch (error) {
       log(`homey.users.getUsers fejlede: ${error.message}`);
     }
+  }
+
+  // Apps often lack ManagerUsers — same data via Manager API (homey:manager:api).
+  try {
+    if (typeof homey.api?.get === 'function') {
+      const viaApi = await homey.api.get('/manager/users/user');
+      const list = usersToList(viaApi);
+      if (list.length) return list;
+    }
+  } catch (error) {
+    log(`homey.api.get users fejlede: ${error.message}`);
+  }
+
+  try {
+    const viaManager = await managerApiRequest(homey, 'GET', '/manager/users/user');
+    return usersToList(viaManager);
+  } catch (error) {
+    log(`manager users fejlede: ${error.message}`);
   }
 
   return [];
@@ -103,7 +125,59 @@ async function runFlowCardPush(api, args, log, label) {
   return null;
 }
 
-/** Personal/local API token with Flow scope (Developer Tools) — same access as CLI. */
+function createAppFlowApi(homey) {
+  if (typeof homey.flow?.runFlowCardAction !== 'function') {
+    return null;
+  }
+  return {
+    flow: {
+      runFlowCardAction: (opts) => homey.flow.runFlowCardAction(opts)
+    }
+  };
+}
+
+async function runMobilePushViaAppFlow(homey, args, log) {
+  const api = createAppFlowApi(homey);
+  if (!api) {
+    return null;
+  }
+  return runFlowCardPush(api, args, log, 'app');
+}
+
+async function runMobilePushViaManagerApi(homey, args, log) {
+  for (const { uri, id } of MOBILE_PUSH_FLOW_ATTEMPTS) {
+    try {
+      await runManagerFlowCardAction(homey, uri, id, args);
+      return `mobile-manager:${id}`;
+    } catch (error) {
+      log(`manager push (${uri}) fejlede: ${error.message}`);
+    }
+  }
+  return null;
+}
+
+async function runMobilePushViaOwnerToken(homey, args, log) {
+  if (typeof homey.api?.getOwnerApiToken !== 'function'
+    || typeof homey.api?.getLocalUrl !== 'function') {
+    return null;
+  }
+
+  try {
+    const token = await homey.api.getOwnerApiToken();
+    const address = await homey.api.getLocalUrl();
+    if (!token || !address) {
+      return null;
+    }
+    const { HomeyAPI } = require('homey-api');
+    const api = await HomeyAPI.createLocalAPI({ address, token });
+    return runFlowCardPush(api, args, log, 'owner');
+  } catch (error) {
+    log(`Owner token push setup fejlede: ${error.message}`);
+    return null;
+  }
+}
+
+/** Personal/local API token from app settings (Developer Tools) — same path EV Charge Planner uses. */
 async function runPersonalTokenMobilePush(homey, args, log) {
   const token = String(homey.settings.get('push_api_token') || '').trim();
   if (!token || typeof homey.api?.getLocalUrl !== 'function') {
@@ -130,13 +204,18 @@ async function sendMobilePush(homey, message, log) {
     text: message
   };
 
+  // Prefer the same path EV Charge Planner uses successfully (personal API token).
   const fromPat = await runPersonalTokenMobilePush(homey, args, log);
   if (fromPat) return fromPat;
 
-  const hasPat = Boolean(String(homey.settings.get('push_api_token') || '').trim());
-  if (!hasPat) {
-    log('Mobil push: tilføj push_api_token i app-indstillinger (lokal API-nøgle med Flow-scope)');
-  }
+  const fromOwner = await runMobilePushViaOwnerToken(homey, args, log);
+  if (fromOwner) return fromOwner;
+
+  const fromManager = await runMobilePushViaManagerApi(homey, args, log);
+  if (fromManager) return fromManager;
+
+  const fromApp = await runMobilePushViaAppFlow(homey, args, log);
+  if (fromApp) return fromApp;
 
   return null;
 }
@@ -168,7 +247,8 @@ async function sendTimelineNotification(homey, message, log) {
 }
 
 /**
- * Phone push via personal API token when configured; optional timeline fallback.
+ * Homey mobile push (push_text) — same as EV Charge Planner.
+ * Timeline only if notification_timeline_fallback is true.
  * @returns {Promise<string>} channel id for logging
  */
 async function sendPushNotification(homey, message, log = () => {}) {
@@ -178,9 +258,9 @@ async function sendPushNotification(homey, message, log = () => {}) {
   const mobile = await sendMobilePush(homey, text, log);
   if (mobile) return mobile;
 
-  const timelineFallback = homey.settings.get('notification_timeline_fallback') !== false;
+  const timelineFallback = homey.settings.get('notification_timeline_fallback') === true;
   if (!timelineFallback) {
-    log('Mobil push mislykkedes — timeline-fallback er slået fra');
+    log('Homey mobil push mislykkedes (ingen timeline-fallback)');
     log(`NOTIFIKATION (kun log): ${text}`);
     return 'log';
   }
@@ -200,6 +280,8 @@ module.exports = {
   sendPushNotification,
   sendMobilePush,
   sendTimelineNotification,
+  fetchHomeyUsers,
+  resolveNotificationUser,
   PUSH_CARD_ID,
   MOBILE_PUSH_FLOW_ATTEMPTS
 };

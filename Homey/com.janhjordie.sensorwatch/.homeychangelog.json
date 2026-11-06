@@ -1,0 +1,78 @@
+{
+  "0.1.18": {
+    "en": "Use the same generic message for startup and daily mobile push.",
+    "da": "Bruger samme generiske besked til startup- og daglig mobil-push."
+  },
+  "0.1.17": {
+    "en": "Keep stale device details on the timeline; mobile push is now a single summary without a device list.",
+    "da": "Beholder stale-enhedsdetaljer på timeline; mobil push er nu én kort opsummering uden enhedsliste."
+  },
+  "0.1.16": {
+    "en": "Daily stale notifications are once per local calendar day instead of 24 hours since the previous notification.",
+    "da": "Daglige stale-notifikationer sendes én gang pr. lokal kalenderdag i stedet for 24 timer efter seneste besked."
+  },
+  "0.1.15": {
+    "en": "Send a Homey mobile push at every app start, alongside the startup timeline status.",
+    "da": "Sender Homey mobil-push ved hver app-start sammen med startup timeline-status."
+  },
+  "0.1.14": {
+    "en": "Always post a timeline status at app start; daily checks only post a timeline when stale devices exist.",
+    "da": "Laver altid et timeline-statusopslag ved app-start; daglige checks laver kun opslag når der findes stale-enheder."
+  },
+  "0.1.13": {
+    "en": "Only send automatic mobile push and timeline digests when enabled devices are stale; no startup or recovery notifications.",
+    "da": "Sender kun automatiske push- og timeline-beskeder når aktiverede enheder er stale; ingen opstarts- eller recovery-beskeder."
+  },
+  "0.1.12": {
+    "en": "Always post the stale-device timeline digest once on app start; scheduler checks remain deduplicated.",
+    "da": "Laver altid ét timeline-opslag ved app-start; scheduler-checks er stadig deduplikerede."
+  },
+  "0.1.11": {
+    "en": "Remove model IDs from the stale-device timeline digest.",
+    "da": "Fjerner Model ID fra timeline-listen over enheder uden nyere kontakt."
+  },
+  "0.1.10": {
+    "en": "Clarify stale notifications: old Zigbee contact is reported as no newer contact, not missing lastSeen.",
+    "da": "Præciserer stale-notifikationer: gammel Zigbee-kontakt beskrives som manglende nyere kontakt, ikke manglende lastSeen."
+  },
+  "0.1.9": {
+    "en": "Prevent duplicate startup timeline messages; scheduler no longer runs an immediate duplicate check.",
+    "da": "Forhindrer duplikerede timeline-beskeder ved opstart; scheduler laver ikke længere et dobbelt check med det samme."
+  },
+  "0.1.8": {
+    "en": "Timeline digest listing dead/stale sensors; also posted on app start.",
+    "da": "Timeline-besked med liste over enheder uden batteri; også ved app-start."
+  },
+  "0.1.7": {
+    "en": "Send Homey mobile test push once per version on app start.",
+    "da": "Sender Homey mobil test-push én gang pr. version ved app-start."
+  },
+  "0.1.6": {
+    "en": "Real Homey mobile push (same push_text + API token path as EV Charge Planner); import credentials from EV; no silent timeline fallback.",
+    "da": "Rigtig Homey mobil push (samme push_text + API-nøgle som EV Ladeplan); henter credentials fra EV; ingen stille timeline-fallback."
+  },
+  "0.1.5": {
+    "en": "Daily push while a device stays stale (72h+); per-device enable/disable toggles in settings.",
+    "da": "Daglig push mens en enhed stadig mangler (72t+); til/fra pr. enhed i indstillinger."
+  },
+  "0.1.4": {
+    "en": "Also watch Zigbee nodes with empty Model ID (older Aqara sensors).",
+    "da": "Overvåger også Zigbee-noder uden Model ID (ældre Aqara-sensorer)."
+  },
+  "0.1.3": {
+    "en": "Watch lumi.weather and lumi.sensor* (wildcard) Zigbee models, not only smoke detectors.",
+    "da": "Overvåger også lumi.weather og lumi.sensor* (wildcard), ikke kun røgalarmer."
+  },
+  "0.1.2": {
+    "en": "Use Homey Zigbee node list (Developer Tools) and lastSeen for lumi.sensor_smoke — no Aqara app coupling.",
+    "da": "Bruger Homeys Zigbee-node-liste (Developer Tools) og lastSeen for lumi.sensor_smoke — ingen Aqara-app-kobling."
+  },
+  "0.1.1": {
+    "en": "Homey mobile push without API key (Flow card from app); clearer app name; test push in settings.",
+    "da": "Homey mobil push uden API-nøgle (Flow-kort fra app); tydeligere app-navn; test push i indstillinger."
+  },
+  "0.1.0": {
+    "en": "Initial release: stale sensor activity alerts and trusted low-battery push (Aqara/Xiaomi).",
+    "da": "Første udgave: alarm ved manglende sensordata og lavt batteri (Aqara/Xiaomi)."
+  }
+}
