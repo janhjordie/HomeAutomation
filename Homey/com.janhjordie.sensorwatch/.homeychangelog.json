@@ -1,4 +1,12 @@
 {
+  "0.1.20": {
+    "en": "Schedule the daily stale check at exactly 08:00 Europe/Copenhagen.",
+    "da": "Planlægger det daglige stale-check præcist kl. 08:00 dansk tid."
+  },
+  "0.1.19": {
+    "en": "Send daily stale notifications from 08:00 Europe/Copenhagen instead of immediately after midnight.",
+    "da": "Sender daglige stale-notifikationer fra kl. 08:00 dansk tid i stedet for lige efter midnat."
+  },
   "0.1.18": {
     "en": "Use the same generic message for startup and daily mobile push.",
     "da": "Bruger samme generiske besked til startup- og daglig mobil-push."

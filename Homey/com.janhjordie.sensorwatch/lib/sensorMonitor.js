@@ -1,6 +1,6 @@
 'use strict';
 
-const { EMPTY_MODEL_TOKEN } = require('./constants');
+const { EMPTY_MODEL_TOKEN, DAILY_NOTIFICATION_HOUR } = require('./constants');
 const {
   getAppSettings,
   getAlertState,
@@ -102,12 +102,38 @@ function localCalendarDay(timestamp) {
   }).format(new Date(timestamp));
 }
 
-function shouldSendStalePush(prev, now = Date.now()) {
-  const lastPush = Number(prev?.lastStalePushAt) || 0;
-  if (!lastPush) {
+function localHour(timestamp) {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: HOMEY_TIME_ZONE,
+    hour: '2-digit',
+    hourCycle: 'h23'
+  }).formatToParts(new Date(timestamp));
+  return Number(parts.find((part) => part.type === 'hour')?.value) || 0;
+}
+
+function shouldSendDailyNotification(lastSentAt, now = Date.now()) {
+  const currentHour = localHour(now);
+  if (currentHour < DAILY_NOTIFICATION_HOUR) {
+    return false;
+  }
+
+  const previous = Number(lastSentAt) || 0;
+  if (!previous) {
     return true;
   }
-  return localCalendarDay(lastPush) !== localCalendarDay(now);
+
+  const currentDay = localCalendarDay(now);
+  const previousDay = localCalendarDay(previous);
+  if (currentDay !== previousDay) {
+    return true;
+  }
+
+  // A startup/timer run before 08:00 must not consume today's notification.
+  return localHour(previous) < DAILY_NOTIFICATION_HOUR;
+}
+
+function shouldSendStalePush(prev, now = Date.now()) {
+  return shouldSendDailyNotification(prev?.lastStalePushAt, now);
 }
 
 function buildDeadBatteryTimelineMessage(staleRows) {
@@ -214,7 +240,11 @@ async function runSensorCheck(homey, options = {}) {
         const ago = row.staleForMs != null
           ? formatHoursAgo(row.staleForMs)
           : 'ukendt tid';
-        mobilePushNeeded = true;
+        const startupPushCoversDailyPush = reason === 'app_boot'
+          && localHour(now) >= DAILY_NOTIFICATION_HOUR;
+        if (!startupPushCoversDailyPush) {
+          mobilePushNeeded = true;
+        }
         entry.lastStalePushAt = now;
         entry.staleAlerted = true;
         log(`[${reason}] STALE ${row.name} (${ago}) lastSeen=${row.lastSeen}`);
@@ -246,7 +276,7 @@ async function runSensorCheck(homey, options = {}) {
     forceTimeline
     || (
       staleEnabled.length > 0
-      && localCalendarDay(lastTimelineAt) !== localCalendarDay(now)
+      && shouldSendDailyNotification(lastTimelineAt, now)
     )
   );
 
@@ -293,6 +323,8 @@ module.exports = {
   isListedNode,
   isDeviceEnabled,
   shouldSendStalePush,
+  shouldSendDailyNotification,
+  localHour,
   localCalendarDay,
   buildStalePushMessage,
   buildDeadBatteryTimelineMessage,

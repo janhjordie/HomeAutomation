@@ -11,6 +11,68 @@ const { runSensorCheck, buildStatusRows, fetchZigbeeNodes } = require('./lib/sen
 const { getAppSettings, setDeviceEnabled } = require('./lib/appSettings');
 const { ensureHomeyPushCredentials } = require('./lib/pushCredentials');
 
+const HOMEY_TIME_ZONE = 'Europe/Copenhagen';
+const DAILY_CHECK_HOUR = 8;
+
+function getTimeZoneParts(timestamp) {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: HOMEY_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23'
+  }).formatToParts(new Date(timestamp));
+
+  return Object.fromEntries(
+    parts
+      .filter((part) => part.type !== 'literal')
+      .map((part) => [part.type, Number(part.value)])
+  );
+}
+
+function getTimeZoneOffsetMs(timestamp) {
+  const parts = getTimeZoneParts(timestamp);
+  const asUtc = Date.UTC(
+    parts.year,
+    parts.month - 1,
+    parts.day,
+    parts.hour,
+    parts.minute,
+    parts.second
+  );
+  return asUtc - timestamp;
+}
+
+function getNextDailyCheckDelay(now = Date.now()) {
+  const current = getTimeZoneParts(now);
+  let localTargetUtc = Date.UTC(
+    current.year,
+    current.month - 1,
+    current.day,
+    DAILY_CHECK_HOUR,
+    0,
+    0
+  );
+  let target = localTargetUtc - getTimeZoneOffsetMs(localTargetUtc);
+
+  if (target <= now) {
+    localTargetUtc = Date.UTC(
+      current.year,
+      current.month - 1,
+      current.day + 1,
+      DAILY_CHECK_HOUR,
+      0,
+      0
+    );
+    target = localTargetUtc - getTimeZoneOffsetMs(localTargetUtc);
+  }
+
+  return Math.max(1000, target - now);
+}
+
 class SensorWatchApp extends Homey.App {
   async onInit() {
     this.log('Sensor Watch initialized (Zigbee lastSeen)');
@@ -35,6 +97,9 @@ class SensorWatchApp extends Homey.App {
     this.homey.on('unload', () => {
       if (this._checkTimer) {
         this.homey.clearInterval(this._checkTimer);
+      }
+      if (this._dailyCheckTimer) {
+        this.homey.clearTimeout(this._dailyCheckTimer);
       }
     });
   }
@@ -125,7 +190,25 @@ class SensorWatchApp extends Homey.App {
     };
 
     this._checkTimer = this.homey.setInterval(tick, intervalMs);
+    this._scheduleDailyCheck();
     this.log(`Scheduler: check every ${intervalMs / 60000} minutes`);
+  }
+
+  _scheduleDailyCheck() {
+    if (this._dailyCheckTimer) {
+      this.homey.clearTimeout(this._dailyCheckTimer);
+    }
+
+    const delay = getNextDailyCheckDelay();
+    this._dailyCheckTimer = this.homey.setTimeout(() => {
+      this.runCheck('daily_scheduler').catch((error) => {
+        this.error(`Daily check fejlede: ${error.message}`);
+      }).finally(() => {
+        this._scheduleDailyCheck();
+      });
+    }, delay);
+
+    this.log(`Daily stale check scheduled in ${Math.round(delay / 60000)} minutes`);
   }
 
   async runCheck(reason = 'manual') {

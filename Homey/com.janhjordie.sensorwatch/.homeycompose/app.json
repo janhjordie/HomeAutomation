@@ -1,6 +1,6 @@
 {
   "id": "com.janhjordie.sensorwatch",
-  "version": "0.1.18",
+  "version": "0.1.20",
   "compatibility": ">=13.0.0",
   "runtime": "nodejs",
   "platforms": [

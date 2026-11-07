@@ -5,6 +5,8 @@ const {
   isListedNode,
   modelIdMatches,
   shouldSendStalePush,
+  shouldSendDailyNotification,
+  localHour,
   localCalendarDay,
   buildStalePushMessage,
   buildDeadBatteryTimelineMessage,
@@ -82,10 +84,17 @@ function testDailyStalePush() {
   const now = Date.parse('2026-11-06T11:00:00+01:00');
   assert.strictEqual(shouldSendStalePush({}, now), true);
   assert.strictEqual(
+    shouldSendDailyNotification(
+      Date.parse('2026-11-05T16:14:00+01:00'),
+      Date.parse('2026-11-06T07:59:00+01:00')
+    ),
+    false
+  );
+  assert.strictEqual(
     shouldSendStalePush({
       lastStalePushAt: Date.parse('2026-11-06T00:30:00+01:00')
     }, now),
-    false
+    true
   );
   assert.strictEqual(
     shouldSendStalePush({
@@ -97,6 +106,7 @@ function testDailyStalePush() {
     localCalendarDay(now),
     localCalendarDay(Date.parse('2026-11-06T00:30:00+01:00'))
   );
+  assert.strictEqual(localHour(now), 11);
   assert.notStrictEqual(
     localCalendarDay(now),
     localCalendarDay(Date.parse('2026-11-05T23:30:00+01:00'))
